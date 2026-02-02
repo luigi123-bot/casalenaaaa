@@ -51,12 +51,19 @@ export async function POST(req: NextRequest) {
         }
 
         const scriptPath = path.join(process.cwd(), 'utils', 'generar_ticket.py');
-        const venvPythonPath = path.join(process.cwd(), 'venv', 'bin', 'python');
+
+        // Try to locate the python executable in .venv first, then fallback to 'python3'
+        let pythonCommand = 'python3';
+        const venvPath = path.join(process.cwd(), '.venv', 'bin', 'python');
+
+        if (fs.existsSync(venvPath)) {
+            pythonCommand = venvPath;
+        }
 
         // Execute Python script
         // We use a base64 encoding for the JSON to avoid shell execution issues with special characters
         const base64Json = Buffer.from(jsonString).toString('base64');
-        const command = `${venvPythonPath} ${scriptPath} --json "$(echo ${base64Json} | base64 -d)" --output ${outputPath}`;
+        const command = `${pythonCommand} ${scriptPath} --json "$(echo ${base64Json} | base64 -d)" --output ${outputPath}`;
 
         const { stdout, stderr } = await execPromise(command);
 
