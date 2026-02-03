@@ -53,10 +53,17 @@ export async function POST(req: NextRequest) {
         const scriptPath = path.join(process.cwd(), 'utils', 'generar_ticket.py');
 
         // Use the virtual environment python if it exists, otherwise fall back to system python
-        // Note: Using concatenated string to avoid Turbopack asset tracing of symlinks in venv
-        const venvDir = 'ven' + 'v';
-        const venvPython = path.join(process.cwd(), venvDir, 'bin', 'python');
-        const pythonCommand = fs.existsSync(venvPython) ? venvPython : (process.env.PYTHON_PATH || 'python3');
+        // We use a completely dynamic approach to hide the path from Turbopack asset tracing
+        let pythonCommand = process.env.PYTHON_PATH || 'python3';
+
+        try {
+            const venvPath = path.join(process.cwd(), ['ven', 'v'].join(''), 'bin', 'python');
+            if (fs.existsSync(venvPath)) {
+                pythonCommand = venvPath;
+            }
+        } catch (e) {
+            // Fallback to python3 if check fails
+        }
 
         // Execute Python script
         // We use a base64 encoding for the JSON to avoid shell execution issues with special characters
