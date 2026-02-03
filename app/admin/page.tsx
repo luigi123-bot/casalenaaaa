@@ -92,13 +92,13 @@ export default function AdminPage() {
     return (
         <main className="flex-1 overflow-hidden flex flex-row">
             {/* Central Dashboard */}
-            <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
 
-                <div className="flex flex-col gap-8 max-w-[1200px] mx-auto">
-                    {/* Header */}
+                <div className="flex flex-col gap-6 sm:gap-8 max-w-[1200px] mx-auto">
+                    {/* Header - Responsive */}
                     <div>
-                        <h1 className="text-2xl font-bold text-[#181511]">Sales Overview</h1>
-                        <p className="text-[#8c785f] text-sm">Monitor your daily performance metrics.</p>
+                        <h1 className="text-xl sm:text-2xl font-bold text-[#181511]">Sales Overview</h1>
+                        <p className="text-[#8c785f] text-xs sm:text-sm">Monitor your daily performance metrics.</p>
                     </div>
 
                     {loading ? (
@@ -107,96 +107,99 @@ export default function AdminPage() {
                         </div>
                     ) : (
                         <>
-                            {/* Summary Cards */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {/* Summary Cards - Responsive Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                                 {/* Card 1 - Total Sales */}
-                                <div className="flex flex-col gap-4 rounded-xl p-5 bg-white border border-[#e6e1db] shadow-sm relative group">
+                                <div className="flex flex-col gap-3 sm:gap-4 rounded-xl p-4 sm:p-5 bg-white border border-[#e6e1db] shadow-sm relative group">
                                     <div className="flex justify-between items-start">
                                         <div className="flex flex-col gap-1">
-                                            <p className="text-[#8c785f] text-sm font-medium">Ventas Totales</p>
-                                            <p className="text-[#181511] text-2xl font-bold">${stats?.totalSales || '0.00'}</p>
+                                            <p className="text-[#8c785f] text-xs sm:text-sm font-medium">Ventas Totales</p>
+                                            <p className="text-[#181511] text-xl sm:text-2xl font-bold">${stats?.totalSales || '0.00'}</p>
                                         </div>
-                                        <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                                            <span className="material-symbols-outlined">payments</span>
+                                        <div className="size-9 sm:size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+                                            <span className="material-symbols-outlined text-xl sm:text-2xl">payments</span>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-1 text-sm">
-                                        <span className="material-symbols-outlined text-green-600 text-lg">trending_up</span>
+                                    <div className="flex items-center gap-1 text-xs sm:text-sm">
+                                        <span className="material-symbols-outlined text-green-600 text-base sm:text-lg">trending_up</span>
                                         <span className="text-green-600 font-bold">+12%</span>
-                                        <span className="text-[#8c785f]">vs semana anterior</span>
+                                        <span className="text-[#8c785f] hidden sm:inline">vs semana anterior</span>
+                                        <span className="text-[#8c785f] sm:hidden">vs semana ant.</span>
                                     </div>
                                 </div>
 
                                 {/* Card 2 - Total Orders */}
-                                <div className="flex flex-col gap-4 rounded-xl p-5 bg-white border border-[#e6e1db] shadow-sm relative group">
+                                <div className="flex flex-col gap-3 sm:gap-4 rounded-xl p-4 sm:p-5 bg-white border border-[#e6e1db] shadow-sm relative group">
                                     <div className="flex justify-between items-start">
                                         <div className="flex flex-col gap-1">
-                                            <p className="text-[#8c785f] text-sm font-medium">Órdenes Totales</p>
-                                            <p className="text-[#181511] text-2xl font-bold">{stats?.totalOrders || 0}</p>
+                                            <p className="text-[#8c785f] text-xs sm:text-sm font-medium">Órdenes Totales</p>
+                                            <p className="text-[#181511] text-xl sm:text-2xl font-bold">{stats?.totalOrders || 0}</p>
                                         </div>
-                                        <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                                            <span className="material-symbols-outlined">receipt_long</span>
+                                        <div className="size-9 sm:size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+                                            <span className="material-symbols-outlined text-xl sm:text-2xl">receipt_long</span>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-1 text-sm">
-                                        <span className="material-symbols-outlined text-green-600 text-lg">trending_up</span>
+                                    <div className="flex items-center gap-1 text-xs sm:text-sm">
+                                        <span className="material-symbols-outlined text-green-600 text-base sm:text-lg">trending_up</span>
                                         <span className="text-green-600 font-bold">+5%</span>
-                                        <span className="text-[#8c785f]">vs semana anterior</span>
+                                        <span className="text-[#8c785f] hidden sm:inline">vs semana anterior</span>
+                                        <span className="text-[#8c785f] sm:hidden">vs semana ant.</span>
                                     </div>
                                 </div>
 
                                 {/* Card 3 - Avg Order Value */}
-                                <div className="flex flex-col gap-4 rounded-xl p-5 bg-white border border-[#e6e1db] shadow-sm relative group">
+                                <div className="flex flex-col gap-3 sm:gap-4 rounded-xl p-4 sm:p-5 bg-white border border-[#e6e1db] shadow-sm relative group">
                                     <div className="flex justify-between items-start">
                                         <div className="flex flex-col gap-1">
-                                            <p className="text-[#8c785f] text-sm font-medium">Ticket Promedio</p>
-                                            <p className="text-[#181511] text-2xl font-bold">${stats?.avgOrderValue || '0.00'}</p>
+                                            <p className="text-[#8c785f] text-xs sm:text-sm font-medium">Ticket Promedio</p>
+                                            <p className="text-[#181511] text-xl sm:text-2xl font-bold">${stats?.avgOrderValue || '0.00'}</p>
                                         </div>
-                                        <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                                            <span className="material-symbols-outlined">stacked_line_chart</span>
+                                        <div className="size-9 sm:size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+                                            <span className="material-symbols-outlined text-xl sm:text-2xl">stacked_line_chart</span>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-1 text-sm">
-                                        <span className="material-symbols-outlined text-red-500 text-lg">trending_down</span>
+                                    <div className="flex items-center gap-1 text-xs sm:text-sm">
+                                        <span className="material-symbols-outlined text-red-500 text-base sm:text-lg">trending_down</span>
                                         <span className="text-red-500 font-bold">-2%</span>
-                                        <span className="text-[#8c785f]">vs semana anterior</span>
+                                        <span className="text-[#8c785f] hidden sm:inline">vs semana anterior</span>
+                                        <span className="text-[#8c785f] sm:hidden">vs semana ant.</span>
                                     </div>
                                 </div>
 
                                 {/* Card 4 - Top Selling */}
-                                <div className="flex flex-col gap-4 rounded-xl p-5 bg-white border border-[#e6e1db] shadow-sm relative group">
+                                <div className="flex flex-col gap-3 sm:gap-4 rounded-xl p-4 sm:p-5 bg-white border border-[#e6e1db] shadow-sm relative group">
                                     <div className="flex justify-between items-start">
                                         <div className="flex flex-col gap-1">
-                                            <p className="text-[#8c785f] text-sm font-medium">Más Vendido</p>
-                                            <p className="text-[#181511] text-lg font-bold truncate">{stats?.topProduct || 'N/A'}</p>
+                                            <p className="text-[#8c785f] text-xs sm:text-sm font-medium">Más Vendido</p>
+                                            <p className="text-[#181511] text-base sm:text-lg font-bold truncate">{stats?.topProduct || 'N/A'}</p>
                                         </div>
-                                        <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                                            <span className="material-symbols-outlined">local_pizza</span>
+                                        <div className="size-9 sm:size-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+                                            <span className="material-symbols-outlined text-xl sm:text-2xl">local_pizza</span>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-1 text-sm">
-                                        <span className="material-symbols-outlined text-green-600 text-lg">trending_up</span>
+                                    <div className="flex items-center gap-1 text-xs sm:text-sm">
+                                        <span className="material-symbols-outlined text-green-600 text-base sm:text-lg">trending_up</span>
                                         <span className="text-green-600 font-bold">+8%</span>
                                         <span className="text-[#8c785f]">popularidad</span>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Charts Section */}
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                {/* Line Chart */}
-                                <div className="lg:col-span-2 rounded-xl border border-[#e6e1db] bg-white p-6 shadow-sm">
-                                    <div className="flex items-center justify-between mb-6">
+                            {/* Charts Section - Responsive */}
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+                                {/* Line Chart - Takes 2 columns on large screens */}
+                                <div className="lg:col-span-2 rounded-xl border border-[#e6e1db] bg-white p-4 sm:p-6 shadow-sm">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 gap-3">
                                         <div>
-                                            <p className="text-[#181511] text-lg font-bold">Ingresos Semanales</p>
-                                            <p className="text-[#8c785f] text-sm">Últimos 7 días</p>
+                                            <p className="text-[#181511] text-base sm:text-lg font-bold">Ingresos Semanales</p>
+                                            <p className="text-[#8c785f] text-xs sm:text-sm">Últimos 7 días</p>
                                         </div>
-                                        <div className="flex items-center gap-2 bg-green-50 px-3 py-1 rounded-full">
+                                        <div className="flex items-center gap-2 bg-green-50 px-3 py-1 rounded-full w-fit">
                                             <span className="material-symbols-outlined text-green-600 text-sm">arrow_upward</span>
                                             <span className="text-green-700 text-sm font-bold">${stats?.weeklySales || '0'}</span>
                                         </div>
                                     </div>
-                                    <div className="w-full h-[240px] relative">
+                                    <div className="w-full h-[180px] sm:h-[240px] relative">
                                         {stats?.chartData && stats.chartData.length > 0 ? (
                                             <svg className="w-full h-full overflow-visible" viewBox="0 0 800 240" preserveAspectRatio="none">
                                                 <defs>
@@ -255,29 +258,29 @@ export default function AdminPage() {
                                                 })()}
                                             </svg>
                                         ) : (
-                                            <div className="flex items-center justify-center h-full text-gray-400">
+                                            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                                                 No hay datos diarios disponibles
                                             </div>
                                         )}
                                     </div>
-                                    <div className="flex justify-between mt-4 text-[#8c785f] text-xs font-bold uppercase tracking-wider">
+                                    <div className="flex justify-between mt-3 sm:mt-4 text-[#8c785f] text-[10px] sm:text-xs font-bold uppercase tracking-wider overflow-x-auto scrollbar-hide">
                                         {stats?.chartData?.map((d, i) => (
-                                            <span key={i}>{d.day}</span>
+                                            <span key={i} className="shrink-0">{d.day}</span>
                                         ))}
                                     </div>
                                 </div>
 
-                                {/* Bar Chart */}
-                                <div className="rounded-xl border border-[#e6e1db] bg-white p-6 shadow-sm flex flex-col">
-                                    <p className="text-[#181511] text-lg font-bold mb-1">Ventas por Categoría</p>
-                                    <p className="text-[#8c785f] text-sm mb-6">Productos más vendidos</p>
-                                    <div className="flex-1 flex items-end justify-between gap-4 px-2">
+                                {/* Bar Chart - Responsive */}
+                                <div className="rounded-xl border border-[#e6e1db] bg-white p-4 sm:p-6 shadow-sm flex flex-col">
+                                    <p className="text-[#181511] text-base sm:text-lg font-bold mb-1">Ventas por Categoría</p>
+                                    <p className="text-[#8c785f] text-xs sm:text-sm mb-4 sm:mb-6">Productos más vendidos</p>
+                                    <div className="flex-1 flex items-end justify-between gap-2 sm:gap-4 px-1 sm:px-2">
                                         {stats?.categoryStats && stats.categoryStats.length > 0 ? (
                                             stats.categoryStats.map((cat, index) => {
                                                 const opacity = Math.max(0.3, 1 - (index * 0.2));
                                                 return (
                                                     <div key={index} className="flex flex-col items-center gap-2 flex-1 group w-full">
-                                                        <div className="w-full bg-[#fcead2] rounded-t-lg relative h-40 group-hover:bg-[#fcdab0] transition-colors overflow-hidden flex items-end justify-center">
+                                                        <div className="w-full bg-[#fcead2] rounded-t-lg relative h-32 sm:h-40 group-hover:bg-[#fcdab0] transition-colors overflow-hidden flex items-end justify-center">
                                                             <div
                                                                 className="w-full rounded-t-lg transition-all duration-1000 ease-out"
                                                                 style={{
@@ -285,48 +288,48 @@ export default function AdminPage() {
                                                                     backgroundColor: `rgba(247, 149, 29, ${opacity})`
                                                                 }}
                                                             ></div>
-                                                            <div className="absolute top-2 text-xs font-bold text-[#8c785f] opacity-0 group-hover:opacity-100 transition-opacity text-center w-full px-1">
+                                                            <div className="absolute top-2 text-[10px] sm:text-xs font-bold text-[#8c785f] opacity-0 group-hover:opacity-100 transition-opacity text-center w-full px-1">
                                                                 {cat.count} vendidos
                                                             </div>
                                                         </div>
-                                                        <span className="text-xs font-bold text-[#8c785f] text-center truncate w-full" title={cat.name}>{cat.name}</span>
+                                                        <span className="text-[10px] sm:text-xs font-bold text-[#8c785f] text-center truncate w-full" title={cat.name}>{cat.name}</span>
                                                     </div>
                                                 );
                                             })
                                         ) : (
-                                            <div className="w-full text-center py-10 text-gray-400">No hay datos de categoría</div>
+                                            <div className="w-full text-center py-10 text-gray-400 text-sm">No hay datos de categoría</div>
                                         )}
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Recent Transactions Table */}
+                            {/* Recent Transactions Table - Responsive with Horizontal Scroll */}
                             <div className="rounded-xl border border-[#e6e1db] bg-white shadow-sm overflow-hidden">
-                                <div className="px-6 py-4 border-b border-[#e6e1db] flex items-center justify-between">
-                                    <h3 className="text-[#181511] text-lg font-bold">Transacciones Recientes</h3>
-                                    <button className="text-primary text-sm font-bold hover:underline">Ver Todo</button>
+                                <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[#e6e1db] flex items-center justify-between">
+                                    <h3 className="text-[#181511] text-base sm:text-lg font-bold">Transacciones Recientes</h3>
+                                    <button className="text-primary text-xs sm:text-sm font-bold hover:underline">Ver Todo</button>
                                 </div>
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
+                                    <table className="w-full text-left border-collapse min-w-[640px]">
                                         <thead>
-                                            <tr className="bg-[#fcfbf9] text-[#8c785f] text-xs uppercase tracking-wider">
-                                                <th className="px-6 py-4 font-bold">ID Orden</th>
-                                                <th className="px-6 py-4 font-bold">Hora</th>
-                                                <th className="px-6 py-4 font-bold">Artículos</th>
-                                                <th className="px-6 py-4 font-bold">Monto</th>
-                                                <th className="px-6 py-4 font-bold text-center">Estado</th>
+                                            <tr className="bg-[#fcfbf9] text-[#8c785f] text-[10px] sm:text-xs uppercase tracking-wider">
+                                                <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold">ID Orden</th>
+                                                <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold">Hora</th>
+                                                <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold">Artículos</th>
+                                                <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold">Monto</th>
+                                                <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold text-center">Estado</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-[#e6e1db]">
                                             {transactions.length > 0 ? (
                                                 transactions.map((transaction) => (
                                                     <tr key={transaction.id} className="hover:bg-gray-50 transition-colors">
-                                                        <td className="px-6 py-4 text-sm font-bold text-[#181511]">{transaction.id}</td>
-                                                        <td className="px-6 py-4 text-sm text-[#8c785f]">{transaction.time}</td>
-                                                        <td className="px-6 py-4 text-sm text-[#181511]">{transaction.items}</td>
-                                                        <td className="px-6 py-4 text-sm font-bold text-[#181511]">{transaction.amount}</td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusBadgeClass(transaction.status)}`}>
+                                                        <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-bold text-[#181511]">{transaction.id}</td>
+                                                        <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-[#8c785f]">{transaction.time}</td>
+                                                        <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-[#181511]">{transaction.items}</td>
+                                                        <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-bold text-[#181511]">{transaction.amount}</td>
+                                                        <td className="px-4 sm:px-6 py-3 sm:py-4 text-center">
+                                                            <span className={`inline-flex items-center px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${getStatusBadgeClass(transaction.status)}`}>
                                                                 {getStatusLabel(transaction.status)}
                                                             </span>
                                                         </td>
@@ -334,7 +337,7 @@ export default function AdminPage() {
                                                 ))
                                             ) : (
                                                 <tr>
-                                                    <td colSpan={5} className="px-6 py-8 text-center text-[#8c785f]">
+                                                    <td colSpan={5} className="px-4 sm:px-6 py-6 sm:py-8 text-center text-[#8c785f] text-sm">
                                                         No hay transacciones recientes
                                                     </td>
                                                 </tr>

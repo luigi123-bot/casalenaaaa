@@ -60,32 +60,36 @@ export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
     // Public routes (no auth required)
-    const publicRoutes = ['/login', '/register'];
+    const publicRoutes = ['/login', '/register', '/tienda'];
 
     // Logic for public routes
-    if (publicRoutes.includes(pathname)) {
+    if (publicRoutes.includes(pathname) || pathname.startsWith('/tienda')) {
         if (user) {
-            // Fetch role to redirect
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('role')
-                .eq('id', user.id)
-                .single();
-
-            // If profile not found, try 'usuarios' table or default to something safe
-            let role = profile?.role;
-            if (!role) {
-                const { data: usuario } = await supabase
-                    .from('usuarios')
+            // Only redirect if trying to access login/register
+            if (pathname === '/login' || pathname === '/register') {
+                // Fetch role to redirect
+                const { data: profile } = await supabase
+                    .from('profiles')
                     .select('role')
                     .eq('id', user.id)
                     .single();
-                role = usuario?.role;
-            }
 
-            const redirectUrl = getRoleBasedRedirect(role);
-            return NextResponse.redirect(new URL(redirectUrl, request.url));
+                // If profile not found, try 'usuarios' table or default to something safe
+                let role = profile?.role;
+                if (!role) {
+                    const { data: usuario } = await supabase
+                        .from('usuarios')
+                        .select('role')
+                        .eq('id', user.id)
+                        .single();
+                    role = usuario?.role;
+                }
+
+                const redirectUrl = getRoleBasedRedirect(role);
+                return NextResponse.redirect(new URL(redirectUrl, request.url));
+            }
         }
+        // Allow access to /tienda without auth
         return response;
     }
 
@@ -117,12 +121,6 @@ export async function middleware(request: NextRequest) {
     // Redirect logic
     if (pathname.startsWith('/admin')) {
         if (role !== 'administrador' && role !== 'cajero') {
-            return NextResponse.redirect(new URL(getRoleBasedRedirect(role), request.url));
-        }
-    }
-
-    if (pathname.startsWith('/tienda')) {
-        if (role !== 'cliente') {
             return NextResponse.redirect(new URL(getRoleBasedRedirect(role), request.url));
         }
     }

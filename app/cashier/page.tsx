@@ -445,54 +445,74 @@ export default function CashierPage() {
         <div className="flex h-full bg-[#f8f7f5] text-[#181511]">
             {/* MAIN CONTENT */}
             <main className="flex-1 flex flex-col h-screen overflow-hidden">
-                <header className="h-20 bg-white border-b border-[#e8e5e1] flex items-center px-8 gap-8 shrink-0">
-                    <div className="flex-1 relative">
-                        <span className="material-icons-round absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">search</span>
+                {/* Responsive Header */}
+                <header className="min-h-[80px] lg:h-20 bg-white border-b border-[#e8e5e1] flex flex-col lg:flex-row items-stretch lg:items-center px-4 sm:px-6 lg:px-8 gap-3 lg:gap-8 py-3 lg:py-0 shrink-0">
+                    {/* Search Bar - Full width on mobile */}
+                    <div className="flex-1 relative w-full lg:max-w-md">
+                        <span className="material-icons-round absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xl">search</span>
                         <input
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full max-w-md bg-[#f8f7f5] border-none rounded-xl pl-10 pr-4 py-2 text-sm outline-none placeholder-gray-400"
+                            className="w-full bg-[#f8f7f5] border-none rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none placeholder-gray-400"
                             placeholder="Buscar pizzas, bebidas..."
                         />
                     </div>
-                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+
+                    {/* Categories - Horizontal scroll on all screens */}
+                    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide -mx-2 px-2">
                         <button
                             onClick={() => setSelectedCategory('all')}
-                            className={`flex h-10 shrink-0 items-center justify-center rounded-xl px-5 transition-colors ${selectedCategory === 'all' ? 'bg-[#f7951d] text-white shadow-md' : 'bg-gray-100 text-[#181511]'}`}
+                            className={`flex h-10 shrink-0 items-center justify-center rounded-xl px-4 sm:px-5 transition-colors ${selectedCategory === 'all' ? 'bg-[#f7951d] text-white shadow-md' : 'bg-gray-100 text-[#181511]'}`}
                         >
-                            <span className="text-sm font-semibold">Todos</span>
+                            <span className="text-sm font-semibold whitespace-nowrap">Todos</span>
                         </button>
                         {categories.map((cat) => (
                             <button
                                 key={cat.id}
                                 onClick={() => setSelectedCategory(cat.id)}
-                                className={`flex h-10 shrink-0 items-center justify-center rounded-xl px-5 transition-colors ${selectedCategory === cat.id ? 'bg-[#f7951d] text-white' : 'bg-gray-100'}`}
+                                className={`flex h-10 shrink-0 items-center justify-center rounded-xl px-4 sm:px-5 transition-colors ${selectedCategory === cat.id ? 'bg-[#f7951d] text-white' : 'bg-gray-100'}`}
                             >
-                                <span className="text-sm font-medium">{cat.name}</span>
+                                <span className="text-sm font-medium whitespace-nowrap">{cat.name}</span>
                             </button>
                         ))}
                     </div>
+
+                    {/* Mobile Cart Button */}
+                    <button
+                        onClick={() => setShowPaymentModal(true)}
+                        className="lg:hidden fixed bottom-4 right-4 z-50 w-14 h-14 bg-[#f7951d] text-white rounded-full shadow-2xl flex items-center justify-center"
+                    >
+                        <div className="relative">
+                            <span className="material-icons-round text-2xl">shopping_cart</span>
+                            {cart.length > 0 && (
+                                <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                    {cart.length}
+                                </span>
+                            )}
+                        </div>
+                    </button>
                 </header>
 
-                <section className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                {/* Products Grid - Responsive */}
+                <section className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar">
                     {loading && !products.length ? (
                         <div className="flex items-center justify-center h-64"><div className="w-10 h-10 border-4 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div></div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 pb-20">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5 lg:gap-6 pb-20 lg:pb-8">
                             {filteredGroupedProducts.map((group) => (
                                 <div
                                     key={group.name}
                                     onClick={() => openProductCustomizer(group)}
-                                    className="bg-white p-4 rounded-xl shadow-sm border border-[#e8e5e1] flex flex-col group hover:shadow-lg transition-all cursor-pointer"
+                                    className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-[#e8e5e1] flex flex-col group hover:shadow-lg transition-all cursor-pointer"
                                 >
-                                    <div className="relative w-full aspect-square bg-gray-50 rounded-lg mb-4 overflow-hidden">
-                                        {group.imagen_url ? <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><span className="material-icons-round text-4xl">restaurant</span></div>}
+                                    <div className="relative w-full aspect-square bg-gray-50 rounded-lg mb-3 sm:mb-4 overflow-hidden">
+                                        {group.imagen_url ? <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><span className="material-icons-round text-3xl sm:text-4xl">restaurant</span></div>}
                                         <div className="absolute top-2 right-2 bg-white/90 backdrop-blur px-2 py-1 rounded-md text-[10px] font-black shadow-sm">DESDE ${group.basePrice}</div>
                                     </div>
-                                    <h3 className="font-bold text-lg mb-1 line-clamp-1">{group.name}</h3>
-                                    <p className="text-[#8c785f] text-xs line-clamp-2 mb-4 flex-1">{group.description}</p>
-                                    <button className="w-full bg-[#181511] text-white py-2.5 rounded-lg text-sm font-bold active:scale-95 transition-all">Seleccionar</button>
+                                    <h3 className="font-bold text-base sm:text-lg mb-1 line-clamp-1">{group.name}</h3>
+                                    <p className="text-[#8c785f] text-xs line-clamp-2 mb-3 sm:mb-4 flex-1">{group.description}</p>
+                                    <button className="w-full bg-[#181511] text-white py-2 sm:py-2.5 rounded-lg text-sm font-bold active:scale-95 transition-all">Seleccionar</button>
                                 </div>
                             ))}
                         </div>
@@ -500,8 +520,8 @@ export default function CashierPage() {
                 </section>
             </main>
 
-            {/* RIGHT SIDEBAR */}
-            <aside className="w-[400px] bg-white border-l border-[#e8e5e1] flex flex-col h-screen shrink-0 shadow-xl overflow-hidden">
+            {/* RIGHT SIDEBAR - Hidden on mobile, shown on lg+ */}
+            <aside className="hidden lg:flex w-[380px] xl:w-[400px] bg-white border-l border-[#e8e5e1] flex-col h-screen shrink-0 shadow-xl overflow-hidden">
                 <div className="p-6 border-b border-[#e8e5e1]">
                     <h2 className="text-[#181511] text-2xl font-black mb-4 tracking-tight">Comanda Actual</h2>
                     <div className="flex bg-[#f8f7f5] p-1 rounded-xl mb-4">
@@ -584,36 +604,62 @@ export default function CashierPage() {
                 </div>
             </aside>
 
-            {/* PRODUCT CUSTOMIZATION MODAL */}
+            {/* PRODUCT CUSTOMIZATION MODAL - Responsive */}
             {selectedGroupedProduct && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex md:flex-row flex-col max-h-[90vh]">
-                        <div className="md:w-5/12 bg-gray-50 p-6 flex flex-col">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl sm:rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[95vh] sm:max-h-[90vh]">
+                        {/* Left Image - Hidden on mobile, shown on md+ */}
+                        <div className="hidden md:block md:w-5/12 bg-gray-50 p-6 flex-col">
                             <img src={selectedGroupedProduct.imagen_url} className="w-full aspect-square object-cover rounded-2xl shadow-lg mb-4" alt="" />
                             <h3 className="text-2xl font-black mb-2">{selectedGroupedProduct.name}</h3>
                             <p className="text-sm text-[#8c785f] leading-relaxed flex-1">{selectedGroupedProduct.description}</p>
                         </div>
-                        <div className="md:w-7/12 p-8 flex flex-col">
-                            <div className="flex-1 overflow-y-auto space-y-8 pr-2 custom-scrollbar">
+
+                        {/* Right Content */}
+                        <div className="flex-1 md:w-7/12 p-4 sm:p-6 md:p-8 flex flex-col max-h-[95vh] sm:max-h-full">
+                            {/* Mobile Header with Image */}
+                            <div className="md:hidden mb-4">
+                                <div className="flex justify-between items-start mb-3">
+                                    <div className="flex-1">
+                                        <h3 className="text-xl font-black mb-1">{selectedGroupedProduct.name}</h3>
+                                        <p className="text-xs text-[#8c785f]">{selectedGroupedProduct.description}</p>
+                                    </div>
+                                    <button onClick={() => setSelectedGroupedProduct(null)} className="ml-2 size-8 flex items-center justify-center bg-gray-100 rounded-full shrink-0">
+                                        <span className="material-icons-round text-lg">close</span>
+                                    </button>
+                                </div>
+                                <img src={selectedGroupedProduct.imagen_url} className="w-full aspect-video object-cover rounded-xl mb-3" alt="" />
+                            </div>
+
+                            {/* Desktop Close Button */}
+                            <button onClick={() => setSelectedGroupedProduct(null)} className="hidden md:block absolute top-4 right-4 size-8 flex items-center justify-center bg-gray-100 rounded-full">
+                                <span className="material-icons-round text-lg">close</span>
+                            </button>
+
+                            {/* Scrollable Content */}
+                            <div className="flex-1 overflow-y-auto space-y-6 sm:space-y-8 pr-1 sm:pr-2 custom-scrollbar">
+                                {/* Size Selection */}
                                 <div>
-                                    <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2">
+                                    <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-3 sm:mb-4 flex items-center gap-2">
                                         <span className="size-2 bg-[#f7951d] rounded-full"></span> Tamaño
                                     </h4>
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-2 gap-2 sm:gap-3">
                                         {selectedGroupedProduct.variants.map(variant => (
                                             <button
                                                 key={variant.id}
                                                 onClick={() => setCurrentSize(variant.size)}
-                                                className={`p-4 rounded-xl border-2 text-left transition-all ${currentSize === variant.size ? 'border-[#f7951d] bg-orange-50' : 'border-gray-100 hover:border-gray-200'}`}
+                                                className={`p-3 sm:p-4 rounded-xl border-2 text-left transition-all ${currentSize === variant.size ? 'border-[#f7951d] bg-orange-50' : 'border-gray-100 hover:border-gray-200'}`}
                                             >
                                                 <p className="font-bold text-sm">{variant.size}</p>
-                                                <p className="text-[#f7951d] font-black">${variant.price}</p>
+                                                <p className="text-[#f7951d] font-black text-sm sm:text-base">${variant.price}</p>
                                             </button>
                                         ))}
                                     </div>
                                 </div>
+
+                                {/* Extras Selection */}
                                 <div>
-                                    <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2">
+                                    <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-3 sm:mb-4 flex items-center gap-2">
                                         <span className="size-2 bg-[#f7951d] rounded-full"></span> Extras
                                     </h4>
                                     <div className="grid grid-cols-2 gap-2">
@@ -623,7 +669,7 @@ export default function CashierPage() {
                                                 <button
                                                     key={extra.id}
                                                     onClick={() => setSelectedExtras(prev => isSelected ? prev.filter(id => id !== extra.id) : [...prev, extra.id])}
-                                                    className={`p-3 rounded-xl border-2 flex justify-between items-center transition-all ${isSelected ? 'border-[#f7951d] bg-orange-50' : 'border-gray-100'}`}
+                                                    className={`p-2.5 sm:p-3 rounded-xl border-2 flex justify-between items-center transition-all ${isSelected ? 'border-[#f7951d] bg-orange-50' : 'border-gray-100'}`}
                                                 >
                                                     <span className="text-xs font-bold leading-none">{extra.name}</span>
                                                     <span className="text-[#f7951d] text-[10px] font-black">+${extra.price}</span>
@@ -633,10 +679,12 @@ export default function CashierPage() {
                                     </div>
                                 </div>
                             </div>
-                            <div className="pt-6 border-t border-gray-100 mt-6 flex flex-col gap-4">
+
+                            {/* Footer Actions */}
+                            <div className="pt-4 sm:pt-6 border-t border-gray-100 mt-4 sm:mt-6 flex flex-col gap-3 sm:gap-4">
                                 <button
                                     onClick={confirmAddToCart}
-                                    className="w-full bg-[#181511] text-white py-4 rounded-xl font-black shadow-lg shadow-black/20"
+                                    className="w-full bg-[#181511] text-white py-3 sm:py-4 rounded-xl font-black shadow-lg shadow-black/20 text-sm sm:text-base"
                                 >
                                     Añadir a la comanda
                                 </button>

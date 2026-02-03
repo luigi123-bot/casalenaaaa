@@ -27,8 +27,8 @@ export default function CustomerSupportChat() {
             if (user) {
                 setUserId(user.id);
                 // Fetch name if possible, or use 'Cliente'
-                const { data: profile } = await supabase.from('users').select('name').eq('id', user.id).single();
-                setUserName(profile?.name || user.email || 'Cliente');
+                const { data: profile } = await supabase.from('usuarios').select('full_name').eq('id', user.id).single();
+                setUserName(profile?.full_name || user.email || 'Cliente');
                 fetchMessages(user.id);
                 subscribeToMessages(user.id);
             }

@@ -11,7 +11,8 @@ import CustomerSupportChat from '@/components/CustomerSupportChat';
 export default function TiendaLayout({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
-    const [authorized, setAuthorized] = useState(false);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [userRole, setUserRole] = useState<string | null>(null);
 
     useEffect(() => {
         const checkAuth = async () => {
@@ -19,33 +20,25 @@ export default function TiendaLayout({ children }: { children: React.ReactNode }
                 // Check if user is authenticated
                 const { data: { session } } = await supabase.auth.getSession();
 
-                if (!session) {
-                    router.push('/login');
-                    return;
-                }
+                if (session) {
+                    setIsAuthenticated(true);
 
-                // Check if user has cliente role
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('role')
-                    .eq('id', session.user.id)
-                    .single();
+                    // Check user role
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('role')
+                        .eq('id', session.user.id)
+                        .single();
 
-                if (profile?.role === 'cliente') {
-                    setAuthorized(true);
+                    setUserRole(profile?.role || null);
                 } else {
-                    // Redirect based on role
-                    if (profile?.role === 'administrador' || profile?.role === 'cajero') {
-                        router.push('/admin/users');
-                    } else if (profile?.role === 'cocina') {
-                        router.push('/cocina');
-                    } else {
-                        router.push('/login');
-                    }
+                    // No session, but allow access to tienda
+                    setIsAuthenticated(false);
+                    setUserRole(null);
                 }
             } catch (error) {
                 console.error('Error checking auth:', error);
-                router.push('/login');
+                setIsAuthenticated(false);
             } finally {
                 setLoading(false);
             }
@@ -65,18 +58,18 @@ export default function TiendaLayout({ children }: { children: React.ReactNode }
         );
     }
 
-    if (!authorized) {
-        return null;
-    }
-
     return (
         <AuthProvider>
             <div className="flex h-screen w-full bg-[#f8f7f5] overflow-hidden">
-                <Sidebar />
-                <div className="flex-1 flex flex-col min-w-0">
+                {/* Show Sidebar only if authenticated and is a cliente */}
+                {isAuthenticated && userRole === 'cliente' && <Sidebar />}
+
+                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                     {children}
                 </div>
-                <CustomerSupportChat />
+
+                {/* Show support chat only if authenticated */}
+                {isAuthenticated && <CustomerSupportChat />}
             </div>
         </AuthProvider>
     );

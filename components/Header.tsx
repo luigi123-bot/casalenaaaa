@@ -186,13 +186,13 @@ export default function Header(props: HeaderProps) {
     };
 
     const UserProfile = () => (
-        <div className="flex items-center gap-3 pl-6 border-l border-[#e6e1db]">
-            <div className="text-right hidden sm:block">
+        <div className="flex items-center gap-2 sm:gap-3 pl-3 sm:pl-6 border-l border-[#e6e1db]">
+            <div className="text-right hidden md:block">
                 <p className="text-sm font-bold text-[#181511]">{user?.full_name || 'Usuario'}</p>
                 <p className="text-xs text-[#8c785f]">{user ? getRoleName(user.role) : ''}</p>
             </div>
-            <button onClick={() => signOut()} className="rounded-full size-10 border-2 border-[#e6e1db] hover:border-primary transition-colors flex items-center justify-center overflow-hidden">
-                {user?.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : <span className="material-symbols-outlined text-[#8c785f]">person</span>}
+            <button onClick={() => signOut()} className="rounded-full size-8 sm:size-10 border-2 border-[#e6e1db] hover:border-primary transition-colors flex items-center justify-center overflow-hidden">
+                {user?.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : <span className="material-symbols-outlined text-[#8c785f] text-xl sm:text-2xl">person</span>}
             </button>
         </div>
     );
@@ -201,23 +201,23 @@ export default function Header(props: HeaderProps) {
         showNotifications && (
             <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                <div className="absolute top-16 right-20 w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                    <div className="p-4 border-b flex justify-between items-center bg-gray-50/50">
-                        <h3 className="font-bold text-[#181511]">Notificaciones</h3>
+                <div className="absolute top-14 sm:top-16 right-4 sm:right-20 w-[calc(100vw-2rem)] sm:w-80 max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                    <div className="p-3 sm:p-4 border-b flex justify-between items-center bg-gray-50/50">
+                        <h3 className="font-bold text-sm sm:text-base text-[#181511]">Notificaciones</h3>
                         {notifications.length > 0 && <button onClick={clearNotifications} className="text-xs text-primary font-bold hover:underline">Limpiar todo</button>}
                     </div>
-                    <div className="max-h-[300px] overflow-y-auto">
+                    <div className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
                         {notifications.length === 0 ? (
-                            <div className="p-8 text-center text-gray-400"><p className="text-xs font-medium">No hay notificaciones</p></div>
+                            <div className="p-6 sm:p-8 text-center text-gray-400"><p className="text-xs font-medium">No hay notificaciones</p></div>
                         ) : (
                             notifications.map(notif => (
-                                <div key={notif.id} onClick={() => handleNotificationClick(notif)} className={`p-4 border-b hover:bg-gray-50 cursor-pointer flex gap-3 ${!notif.read ? 'bg-orange-50/30' : ''}`}>
-                                    <div className={`mt-1 size-8 rounded-full flex items-center justify-center shrink-0 ${notif.type === 'order' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-                                        <span className="material-symbols-outlined text-lg">{notif.type === 'order' ? 'receipt_long' : 'chat'}</span>
+                                <div key={notif.id} onClick={() => handleNotificationClick(notif)} className={`p-3 sm:p-4 border-b hover:bg-gray-50 cursor-pointer flex gap-2 sm:gap-3 ${!notif.read ? 'bg-orange-50/30' : ''}`}>
+                                    <div className={`mt-1 size-7 sm:size-8 rounded-full flex items-center justify-center shrink-0 ${notif.type === 'order' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
+                                        <span className="material-symbols-outlined text-base sm:text-lg">{notif.type === 'order' ? 'receipt_long' : 'chat'}</span>
                                     </div>
-                                    <div>
-                                        <h4 className={`text-sm ${!notif.read ? 'font-bold' : 'font-medium text-gray-600'}`}>{notif.title}</h4>
-                                        <p className="text-xs text-gray-500 line-clamp-2 my-0.5">{notif.description}</p>
+                                    <div className="flex-1 min-w-0">
+                                        <h4 className={`text-xs sm:text-sm ${!notif.read ? 'font-bold' : 'font-medium text-gray-600'}`}>{notif.title}</h4>
+                                        <p className="text-[10px] sm:text-xs text-gray-500 line-clamp-2 my-0.5">{notif.description}</p>
                                     </div>
                                     {!notif.read && <div className="shrink-0 mt-2 size-2 rounded-full bg-primary" />}
                                 </div>
@@ -230,33 +230,34 @@ export default function Header(props: HeaderProps) {
     );
 
     return (
-        <header className="flex items-center justify-between border-b border-[#e6e1db] bg-white px-8 py-4 shrink-0 h-[72px] relative">
+        <header className="flex items-center justify-between border-b border-[#e6e1db] bg-white px-4 sm:px-6 lg:px-8 py-3 sm:py-4 shrink-0 h-[60px] sm:h-[72px] relative">
             {role === 'admin' ? (
-                <div className="flex items-center gap-4">
-                    <div className={`flex items-center gap-2 px-3 py-1 rounded-full border transition-colors ${isStoreOpen
+                <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0 lg:pl-12">
+                    <div className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 rounded-full border transition-colors ${isStoreOpen
                         ? 'bg-green-50 text-green-700 border-green-100'
                         : 'bg-red-50 text-red-700 border-red-100'
                         }`}>
-                        <div className={`size-2 rounded-full animate-pulse ${isStoreOpen ? 'bg-green-500' : 'bg-red-500'
+                        <div className={`size-1.5 sm:size-2 rounded-full animate-pulse ${isStoreOpen ? 'bg-green-500' : 'bg-red-500'
                             }`} />
-                        <h2 className="text-xs font-bold uppercase tracking-wide">
+                        <h2 className="text-[10px] sm:text-xs font-bold uppercase tracking-wide">
                             {isStatusLoading ? '...' : (isStoreOpen ? 'Abierto' : 'Cerrado')}
                         </h2>
                     </div>
-                    <p className="text-sm text-[#8c785f]">{currentDate} • {currentTime}</p>
+                    <p className="text-xs sm:text-sm text-[#8c785f] hidden sm:block truncate">{currentDate} • {currentTime}</p>
+                    <p className="text-xs text-[#8c785f] sm:hidden truncate">{currentTime}</p>
                 </div>
             ) : (
-                <div className="flex-1 relative max-w-md">
-                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#8c785f]">search</span>
-                    <input value={searchTerm || ''} onChange={(e) => setSearchTerm?.(e.target.value)} className="w-full bg-[#f8f7f5] rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none" placeholder="Buscar..." type="text" />
+                <div className="flex-1 relative max-w-md lg:pl-12">
+                    <span className="material-symbols-outlined absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 text-[#8c785f] text-xl sm:text-2xl">search</span>
+                    <input value={searchTerm || ''} onChange={(e) => setSearchTerm?.(e.target.value)} className="w-full bg-[#f8f7f5] rounded-xl pl-8 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 text-xs sm:text-sm focus:outline-none" placeholder="Buscar..." type="text" />
                 </div>
             )}
 
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3 sm:gap-6">
                 <button onClick={() => setShowNotifications(!showNotifications)} className="relative text-[#8c785f] hover:text-primary transition-colors">
-                    <span className="material-symbols-outlined text-[28px]">notifications</span>
+                    <span className="material-symbols-outlined text-2xl sm:text-[28px]">notifications</span>
                     {unreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 border-2 border-white animate-bounce-slow">
+                        <span className="absolute -top-1 -right-1 min-w-[16px] sm:min-w-[18px] h-[16px] sm:h-[18px] bg-red-500 text-white text-[9px] sm:text-[10px] font-bold rounded-full flex items-center justify-center px-0.5 sm:px-1 border-2 border-white animate-bounce-slow">
                             {unreadCount}
                         </span>
                     )}

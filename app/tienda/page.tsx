@@ -69,6 +69,7 @@ export default function TiendaPage() {
     const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
     const [showOrderSuccess, setShowOrderSuccess] = useState(false);
     const [lastOrderId, setLastOrderId] = useState<number | null>(null);
+    const [showMobileCart, setShowMobileCart] = useState(false);
 
     const EXTRAS_OPTIONS = [
         { id: 'extra_cheese', name: 'Extra Queso', price: 20 },
@@ -81,6 +82,42 @@ export default function TiendaPage() {
         fetchCategories();
         fetchProducts();
     }, []);
+
+    // Restore cart from localStorage after login
+    useEffect(() => {
+        if (userId) {
+            const pendingCart = localStorage.getItem('pendingCart');
+            const pendingOrderType = localStorage.getItem('pendingOrderType');
+            const pendingDeliveryAddress = localStorage.getItem('pendingDeliveryAddress');
+            const pendingPhoneNumber = localStorage.getItem('pendingPhoneNumber');
+
+            if (pendingCart) {
+                try {
+                    const parsedCart = JSON.parse(pendingCart);
+                    setCart(parsedCart);
+                    console.log('✅ Carrito restaurado después del login');
+                } catch (e) {
+                    console.error('Error al restaurar carrito:', e);
+                }
+                localStorage.removeItem('pendingCart');
+            }
+
+            if (pendingOrderType) {
+                setOrderType(pendingOrderType as OrderType);
+                localStorage.removeItem('pendingOrderType');
+            }
+
+            if (pendingDeliveryAddress) {
+                setDeliveryAddress(pendingDeliveryAddress);
+                localStorage.removeItem('pendingDeliveryAddress');
+            }
+
+            if (pendingPhoneNumber) {
+                setPhoneNumber(pendingPhoneNumber);
+                localStorage.removeItem('pendingPhoneNumber');
+            }
+        }
+    }, [userId]);
 
     const fetchUserData = async () => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -232,8 +269,23 @@ export default function TiendaPage() {
             orderType
         });
 
-        if (!userId || cart.length === 0) {
-            console.warn('❌ Intento de checkout fallido: Faltan datos', { userId, cartLength: cart.length });
+        // Check if user is authenticated
+        if (!userId) {
+            console.warn('⚠️ Usuario no autenticado, redirigiendo al login...');
+            // Save cart to localStorage before redirecting
+            localStorage.setItem('pendingCart', JSON.stringify(cart));
+            localStorage.setItem('pendingOrderType', orderType);
+            if (orderType === 'delivery') {
+                localStorage.setItem('pendingDeliveryAddress', deliveryAddress);
+                localStorage.setItem('pendingPhoneNumber', phoneNumber);
+            }
+            // Redirect to login with return URL
+            router.push('/login?redirect=/tienda&checkout=true');
+            return;
+        }
+
+        if (cart.length === 0) {
+            console.warn('❌ Intento de checkout fallido: Carrito vacío');
             return;
         }
 
@@ -338,71 +390,101 @@ export default function TiendaPage() {
     return (
         <div className="flex h-full bg-[#FAFAFA] text-[#1D1D1F] font-sans overflow-hidden">
             {/* MAIN CONTENT - Product Grid */}
-            <main className="flex-1 flex flex-col min-w-0 bg-[#FAFAFA] relative">
-                {/* Header - Now cleaner and focused on utility */}
-                <header className="h-24 px-8 flex items-center justify-between sticky top-0 z-20 bg-[#FAFAFA]/90 backdrop-blur-xl transition-all">
-                    <div className="flex flex-col justify-center">
-                        <h1 className="text-2xl font-black text-[#1D1D1F] tracking-tight">
-                            Hola, {userName.split(' ')[0]} 👋
+            <main className="flex-1 flex flex-col min-w-0 bg-[#FAFAFA] relative overflow-hidden">
+                {/* Responsive Header */}
+                <header className="min-h-[80px] sm:min-h-[90px] px-3 sm:px-4 md:px-6 lg:px-8 flex flex-col sm:flex-row items-stretch sm:items-center justify-between sticky top-0 z-20 bg-[#FAFAFA]/95 backdrop-blur-xl border-b border-gray-100 py-3 sm:py-4 gap-2 sm:gap-4">
+                    {/* User Greeting */}
+                    <div className="flex flex-col justify-center min-w-0">
+                        <h1 className="text-lg sm:text-xl md:text-2xl font-black text-[#1D1D1F] tracking-tight truncate">
+                            Hola, {userName ? userName.split(' ')[0] : 'Invitado'} 👋
                         </h1>
-                        <p className="text-sm text-gray-400 font-medium">¿Qué se te antoja hoy?</p>
+                        <p className="text-xs sm:text-sm text-gray-400 font-medium truncate">¿Qué se te antoja hoy?</p>
                     </div>
 
-                    <div className="flex items-center gap-6 flex-1 justify-end max-w-2xl">
-                        {/* Enhanced Search Bar */}
-                        <div className="relative w-full max-w-md group">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#F7941D] transition-colors material-icons-round text-xl">search</span>
+                    {/* Search and Profile */}
+                    <div className="flex items-center gap-2 sm:gap-3 md:gap-4 flex-1 justify-end max-w-2xl min-w-0">
+                        {/* Search Bar */}
+                        <div className="relative flex-1 max-w-xs sm:max-w-sm group">
+                            <span className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#F7941D] transition-colors material-icons-round text-base sm:text-lg">search</span>
                             <input
                                 type="text"
-                                placeholder="Buscar tu platillo favorito..."
+                                placeholder="Buscar..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-12 pr-4 py-3 bg-white border border-gray-100 rounded-2xl text-sm font-medium shadow-sm group-focus-within:shadow-md group-focus-within:ring-2 group-focus-within:ring-[#F7941D]/20 focus:outline-none transition-all placeholder-gray-300"
+                                className="w-full pl-8 sm:pl-10 pr-2 sm:pr-3 py-2 sm:py-2.5 bg-white border border-gray-100 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium shadow-sm group-focus-within:shadow-md group-focus-within:ring-2 group-focus-within:ring-[#F7941D]/20 focus:outline-none transition-all placeholder-gray-300"
                             />
                         </div>
 
-                        {/* User Profile Pill */}
-                        <div className="flex items-center gap-3 pl-6 border-l border-gray-200">
-                            <button
-                                onClick={() => router.push('/tienda/mis-pedidos')}
-                                className="mr-4 hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-orange-50 text-[#F7941D] font-bold text-xs hover:bg-orange-100 transition-colors"
-                            >
-                                <span className="material-icons-round text-sm">receipt_long</span>
-                                Mis Pedidos
-                            </button>
-                            <div className="text-right hidden sm:block">
-                                <p className="text-xs font-bold text-gray-900">{userName}</p>
-                                <p className="text-[10px] text-[#F7941D] font-bold tracking-wide uppercase">Cliente VIP</p>
-                            </div>
-                            <div className="w-11 h-11 rounded-full p-[2px] bg-gradient-to-tr from-[#F7941D] to-[#FFC107] shadow-lg shadow-orange-200">
-                                <img src={`https://ui-avatars.com/api/?name=${userName}&background=fff&color=F7941D`} className="w-full h-full rounded-full border-2 border-white object-cover" alt="User" />
-                            </div>
+                        {/* User Profile - Desktop */}
+                        <div className="hidden sm:flex items-center gap-2 md:gap-3 pl-3 md:pl-4 border-l border-gray-200">
+                            {userId ? (
+                                <>
+                                    <button
+                                        onClick={() => router.push('/tienda/mis-pedidos')}
+                                        className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-orange-50 text-[#F7941D] font-bold text-xs hover:bg-orange-100 transition-colors whitespace-nowrap"
+                                    >
+                                        <span className="material-icons-round text-sm">receipt_long</span>
+                                        Pedidos
+                                    </button>
+                                    <div className="text-right hidden xl:block">
+                                        <p className="text-xs font-bold text-gray-900 truncate max-w-[100px]">{userName}</p>
+                                        <p className="text-[10px] text-[#F7941D] font-bold tracking-wide uppercase">VIP</p>
+                                    </div>
+                                    <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full p-[2px] bg-gradient-to-tr from-[#F7941D] to-[#FFC107] shadow-md flex-shrink-0">
+                                        <img src={`https://ui-avatars.com/api/?name=${userName}&background=fff&color=F7941D`} className="w-full h-full rounded-full border-2 border-white object-cover" alt="User" />
+                                    </div>
+                                </>
+                            ) : (
+                                <button
+                                    onClick={() => router.push('/login?redirect=/tienda')}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-[#F7941D] to-[#FFC107] text-white font-bold text-xs sm:text-sm hover:shadow-lg transition-all whitespace-nowrap"
+                                >
+                                    <span className="material-icons-round text-base sm:text-lg">login</span>
+                                    <span className="hidden sm:inline">Iniciar Sesión</span>
+                                    <span className="sm:hidden">Login</span>
+                                </button>
+                            )}
                         </div>
+
+                        {/* Mobile Cart Button */}
+                        <button
+                            onClick={() => setShowMobileCart(true)}
+                            className="xl:hidden fixed bottom-20 right-4 z-50 w-12 h-12 sm:w-14 sm:h-14 bg-[#1D1D1F] text-white rounded-full shadow-2xl flex items-center justify-center"
+                        >
+                            <div className="relative">
+                                <span className="material-icons-round text-xl sm:text-2xl">shopping_bag</span>
+                                {cart.length > 0 && (
+                                    <span className="absolute -top-2 -right-2 w-5 h-5 bg-[#F7941D] text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                        {cart.length}
+                                    </span>
+                                )}
+                            </div>
+                        </button>
                     </div>
                 </header>
 
-                <div className="flex-1 overflow-y-auto px-8 pb-8 custom-scrollbar scroll-smooth">
-                    {/* Hero Banner */}
-                    <div className="w-full h-48 rounded-[32px] bg-[#1D1D1F] text-white mb-10 relative overflow-hidden shadow-2xl group flex shrink-0">
+                <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 lg:px-8 pb-20 custom-scrollbar scroll-smooth">
+                    {/* Hero Banner - Responsive */}
+                    <div className="w-full h-32 sm:h-40 md:h-44 rounded-xl sm:rounded-2xl md:rounded-[28px] bg-[#1D1D1F] text-white mb-4 sm:mb-6 md:mb-8 relative overflow-hidden shadow-xl group flex shrink-0 mt-4">
                         <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-10"></div>
                         <img
                             src="https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=3540&auto=format&fit=crop"
                             className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                             alt="Pizza Banner"
                         />
-                        <div className="relative z-20 flex flex-col justify-center h-full px-12 max-w-2xl">
-                            <span className="inline-block px-3 py-1 rounded-full bg-[#F7941D] w-fit text-xs font-bold mb-3 shadow-lg shadow-orange-500/30">NUEVO LANZAMIENTO</span>
-                            <h2 className="text-3xl font-black mb-2 leading-tight">La Pizza Suprema <br /> <span className="text-[#F7941D]">Edición Limitada</span></h2>
-                            <p className="text-gray-300 font-medium text-sm max-w-md">Disfruta de nuestra nueva creación con ingredientes seleccionados y masa madre de 48 horas.</p>
+                        <div className="relative z-20 flex flex-col justify-center h-full px-4 sm:px-6 md:px-10 max-w-xl sm:max-w-2xl">
+                            <span className="inline-block px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-[#F7941D] w-fit text-[9px] sm:text-[10px] md:text-xs font-bold mb-1.5 sm:mb-2 shadow-lg shadow-orange-500/30">NUEVO LANZAMIENTO</span>
+                            <h2 className="text-base sm:text-xl md:text-2xl lg:text-3xl font-black mb-1 leading-tight">La Pizza Suprema <br className="hidden sm:block" /> <span className="text-[#F7941D]">Edición Limitada</span></h2>
+                            <p className="text-gray-300 font-medium text-[10px] sm:text-xs md:text-sm max-w-md line-clamp-2">Disfruta de nuestra nueva creación con ingredientes seleccionados y masa madre de 48 horas.</p>
                         </div>
                     </div>
 
-                    {/* Categories - Cleaner & Sticky */}
-                    <div className="sticky top-0 z-10 bg-[#FAFAFA]/95 backdrop-blur-sm py-4 mb-4 flex gap-3 overflow-x-auto pb-4 scrollbar-hide -mx-2 px-2">
+                    {/* Categories - Responsive Sticky */}
+                    <div className="sticky top-0 z-10 bg-[#FAFAFA]/95 backdrop-blur-sm py-2 sm:py-3 mb-3 sm:mb-4 flex gap-1.5 sm:gap-2 overflow-x-auto pb-3 scrollbar-hide -mx-1 px-1">
                         <button
                             onClick={() => setSelectedCategory('all')}
-                            className={`px-6 py-2.5 rounded-full text-sm font-bold whitespace-nowrap transition-all duration-300 ${selectedCategory === 'all'
-                                ? 'bg-[#1D1D1F] text-white shadow-lg ring-2 ring-black/5 scale-105'
+                            className={`px-3 sm:px-4 md:px-5 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs md:text-sm font-bold whitespace-nowrap transition-all duration-300 flex-shrink-0 ${selectedCategory === 'all'
+                                ? 'bg-[#1D1D1F] text-white shadow-md scale-105'
                                 : 'bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-900 shadow-sm border border-gray-100'
                                 }`}
                         >
@@ -412,8 +494,8 @@ export default function TiendaPage() {
                             <button
                                 key={cat.id}
                                 onClick={() => setSelectedCategory(cat.id)}
-                                className={`px-6 py-2.5 rounded-full text-sm font-bold whitespace-nowrap transition-all duration-300 ${selectedCategory === cat.id
-                                    ? 'bg-[#1D1D1F] text-white shadow-lg ring-2 ring-black/5 scale-105'
+                                className={`px-3 sm:px-4 md:px-5 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs md:text-sm font-bold whitespace-nowrap transition-all duration-300 flex-shrink-0 ${selectedCategory === cat.id
+                                    ? 'bg-[#1D1D1F] text-white shadow-md scale-105'
                                     : 'bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-900 shadow-sm border border-gray-100'
                                     }`}
                             >
@@ -422,45 +504,45 @@ export default function TiendaPage() {
                         ))}
                     </div>
 
-                    {/* Product Grid - Grouped Cards */}
+                    {/* Product Grid - Responsive */}
                     {loading ? (
                         <div className="flex justify-center py-20">
                             <div className="w-12 h-12 border-4 border-[#F7941D] border-t-transparent rounded-full animate-spin"></div>
                         </div>
                     ) : (
-                        <div className="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-6 pb-20">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4 md:gap-5 pb-20">
                             {filteredGroupedProducts.map((groupedProduct) => (
                                 <div
                                     key={groupedProduct.name}
                                     onClick={() => openProductModal(groupedProduct)}
-                                    className="group bg-white rounded-[24px] p-3 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 flex flex-col hover:-translate-y-1 relative border border-transparent hover:border-gray-100 cursor-pointer"
+                                    className="group bg-white rounded-xl sm:rounded-2xl p-2.5 sm:p-3 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col hover:-translate-y-0.5 relative border border-gray-100 hover:border-gray-200 cursor-pointer"
                                 >
-                                    <div className="relative aspect-[4/3] mb-4 rounded-[20px] overflow-hidden bg-gray-50">
+                                    <div className="relative aspect-square mb-2 sm:mb-3 rounded-lg sm:rounded-xl overflow-hidden bg-gray-50">
                                         {groupedProduct.imagen_url ? (
                                             <img src={groupedProduct.imagen_url} alt={groupedProduct.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                                                <span className="material-icons-round text-4xl opacity-50">restaurant</span>
+                                                <span className="material-icons-round text-2xl sm:text-3xl opacity-50">restaurant</span>
                                             </div>
                                         )}
-                                        <div className="absolute top-3 right-3 bg-white/90 backdrop-blur px-2 py-1 rounded-lg text-xs font-bold shadow-sm text-[#1D1D1F]">
+                                        <div className="absolute top-1.5 sm:top-2 right-1.5 sm:right-2 bg-white/95 backdrop-blur-sm px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md sm:rounded-lg text-[9px] sm:text-[10px] font-bold shadow-sm text-[#1D1D1F]">
                                             Desde ${groupedProduct.basePrice}
                                         </div>
                                     </div>
 
-                                    <div className="px-2 pb-2 flex-1 flex flex-col">
-                                        <h3 className="font-bold text-[#1D1D1F] text-lg leading-tight mb-1 group-hover:text-[#F7941D] transition-colors">{groupedProduct.name}</h3>
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <span className="text-xs font-medium px-2 py-0.5 bg-gray-100 text-gray-500 rounded-md">
+                                    <div className="px-1 sm:px-1.5 pb-1 sm:pb-1.5 flex-1 flex flex-col min-h-0">
+                                        <h3 className="font-bold text-[#1D1D1F] text-sm sm:text-base leading-tight mb-1 sm:mb-1.5 group-hover:text-[#F7941D] transition-colors line-clamp-1">{groupedProduct.name}</h3>
+                                        <div className="flex items-center gap-1.5 mb-1.5 sm:mb-2">
+                                            <span className="text-[9px] sm:text-[10px] font-medium px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">
                                                 {groupedProduct.variants.length} tamaños
                                             </span>
                                         </div>
 
-                                        <p className="text-gray-400 text-xs line-clamp-2 leading-relaxed mb-4 flex-1">
+                                        <p className="text-gray-400 text-[10px] sm:text-xs line-clamp-2 leading-snug mb-2 sm:mb-3 flex-1">
                                             {groupedProduct.description}
                                         </p>
                                         <button
-                                            className="w-full py-3 rounded-xl bg-gray-50 text-[#1D1D1F] font-bold text-sm hover:bg-[#1D1D1F] hover:text-white transition-all duration-300 flex items-center justify-center gap-2 group-hover:shadow-lg"
+                                            className="w-full py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-gray-50 text-[#1D1D1F] font-bold text-[10px] sm:text-xs hover:bg-[#1D1D1F] hover:text-white transition-all duration-300 flex items-center justify-center gap-1.5 group-hover:shadow-md"
                                         >
                                             Personalizar
                                         </button>
@@ -594,8 +676,8 @@ export default function TiendaPage() {
                 )}
             </main>
 
-            {/* CART SIDEBAR - Floating Style */}
-            <aside className="w-[420px] bg-white border-l border-gray-100 flex flex-col z-30 flex-shrink-0 shadow-[-10px_0_40px_rgba(0,0,0,0.02)]">
+            {/* CART SIDEBAR - Hidden on mobile, shown on xl+ */}
+            <aside className="hidden xl:flex w-[380px] 2xl:w-[420px] bg-white border-l border-gray-100 flex-col z-30 flex-shrink-0 shadow-[-10px_0_40px_rgba(0,0,0,0.02)]">
                 <div className="p-8 pb-4">
                     <div className="flex items-center justify-between mb-8">
                         <h2 className="text-2xl font-black text-[#1D1D1F]">Tu Comanda</h2>
@@ -742,6 +824,172 @@ export default function TiendaPage() {
                     </button>
                 </div>
             </aside>
+
+            {/* MOBILE CART MODAL - Shows on mobile/tablet */}
+            {showMobileCart && (
+                <div className="xl:hidden fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div
+                        className="absolute inset-0"
+                        onClick={() => setShowMobileCart(false)}
+                    />
+                    <div className="relative w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[85vh] sm:max-h-[90vh] flex flex-col animate-in slide-in-from-bottom sm:zoom-in-95 duration-300">
+                        {/* Header */}
+                        <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <h2 className="text-xl sm:text-2xl font-black text-[#1D1D1F]">Tu Comanda</h2>
+                                <div className="w-7 h-7 rounded-full bg-gray-50 flex items-center justify-center text-[#1D1D1F] font-bold text-xs">
+                                    {cart.length}
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setShowMobileCart(false)}
+                                className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
+                            >
+                                <span className="material-icons-round text-gray-600">close</span>
+                            </button>
+                        </div>
+
+                        {/* Order Type Switcher */}
+                        <div className="p-4 sm:p-6 border-b border-gray-100">
+                            <div className="bg-[#F5F6F8] p-1.5 rounded-2xl flex">
+                                {(['dine-in', 'takeout', 'delivery'] as const).map((type) => (
+                                    <button
+                                        key={type}
+                                        onClick={() => setOrderType(type)}
+                                        className={`flex-1 py-2.5 rounded-xl text-xs font-bold capitalize transition-all duration-300 relative ${orderType === type
+                                            ? 'shadow-sm text-[#1D1D1F]'
+                                            : 'text-gray-400'
+                                            }`}
+                                    >
+                                        {orderType === type && (
+                                            <span className="absolute inset-0 bg-white rounded-xl shadow-sm -z-10" />
+                                        )}
+                                        {type.replace('-', ' ')}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Delivery Fields */}
+                            {orderType === 'delivery' && (
+                                <div className="mt-4 p-3 bg-orange-50 rounded-xl space-y-2">
+                                    <h4 className="font-bold text-orange-800 text-sm flex items-center gap-2">
+                                        <span className="material-icons-round text-sm">delivery_dining</span>
+                                        Datos de Envío
+                                    </h4>
+                                    <input
+                                        type="text"
+                                        placeholder="Dirección completa"
+                                        value={deliveryAddress}
+                                        onChange={(e) => setDeliveryAddress(e.target.value)}
+                                        className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
+                                    />
+                                    <input
+                                        type="tel"
+                                        placeholder="Teléfono"
+                                        value={phoneNumber}
+                                        onChange={(e) => setPhoneNumber(e.target.value)}
+                                        className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Cart Items */}
+                        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+                            {cart.length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center text-gray-300 py-12">
+                                    <div className="w-20 h-20 rounded-full bg-gray-50 flex items-center justify-center mb-4">
+                                        <span className="material-icons-round text-3xl opacity-50">shopping_bag</span>
+                                    </div>
+                                    <p className="font-bold text-gray-900 mb-1">Tu carrito está vacío</p>
+                                    <p className="text-sm text-gray-400">¡Agrega algo delicioso!</p>
+                                </div>
+                            ) : (
+                                cart.map((item) => (
+                                    <div key={item.cartItemId} className="flex gap-3 items-center">
+                                        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-gray-50 p-1 flex-shrink-0 overflow-hidden">
+                                            {item.imagen_url ? (
+                                                <img src={item.imagen_url} className="w-full h-full object-cover rounded-lg" alt="" />
+                                            ) : (
+                                                <span className="material-icons-round text-xl text-gray-300 flex items-center justify-center h-full">fastfood</span>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <h4 className="font-bold text-sm text-[#1D1D1F] truncate">{item.name}</h4>
+                                            {item.selectedSize && (
+                                                <p className="text-xs text-gray-400">{item.selectedSize}</p>
+                                            )}
+                                            {item.extras && item.extras.length > 0 && (
+                                                <p className="text-xs text-orange-600 truncate">+ {item.extras.join(', ')}</p>
+                                            )}
+                                            <p className="text-sm font-bold text-[#F7941D] mt-1">${item.price.toFixed(2)}</p>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-2">
+                                            <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
+                                                <button
+                                                    onClick={() => updateQuantity(item.cartItemId, -1)}
+                                                    className="w-6 h-6 rounded-md bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600"
+                                                >
+                                                    <span className="material-icons-round text-sm">remove</span>
+                                                </button>
+                                                <span className="text-sm font-bold w-6 text-center">{item.quantity}</span>
+                                                <button
+                                                    onClick={() => updateQuantity(item.cartItemId, 1)}
+                                                    className="w-6 h-6 rounded-md bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600"
+                                                >
+                                                    <span className="material-icons-round text-sm">add</span>
+                                                </button>
+                                            </div>
+                                            <button
+                                                onClick={() => removeFromCart(item.cartItemId)}
+                                                className="text-red-400 hover:text-red-600"
+                                            >
+                                                <span className="material-icons-round text-lg">delete</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-4 sm:p-6 border-t border-gray-100 bg-white space-y-4">
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-gray-500">Subtotal</span>
+                                    <span className="font-bold">${cartTotals.subtotal.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-gray-500">Impuestos</span>
+                                    <span className="font-bold">${cartTotals.tax.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+                                    <span className="text-base sm:text-lg font-bold text-[#1D1D1F]">Total</span>
+                                    <span className="text-2xl sm:text-3xl font-black text-[#1D1D1F]">${cartTotals.total.toFixed(2)}</span>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowMobileCart(false);
+                                    handleCheckout();
+                                }}
+                                disabled={cart.length === 0 || isCheckoutLoading}
+                                className="w-full py-3.5 sm:py-4 bg-[#1D1D1F] text-white rounded-xl sm:rounded-2xl font-bold text-base sm:text-lg shadow-xl hover:bg-black hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
+                            >
+                                {isCheckoutLoading ? (
+                                    <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                    <>
+                                        <span>Confirmar Pedido</span>
+                                        <span className="material-icons-round">arrow_forward</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {showOrderSuccess && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#1D1D1F]/60 backdrop-blur-md animate-in fade-in duration-300">
                     <div className="bg-white rounded-[40px] p-10 shadow-2xl max-w-sm w-full text-center transform animate-in zoom-in-95 duration-300 border border-white/20">
