@@ -89,43 +89,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (session?.user) {
-                // Try fetching from 'profiles' table first
-                let { data: profile, error } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', session.user.id)
-                    .single();
-
-                // If profiles doesn't exist, try 'usuarios' table
-                if (error && error.code === 'PGRST116') {
-                    console.log('Table "profiles" not found, trying "usuarios"...');
-                    const result = await supabase
-                        .from('usuarios')
+            try {
+                if (session?.user) {
+                    // Try fetching from 'profiles' table first
+                    let { data: profile, error } = await supabase
+                        .from('profiles')
                         .select('*')
                         .eq('id', session.user.id)
                         .single();
 
-                    profile = result.data;
-                }
+                    // If profiles doesn't exist, try 'usuarios' table
+                    if (error && error.code === 'PGRST116') {
+                        console.log('Table "profiles" not found, trying "usuarios"...');
+                        const result = await supabase
+                            .from('usuarios')
+                            .select('*')
+                            .eq('id', session.user.id)
+                            .single();
 
-                if (profile) {
-                    setUser({
-                        id: profile.id,
-                        email: profile.email,
-                        full_name: profile.full_name || 'Usuario',
-                        role: profile.role,
-                        avatar_url: profile.avatar_url,
-                    });
+                        profile = result.data;
+                    }
+
+                    if (profile) {
+                        setUser({
+                            id: profile.id,
+                            email: profile.email,
+                            full_name: profile.full_name || 'Usuario',
+                            role: profile.role,
+                            avatar_url: profile.avatar_url,
+                        });
+                    }
+                } else {
+                    setUser(null);
                 }
-            } else {
-                setUser(null);
+            } catch (error) {
+                console.error('Error in onAuthStateChange:', error);
+            } finally {
+                setLoading(false);
             }
-            setLoading(false);
         });
+
+        // Safety timeout to prevent infinite loading in case of network freeze
+        const safetyTimeout = setTimeout(() => {
+            setLoading(prev => {
+                if (prev) {
+                    console.warn('⚠️ Force-disabling loading state due to timeout');
+                    return false;
+                }
+                return prev;
+            });
+        }, 8000);
 
         return () => {
             subscription.unsubscribe();
+            clearTimeout(safetyTimeout);
         };
     }, []);
 
