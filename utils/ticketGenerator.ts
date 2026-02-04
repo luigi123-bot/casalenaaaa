@@ -165,10 +165,10 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
 
     doc.font(fontBuffer).fontSize(fontSizeNormal);
     productos.forEach(p => {
-        const nombre = p.nombre.substring(0, 18);
-        doc.text(p.cantidad.toString(), margin, currentY);
+        const nombre = (p.nombre || 'Producto').substring(0, 18);
+        doc.text((p.cantidad || 1).toString(), margin, currentY);
         doc.text(nombre, margin + (10 * mmToPoints), currentY);
-        doc.text(`$${p.precio.toFixed(2)}`, margin, currentY, { width: usableWidth, align: 'right' });
+        doc.text(`$${(p.precio || 0).toFixed(2)}`, margin, currentY, { width: usableWidth, align: 'right' });
         currentY += lineHeight;
 
         if (p.detalle) {

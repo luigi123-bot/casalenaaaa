@@ -87,22 +87,178 @@ export default function CashierPage() {
     const [showChat, setShowChat] = useState(false);
     const [foundCustomers, setFoundCustomers] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [showCustomerModal, setShowCustomerModal] = useState(false);
+
+    // Dropdown State
+    const [availableClients, setAvailableClients] = useState<any[]>([]);
+    const [loadingClients, setLoadingClients] = useState(false);
+
+    useEffect(() => {
+        if (showCustomerModal) {
+            fetchClientsForDropdown();
+        }
+    }, [showCustomerModal]);
+
+    const fetchClientsForDropdown = async () => {
+        setLoadingClients(true);
+        try {
+            console.log('🔄 [Cashier] Cargando clientes...');
+
+            // 1. Customers Table (Ocasionales)
+            const { data: customersData, error: custError } = await supabase
+                .from('customers')
+                .select('*')
+                .order('full_name');
+
+            if (custError) console.error('Error fetching customers:', custError);
+
+            // 2. Profiles Table (Clientes Registrados)
+            let profilesData: any[] = [];
+            try {
+                // Try fetching case-insensitive or multiple variations
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .in('role', ['cliente', 'CLIENTE', 'Cliente']);
+
+                if (error) throw error;
+                if (data) profilesData = data;
+            } catch (e) {
+                console.warn('⚠️ Error fetching profiles, trying fallback or ignoring:', e);
+            }
+
+            // 3. Usuarios Table (Legacy/Fallback)
+            let usuariosData: any[] = [];
+            try {
+                const { data, error } = await supabase
+                    .from('usuarios')
+                    .select('*')
+                    .in('role', ['cliente', 'CLIENTE', 'Cliente']);
+
+                if (!error && data) {
+                    // Smart Merge: If user exists in both, enrich profile with legacy data if missing
+                    data.forEach(u => {
+                        const existingProfileIndex = profilesData.findIndex(p => p.id === u.id);
+                        if (existingProfileIndex >= 0) {
+                            // User exists in both. Check if profile is missing info that legacy has.
+                            const p = profilesData[existingProfileIndex];
+                            const legacyPhone = u.phone || u.phone_number || u.telefono || '';
+                            const legacyAddress = u.address || u.direccion || '';
+
+                            // If profile phone is empty but legacy has one, update profile
+                            if ((!p.phone_number && !p.phone && !p.celular) && legacyPhone) {
+                                profilesData[existingProfileIndex].phone_merged = legacyPhone;
+                            }
+                            // If profile address is empty but legacy has one, update profile
+                            if ((!p.address && !p.location && !p.direccion) && legacyAddress) {
+                                profilesData[existingProfileIndex].address_merged = legacyAddress;
+                            }
+                        } else {
+                            // User only in legacy table
+                            usuariosData.push(u);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn('⚠️ Error fetching usuarios legacy:', e);
+            }
+
+            console.log(`📊 [Cashier] Found: ${customersData?.length || 0} customers, ${profilesData.length} profiles, ${usuariosData.length} legacy users`);
+
+            // Combine
+            const combined = [
+                ...(customersData || []).map(c => ({
+                    id: c.id,
+                    name: c.full_name,
+                    phone: c.phone,
+                    address: c.address,
+                    origin: 'customer' // Ocasional
+                })),
+                ...profilesData.map(p => ({
+                    id: p.id,
+                    name: p.full_name || p.nombre || 'Usuario App',
+                    phone: p.phone_merged || p.phone || p.phone_number || p.phoneNumber || p.telefono || p.celular || '',
+                    address: p.address_merged || p.address || p.direccion || p.location || '',
+                    origin: 'profile' // Registrado
+                })),
+                ...usuariosData.map(u => ({
+                    id: u.id,
+                    name: u.full_name || u.email || 'Usuario Legado',
+                    phone: u.phone || u.phone_number || u.telefono || '',
+                    address: u.address || u.direccion || '',
+                    origin: 'legacy' // Registrado (Tabla vieja)
+                }))
+            ].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+            setAvailableClients(combined);
+        } catch (err) {
+            console.error('❌ Error general cargando clientes:', err);
+        } finally {
+            setLoadingClients(false);
+        }
+    };
+
+    const handleClientSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value;
+        const client = availableClients.find(c => String(c.id) === val);
+        if (client) {
+            setCustomerInfo({
+                name: client.name || '',
+                phone: client.phone || '',
+                address: client.address || ''
+            });
+        }
+    };
 
     // Fetch customers for the searchable list
     const searchCustomersList = async (term: string) => {
-        if (term.length < 2) {
+        if (!term) {
             setFoundCustomers([]);
             return;
         }
         try {
-            const { data, error } = await supabase
+            // 1. Search in 'customers' table (Ad-hoc customers)
+            const { data: customersData, error: customersError } = await supabase
                 .from('customers')
                 .select('*')
                 .or(`full_name.ilike.%${term}%,phone.ilike.%${term}%`)
                 .limit(5);
 
-            if (error) throw error;
-            setFoundCustomers(data || []);
+            if (customersError) throw customersError;
+
+            // 2. Search in 'profiles' table (Registered Users with role 'cliente')
+            // Note: We use try-catch specifically for this query in case specific columns don't exist yet
+            let profilesData: any[] = [];
+            try {
+                const { data, error: profilesError } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('role', 'cliente')
+                    .or(`full_name.ilike.%${term}%,phone_number.ilike.%${term}%`)
+                    .limit(5);
+
+                if (!profilesError) {
+                    profilesData = data || [];
+                } else {
+                    console.warn('Error searching profiles (check if phone_number column exists):', profilesError);
+                }
+            } catch (e) {
+                console.warn('Exception searching profiles:', e);
+            }
+
+            // 3. Map profiles to match customer structure
+            const mappedProfiles = profilesData.map(p => ({
+                id: p.id,
+                full_name: p.full_name || 'Cliente Registrado',
+                phone: p.phone_number || '',
+                address: p.address || ''
+            }));
+
+            // 4. Combine results
+            // Prioritize ad-hoc customers if needed, or just mix them.
+            const combined = [...(customersData || []), ...mappedProfiles];
+
+            setFoundCustomers(combined.slice(0, 10));
         } catch (err) {
             console.error('Error searching customers:', err);
         }
@@ -144,7 +300,7 @@ export default function CashierPage() {
         const timer = setTimeout(searchCustomerByPhone, 500);
         return () => clearTimeout(timer);
     }, [customerInfo.phone]);
-    const [showCustomerModal, setShowCustomerModal] = useState(false);
+
 
     // Fetch Active Banner
     useEffect(() => {
@@ -946,48 +1102,34 @@ export default function CashierPage() {
                                 </button>
                             </div>
 
-                            {/* SEARCH BOX FOR EXISTING CUSTOMERS */}
+                            {/* LISTA DESPLEGABLE DE CLIENTES */}
                             <div className="mb-6 relative">
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Buscar Cliente Existente</label>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Seleccionar Cliente de la Lista</label>
                                 <div className="relative group">
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 material-icons-round text-gray-300 group-focus-within:text-[#f7951d]">search</span>
-                                    <input
-                                        type="text"
-                                        placeholder="Nombre o teléfono..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl pl-12 pr-5 py-4 text-sm font-bold focus:border-[#f7951d] outline-none transition-all"
-                                    />
-                                </div>
-
-                                {foundCustomers.length > 0 && (
-                                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-gray-100 z-[130] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                                        <div className="p-2 border-b border-gray-50 bg-gray-50/50">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase px-2">Resultados</p>
-                                        </div>
-                                        {foundCustomers.map(customer => (
-                                            <button
-                                                key={customer.id}
-                                                onClick={() => {
-                                                    setCustomerInfo({
-                                                        name: customer.full_name,
-                                                        phone: customer.phone,
-                                                        address: customer.address || ''
-                                                    });
-                                                    setFoundCustomers([]);
-                                                    setSearchTerm('');
-                                                }}
-                                                className="w-full text-left p-4 hover:bg-orange-50 transition-colors border-b border-gray-50 last:border-0"
-                                            >
-                                                <p className="font-bold text-sm text-[#181511]">{customer.full_name}</p>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="text-[10px] bg-orange-100 text-[#f7951d] px-2 py-0.5 rounded-full font-black">{customer.phone}</span>
-                                                    {customer.address && <span className="text-[10px] text-gray-400 truncate flex-1 italic">{customer.address}</span>}
-                                                </div>
-                                            </button>
-                                        ))}
+                                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                                        <span className="material-icons-round text-gray-400 group-focus-within:text-[#f7951d]">people</span>
                                     </div>
-                                )}
+                                    <select
+                                        onChange={handleClientSelect}
+                                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl pl-12 pr-10 py-4 text-sm font-bold focus:border-[#f7951d] outline-none transition-all appearance-none cursor-pointer text-[#181511]"
+                                        defaultValue=""
+                                    >
+                                        <option value="" disabled>-- Seleccionar Cliente --</option>
+                                        {loadingClients ? (
+                                            <option disabled>Cargando lista...</option>
+                                        ) : (
+                                            availableClients.map((client) => (
+                                                <option key={`${client.origin}-${client.id}`} value={client.id}>
+                                                    {client.name} {client.phone ? `(${client.phone})` : ''}
+                                                </option>
+                                            ))
+                                        )}
+                                    </select>
+                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                                        <span className="material-icons-round">expand_more</span>
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-2 ml-1">Selecciona un cliente para autocompletar sus datos.</p>
                             </div>
 
                             <div className="h-[2px] bg-gray-100 w-full mb-6"></div>

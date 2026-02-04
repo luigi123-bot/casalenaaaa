@@ -55,8 +55,9 @@ export async function POST(request: Request) {
         // Actualizar el perfil con el rol y datos extra
         if (authData.user) {
             const updateData: any = {
-                role: role || 'cliente', // Default to cliente if not specified
-                full_name: fullName || ''
+                role: role || 'cliente',
+                full_name: fullName || '',
+                email: email // Force save email
             };
 
             // Add optional fields if they exist in the schema (ignoring errors if columns don't exist yet but preventing logical errors)
@@ -75,15 +76,24 @@ export async function POST(request: Request) {
             }
 
             // Ensure exists in USUARIOS (Legacy table support)
-            // Check if 'usuarios' table exists or update it just in case orders table references it
+            // We now treat 'usuarios' as a mirror of 'profiles' with standardized columns
             try {
+                const usuariosUpsertData: any = {
+                    id: authData.user.id,
+                    email: email,
+                    role: updateData.role,
+                    full_name: updateData.full_name,
+                    phone_number: phoneNumber, // Standardized column
+                    address: address // Standardized column
+                };
+
+                // Also legacy fields just in case
+                // usuariosUpsertData.telefono = phoneNumber;
+                // usuariosUpsertData.direccion = address;
+
                 const { error: usuariosError } = await supabaseAdmin
                     .from('usuarios')
-                    .upsert({
-                        id: authData.user.id,
-                        ...updateData,
-                        email: email // usuarios table might need email
-                    })
+                    .upsert(usuariosUpsertData)
                     .select();
 
                 if (usuariosError) {

@@ -13,16 +13,8 @@ export default function UpdatePasswordPage() {
     const [success, setSuccess] = useState(false);
 
     useEffect(() => {
-        // Optional: Check if user is actually logged in (which they should be if they came from the recovery link)
-        const checkSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                // If checking session fails or no session, maybe they shouldn't be here (or handled gracefully)
-                console.log("No active session found on update-password page.");
-                // We won't redirect immediately to allow for edge cases or manual navigation if they are already logged in via other means
-            }
-        };
-        checkSession();
+        // Supabase client automatically handles the session exchange from the URL hash
+        // when the user arrives from a magic link.
     }, []);
 
     const handleUpdatePassword = async (e: React.FormEvent) => {

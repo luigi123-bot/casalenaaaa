@@ -60,12 +60,65 @@ export default function AdminUsersPage() {
     const fetchCustomers = async () => {
         setLoadingCustomers(true);
         try {
-            const { data, error } = await supabase
+            // 1. Customers Table (Ocasionales)
+            const { data: customersData } = await supabase
                 .from('customers')
                 .select('*')
                 .order('created_at', { ascending: false });
-            if (error) throw error;
-            setCustomers(data || []);
+
+            // 2. Profiles Table (Clientes Registrados)
+            let profilesData: any[] = [];
+            try {
+                const { data } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .in('role', ['cliente', 'CLIENTE', 'Cliente']);
+                if (data) profilesData = data;
+            } catch (e) { console.warn(e); }
+
+            // 3. Usuarios Table (Legacy)
+            let usuariosData: any[] = [];
+            try {
+                const { data } = await supabase
+                    .from('usuarios')
+                    .select('*')
+                    .in('role', ['cliente', 'CLIENTE', 'Cliente']);
+
+                if (data) {
+                    const existingIds = new Set(profilesData.map(p => p.id));
+                    usuariosData = data.filter(u => !existingIds.has(u.id));
+                }
+            } catch (e) { console.warn(e); }
+
+            // Combine
+            const combined = [
+                ...(customersData || []).map(c => ({
+                    ...c,
+                    type: 'customer',
+                    phone: c.phone || c.phone_number || c.telefono || '',
+                    address: c.address || c.direccion || ''
+                })),
+                ...profilesData.map(p => {
+                    console.log('👤 Profile raw:', p); // Debug
+                    return {
+                        id: p.id,
+                        full_name: p.full_name || p.nombre || 'Usuario App',
+                        phone: p.phone || p.phone_number || p.phoneNumber || p.telefono || p.celular || '',
+                        address: p.address || p.direccion || p.location || '',
+                        type: 'profile'
+                    };
+                }),
+                ...usuariosData.map(u => ({
+                    id: u.id,
+                    full_name: u.full_name || u.email || 'Usuario Legado',
+                    phone: u.phone || u.phone_number || u.telefono || '',
+                    address: u.address || u.direccion || '',
+                    type: 'legacy'
+                }))
+            ].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+
+            console.log('📋 Combined Customers:', combined); // Debug
+            setCustomers(combined);
         } catch (error: any) {
             console.error('Error fetching customers:', error);
         } finally {
@@ -254,9 +307,14 @@ export default function AdminUsersPage() {
                                                 <button onClick={() => { setEditingCustomerId(c.id); setCustomerFormData({ full_name: c.full_name, phone: c.phone, address: c.address }); setShowCustomerModal(true); }} className="text-blue-500 p-2 rounded-full hover:bg-blue-50">
                                                     <span className="material-symbols-outlined text-[20px]">edit</span>
                                                 </button>
-                                                <button onClick={async () => { if(confirm('¿Eliminar?')) { await supabase.from('customers').delete().eq('id', c.id); fetchCustomers(); } }} className="text-red-500 p-2 rounded-full hover:bg-red-50">
-                                                    <span className="material-symbols-outlined text-[20px]">delete</span>
-                                                </button>
+                                                {c.type === 'customer' && (
+                                                    <button onClick={async () => { if (confirm('¿Eliminar cliente ocasional?')) { await supabase.from('customers').delete().eq('id', c.id); fetchCustomers(); } }} className="text-red-500 p-2 rounded-full hover:bg-red-50">
+                                                        <span className="material-symbols-outlined text-[20px]">delete</span>
+                                                    </button>
+                                                )}
+                                                {c.type !== 'customer' && (
+                                                    <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded-full uppercase font-bold">App User</span>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
@@ -287,15 +345,15 @@ export default function AdminUsersPage() {
                         <form onSubmit={handleCustomerSubmit} className="p-8 space-y-6">
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Nombre Completo</label>
-                                <input type="text" required value={customerFormData.full_name} onChange={e => setCustomerFormData({...customerFormData, full_name: e.target.value})} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" />
+                                <input type="text" required value={customerFormData.full_name} onChange={e => setCustomerFormData({ ...customerFormData, full_name: e.target.value })} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" />
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Teléfono</label>
-                                <input type="tel" required value={customerFormData.phone} onChange={e => setCustomerFormData({...customerFormData, phone: e.target.value})} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" />
+                                <input type="tel" required value={customerFormData.phone} onChange={e => setCustomerFormData({ ...customerFormData, phone: e.target.value })} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" />
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Dirección</label>
-                                <textarea rows={3} value={customerFormData.address} onChange={e => setCustomerFormData({...customerFormData, address: e.target.value})} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold resize-none" />
+                                <textarea rows={3} value={customerFormData.address} onChange={e => setCustomerFormData({ ...customerFormData, address: e.target.value })} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold resize-none" />
                             </div>
                             <button type="submit" className="w-full bg-[#F27405] text-white py-4 rounded-2xl font-black shadow-lg shadow-orange-100 uppercase tracking-widest text-sm">Guardar Cliente</button>
                         </form>
@@ -307,8 +365,8 @@ export default function AdminUsersPage() {
             {showModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#181511]/60 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl p-8">
-                         <h2 className="text-xl font-black mb-6">{editingUserId ? 'Editar' : 'Nuevo'} Usuario</h2>
-                         <form onSubmit={handleSubmit} className="space-y-4">
+                        <h2 className="text-xl font-black mb-6">{editingUserId ? 'Editar' : 'Nuevo'} Usuario</h2>
+                        <form onSubmit={handleSubmit} className="space-y-4">
                             <input name="fullName" placeholder="Nombre" value={formData.fullName} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" required />
                             <input name="email" type="email" placeholder="Email" value={formData.email} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" required />
                             {!editingUserId && <input name="password" type="password" placeholder="Contraseña" value={formData.password} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" required />}
@@ -322,7 +380,7 @@ export default function AdminUsersPage() {
                                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 font-bold text-gray-400">Cancelar</button>
                                 <button type="submit" className="flex-1 bg-[#F27405] text-white py-4 rounded-2xl font-black shadow-lg">Guardar</button>
                             </div>
-                         </form>
+                        </form>
                     </div>
                 </div>
             )}
