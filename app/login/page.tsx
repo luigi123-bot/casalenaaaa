@@ -9,6 +9,7 @@ export default function LoginPage() {
     const router = useRouter();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -191,18 +192,42 @@ export default function LoginPage() {
                                     <label className="block text-sm font-bold text-gray-700">
                                         Contraseña
                                     </label>
-                                    <a href="#" className="text-xs font-bold text-[#F7941D] hover:text-[#e8891a] transition-colors">
+                                    <a href="/forgot-password" className="text-xs font-bold text-[#F7941D] hover:text-[#e8891a] transition-colors">
                                         ¿Olvidaste tu contraseña?
                                     </a>
                                 </div>
-                                <input
-                                    type="password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F7941D] focus:border-transparent focus:bg-white text-[#181511] placeholder-gray-400 font-medium transition-all group-hover:border-gray-300"
-                                    placeholder="Ingresa tu contraseña"
-                                    required
-                                />
+                                <div className="relative">
+                                    <input
+                                        type={showPassword ? "text" : "password"}
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F7941D] focus:border-transparent focus:bg-white text-[#181511] placeholder-gray-400 font-medium transition-all group-hover:border-gray-300 pr-12"
+                                        placeholder="Ingresa tu contraseña"
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none flex items-center justify-center"
+                                        tabIndex={-1}
+                                    >
+                                        <span className="material-icons-round text-xl">
+                                            {showPassword ? 'visibility_off' : 'visibility'}
+                                        </span>
+                                    </button>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2 ml-1">
+                                    <input
+                                        type="checkbox"
+                                        id="showPass"
+                                        checked={showPassword}
+                                        onChange={() => setShowPassword(!showPassword)}
+                                        className="w-4 h-4 text-[#F7941D] rounded border-gray-300 focus:ring-[#F7941D] cursor-pointer"
+                                    />
+                                    <label htmlFor="showPass" className="text-xs font-bold text-gray-500 hover:text-gray-700 cursor-pointer select-none">
+                                        Mostrar contraseña
+                                    </label>
+                                </div>
                             </div>
 
                             <button
