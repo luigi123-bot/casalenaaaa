@@ -222,6 +222,17 @@ export default function AdminUsersPage() {
         return new Date(dateString).toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' });
     };
 
+    if (loading) {
+        return (
+            <div className="flex-1 flex items-center justify-center h-full bg-[#fcfbf9]">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-orange-100 border-t-[#F7941D] rounded-full animate-spin"></div>
+                    <p className="text-[#8c785f] font-bold text-sm animate-pulse">Cargando usuarios...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <main className="flex-1 overflow-y-auto p-8 bg-[#fcfbf9]">
             <div className="max-w-[1200px] mx-auto space-y-8">
