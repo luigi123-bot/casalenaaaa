@@ -59,11 +59,32 @@ export async function middleware(request: NextRequest) {
 
     const { pathname } = request.nextUrl;
 
-    // Public routes (no auth required)
+    // DEBUG LOGS - FORCE VISIBILITY
+    console.log('🚧 [Middleware] Request:', request.method, pathname);
+
+    // SKIP MIDDLEWARE FOR API ROUTES
+    if (pathname.startsWith('/api/')) {
+        console.log('⏩ [Middleware] Skipping API route:', pathname);
+        return response;
+    }
+
+    // 1. ROOT PATH HANDLING - ABSOLUTE PRIORITY
+    if (pathname === '/') {
+        if (!user) {
+            console.log('🚀 [Middleware] ROOT -> /tienda (No session detected)');
+            const url = request.nextUrl.clone();
+            url.pathname = '/tienda';
+            return NextResponse.redirect(url);
+        }
+        console.log('👤 [Middleware] ROOT with session -> Proceeding to role check');
+    }
+
+    // 2. PUBLIC ROUTES
     const publicRoutes = ['/login', '/register', '/tienda'];
 
     // Logic for public routes
     if (publicRoutes.includes(pathname) || pathname.startsWith('/tienda')) {
+        console.log('✅ [Middleware] Public route - allowing access to:', pathname);
         if (user) {
             // Only redirect if trying to access login/register
             if (pathname === '/login' || pathname === '/register') {
@@ -86,10 +107,12 @@ export async function middleware(request: NextRequest) {
                 }
 
                 const redirectUrl = getRoleBasedRedirect(role);
+                console.log('🔄 [Middleware] Redirecting authenticated user from', pathname, 'to', redirectUrl);
                 return NextResponse.redirect(new URL(redirectUrl, request.url));
             }
         }
         // Allow access to /tienda without auth
+        console.log('✅ [Middleware] Allowing access to /tienda');
         return response;
     }
 

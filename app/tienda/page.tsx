@@ -61,15 +61,21 @@ export default function TiendaPage() {
     const [selectedProduct, setSelectedProduct] = useState<GroupedProduct | null>(null);
     const [currentSize, setCurrentSize] = useState<string>('');
     const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
+    const [activeBanner, setActiveBanner] = useState<any>(null);
+    const [isInitialLoading, setIsInitialLoading] = useState(true); // New Loading State // Dynamic Banner State
 
     // Cart State
     const [cart, setCart] = useState<CartItem[]>([]);
-    const [orderType, setOrderType] = useState<OrderType>('dine-in');
     const [userId, setUserId] = useState<string | null>(null);
     const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
     const [showOrderSuccess, setShowOrderSuccess] = useState(false);
     const [lastOrderId, setLastOrderId] = useState<number | null>(null);
     const [showMobileCart, setShowMobileCart] = useState(false);
+
+    // Loading Screen State
+    const [isProcessingOrder, setIsProcessingOrder] = useState(false);
+    const [processingStep, setProcessingStep] = useState('');
+    const [whatsappLink, setWhatsappLink] = useState('');
 
     const EXTRAS_OPTIONS = [
         { id: 'extra_cheese', name: 'Extra Queso', price: 20 },
@@ -77,18 +83,47 @@ export default function TiendaPage() {
         { id: 'extra_sauce', name: 'Extra Salsa', price: 10 },
     ];
 
+    // Initial Data Fetch
     useEffect(() => {
-        fetchUserData();
-        fetchCategories();
-        fetchProducts();
+        const loadAllData = async () => {
+            try {
+                await Promise.all([
+                    fetchUserData(),
+                    fetchCategories(),
+                    fetchProducts(),
+                    fetchActiveBanner()
+                ]);
+            } catch (error) {
+                console.error('Error loading app data:', error);
+            } finally {
+                // Pequeño timeout para asegurar que la transición sea suave
+                setTimeout(() => setIsInitialLoading(false), 800);
+            }
+        };
+        loadAllData();
     }, []);
+
+    const fetchActiveBanner = async () => {
+        try {
+            const { data } = await supabase
+                .from('banners')
+                .select('*')
+                .eq('is_active', true)
+                .order('created_at', { ascending: false }) // En caso de multiples, el más nuevo
+                .limit(1)
+                .maybeSingle();
+
+            if (data) setActiveBanner(data);
+        } catch (e) {
+            console.error('Error loading banner:', e);
+        }
+    };
 
     // Restore cart from localStorage after login
     useEffect(() => {
         if (userId) {
             const pendingCart = localStorage.getItem('pendingCart');
-            const pendingOrderType = localStorage.getItem('pendingOrderType');
-            const pendingDeliveryAddress = localStorage.getItem('pendingDeliveryAddress');
+            const pendingDeliveryAddress = localStorage.getItem(' pendingDeliveryAddress');
             const pendingPhoneNumber = localStorage.getItem('pendingPhoneNumber');
 
             if (pendingCart) {
@@ -100,11 +135,6 @@ export default function TiendaPage() {
                     console.error('Error al restaurar carrito:', e);
                 }
                 localStorage.removeItem('pendingCart');
-            }
-
-            if (pendingOrderType) {
-                setOrderType(pendingOrderType as OrderType);
-                localStorage.removeItem('pendingOrderType');
             }
 
             if (pendingDeliveryAddress) {
@@ -123,12 +153,23 @@ export default function TiendaPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
             setUserId(session.user.id);
+
+            // Get data from metadata (guaranteed from registration) or profile
+            const metadata = session.user.user_metadata;
+
             const { data: profile } = await supabase
                 .from('profiles')
-                .select('full_name')
+                .select('*')
                 .eq('id', session.user.id)
                 .single();
-            setUserName(profile?.full_name || 'Cliente');
+
+            const fullName = profile?.full_name || metadata.full_name || 'Cliente';
+            const phone = profile?.phone_number || metadata.phone_number || '';
+            const address = profile?.address || metadata.address || '';
+
+            setUserName(fullName);
+            if (phone) setPhoneNumber(phone);
+            if (address) setDeliveryAddress(address);
         }
     };
 
@@ -260,13 +301,23 @@ export default function TiendaPage() {
     const [deliveryAddress, setDeliveryAddress] = useState('');
     const [phoneNumber, setPhoneNumber] = useState('');
 
+    const handleLogout = async () => {
+        const { error } = await supabase.auth.signOut();
+        if (error) console.error('Error signing out:', error);
+        // Force header update by reloading or clearing state
+        setUserId(null);
+        setUserName('');
+        window.location.href = '/tienda';
+    };
+
     const handleCheckout = async () => {
-        console.log('🔵 Iniciando envío de pedido al cajero...', {
+        console.log('🔵 Iniciando envío de pedido a domicilio...', {
             userId,
             customerName: userName,
             cartItems: cart,
             total: cartTotals.total,
-            orderType
+            deliveryAddress,
+            phoneNumber
         });
 
         // Check if user is authenticated
@@ -274,13 +325,10 @@ export default function TiendaPage() {
             console.warn('⚠️ Usuario no autenticado, redirigiendo al login...');
             // Save cart to localStorage before redirecting
             localStorage.setItem('pendingCart', JSON.stringify(cart));
-            localStorage.setItem('pendingOrderType', orderType);
-            if (orderType === 'delivery') {
-                localStorage.setItem('pendingDeliveryAddress', deliveryAddress);
-                localStorage.setItem('pendingPhoneNumber', phoneNumber);
-            }
-            // Redirect to login with return URL
-            router.push('/login?redirect=/tienda&checkout=true');
+            localStorage.setItem('pendingDeliveryAddress', deliveryAddress);
+            localStorage.setItem('pendingPhoneNumber', phoneNumber);
+            // Redirect to register with return URL
+            router.push('/register?redirect=/tienda&checkout=true');
             return;
         }
 
@@ -289,32 +337,63 @@ export default function TiendaPage() {
             return;
         }
 
-        if (orderType === 'delivery' && (!deliveryAddress || !phoneNumber)) {
-            alert('Por favor completa la dirección y el teléfono para el envío.');
+        // Validate delivery information
+        if (!deliveryAddress || !phoneNumber || !userName) {
+            alert('Por favor completa todos los datos de entrega:\n- Nombre completo\n- Teléfono\n- Dirección de entrega');
             return;
         }
 
         setIsCheckoutLoading(true);
+        setIsProcessingOrder(true);
+        setProcessingStep('Guardando tu pedido...');
 
         try {
-            // 1. Insert Order
-            const { data: orderData, error: orderError } = await supabase
-                .from('orders')
-                .insert({
-                    user_id: userId,
-                    customer_name: userName,
-                    status: 'pendiente',
-                    order_type: orderType,
-                    total_amount: cartTotals.total,
-                    delivery_address: orderType === 'delivery' ? deliveryAddress : null,
-                    phone_number: phoneNumber || null
-                })
-                .select()
-                .single();
+            // 1. Insert Order in Database with Auto-Correction for FK errors
+            let orderData;
 
-            if (orderError) throw orderError;
+            const insertOrder = async () => {
+                return await supabase
+                    .from('orders')
+                    .insert({
+                        user_id: userId,
+                        customer_name: userName,
+                        status: 'pendiente',
+                        order_type: 'delivery',
+                        total_amount: cartTotals.total,
+                        delivery_address: deliveryAddress,
+                        phone_number: phoneNumber
+                    })
+                    .select()
+                    .single();
+            };
 
-            // 2. Prepared Order Items
+            let { data, error } = await insertOrder();
+
+            // Handle Foreign Key Error (Missing Profile/Usuario)
+            if (error && (error.code === '23503' || error.message?.includes('foreign key'))) {
+                console.warn('⚠️ Detectado error de FK (Perfil faltante). Intentando sincronizar...');
+                setProcessingStep('Sincronizando perfil...');
+
+                // Call Sync Endpoint
+                await fetch('/api/sync-profile', {
+                    method: 'POST',
+                    body: JSON.stringify({ fullName: userName, phone: phoneNumber, address: deliveryAddress })
+                });
+
+                setProcessingStep('Reintentando pedido...');
+                // Retry Insertion
+                const retry = await insertOrder();
+                data = retry.data;
+                error = retry.error;
+            }
+
+            if (error) throw error;
+            orderData = data;
+
+            setProcessingStep('Preparando detalles...');
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            // 2. Prepare Order Items
             const orderItems = cart.map(item => ({
                 order_id: orderData.id,
                 product_id: item.id,
@@ -333,17 +412,98 @@ export default function TiendaPage() {
 
             if (itemsError) throw itemsError;
 
-            // Success
+            setProcessingStep('Conectando con WhatsApp...');
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            // 4. Build WhatsApp Message
+            const whatsappNumber = '527411502721'; // Mexico format: 52 + number
+
+            let message = `🍕 *NUEVO PEDIDO #${orderData.id} - DOMICILIO*\n\n`;
+            message += `👤 *Cliente:* ${userName}\n`;
+            message += `📍 *Dirección:* ${deliveryAddress}\n`;
+            message += `📱 *Teléfono:* ${phoneNumber}\n`;
+            message += `\n🛒 *PRODUCTOS:*\n`;
+
+            cart.forEach((item, index) => {
+                message += `${index + 1}. ${item.name}`;
+                if (item.selectedSize) {
+                    message += ` (${item.selectedSize})`;
+                }
+                message += ` x${item.quantity}`;
+                if (item.extras && item.extras.length > 0) {
+                    const extrasNames = item.extras.map(extraId => {
+                        const extra = EXTRAS_OPTIONS.find(e => e.id === extraId);
+                        return extra ? extra.name : '';
+                    }).filter(Boolean);
+                    if (extrasNames.length > 0) {
+                        message += `\n   +${extrasNames.join(', ')}`;
+                    }
+                }
+                message += `\n   💵 $${(item.price * item.quantity).toFixed(2)}\n`;
+            });
+
+            message += `\n💰 *TOTAL: $${cartTotals.total.toFixed(2)}*\n`;
+            message += `\n_Pedido #${orderData.id} realizado desde CasaleñaPOS 🔥_`;
+
+            // Encode and create WhatsApp URL
+            const encodedMessage = encodeURIComponent(message);
+            const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodedMessage}`;
+
+            setProcessingStep('Notificando al restaurante...');
+            await new Promise(resolve => setTimeout(resolve, 600));
+
+            // 5. Send notification to cashier system
+            try {
+                await fetch('/api/cashier/notify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'new_order_whatsapp',
+                        customerName: userName,
+                        orderType: 'delivery',
+                        orderId: orderData.id,
+                        total: cartTotals.total,
+                        items: cart.map(item => ({
+                            name: item.name,
+                            quantity: item.quantity,
+                            size: item.selectedSize
+                        }))
+                    })
+                });
+            } catch (notifyError) {
+                console.error('Error al notificar cajero:', notifyError);
+            }
+
+            // 6. Clear cart and show success
             setCart([]);
+            setDeliveryAddress('');
+            setPhoneNumber('');
             setLastOrderId(orderData.id);
-            setShowOrderSuccess(true);
-            // router.push('/tienda/mis-pedidos'); // Removal of immediate redirect to show the modal
+            setProcessingStep('¡Todo listo! Abriendo WhatsApp...');
+            setWhatsappLink(whatsappUrl);
+
+            // Small delay before showing success modal
+            setTimeout(() => {
+                setIsProcessingOrder(false); // Hide loading overlay
+                setIsCheckoutLoading(false);
+                setShowOrderSuccess(true); // Show success modal
+
+                // 7. Open WhatsApp
+                window.open(whatsappUrl, '_blank');
+            }, 1000);
 
         } catch (error: any) {
             console.error('Checkout error:', error);
-            alert(`Error al enviar el pedido: ${error.message || 'Error desconocido'} \n\nDetalles técnicos: ${JSON.stringify(error, null, 2)}`);
+
+            // Intentar recuperar error legible
+            let errorMsg = error.message || 'Error desconocido';
+            if (error.code === '23505') errorMsg = 'Ya existe un pedido procesándose.';
+
+            alert(`Hubo un problema al procesar tu pedido: ${errorMsg}\n\nPor favor intenta de nuevo.`);
         } finally {
+            // FORCE CLEANUP
             setIsCheckoutLoading(false);
+            setIsProcessingOrder(false);
         }
     };
 
@@ -387,17 +547,44 @@ export default function TiendaPage() {
         }, 0);
     }, [selectedExtras]);
 
+    if (isInitialLoading) {
+        return (
+            <div className="fixed inset-0 bg-[#FAFAFA] z-[9999] flex flex-col items-center justify-center">
+                <div className="relative w-24 h-24 mb-8">
+                    <div className="absolute inset-0 border-4 border-[#F7941D]/20 rounded-full"></div>
+                    <div className="absolute inset-0 border-4 border-[#F7941D] border-t-transparent rounded-full animate-spin"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="material-icons-round text-[#F7941D] text-3xl animate-pulse">restaurant</span>
+                    </div>
+                </div>
+                <h2 className="text-2xl font-black text-[#1D1D1F] mb-2 animate-pulse">Casa Leña</h2>
+                <p className="text-gray-400 font-medium text-sm">Preparando tu experiencia...</p>
+            </div>
+        );
+    }
+
     return (
         <div className="flex h-full bg-[#FAFAFA] text-[#1D1D1F] font-sans overflow-hidden">
             {/* MAIN CONTENT - Product Grid */}
             <main className="flex-1 flex flex-col min-w-0 bg-[#FAFAFA] relative overflow-hidden">
                 {/* Responsive Header */}
                 <header className="min-h-[80px] sm:min-h-[90px] px-3 sm:px-4 md:px-6 lg:px-8 flex flex-col sm:flex-row items-stretch sm:items-center justify-between sticky top-0 z-20 bg-[#FAFAFA]/95 backdrop-blur-xl border-b border-gray-100 py-3 sm:py-4 gap-2 sm:gap-4">
-                    {/* User Greeting */}
+                    {/* User Greeting & Logout (Mobile) */}
                     <div className="flex flex-col justify-center min-w-0">
-                        <h1 className="text-lg sm:text-xl md:text-2xl font-black text-[#1D1D1F] tracking-tight truncate">
-                            Hola, {userName ? userName.split(' ')[0] : 'Invitado'} 👋
-                        </h1>
+                        <div className="flex items-center gap-2">
+                            <h1 className="text-lg sm:text-xl md:text-2xl font-black text-[#1D1D1F] tracking-tight truncate">
+                                Hola, {userName ? userName.split(' ')[0] : 'Invitado'} 👋
+                            </h1>
+                            {userId && (
+                                <button
+                                    onClick={handleLogout}
+                                    className="sm:hidden w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500 transition-colors"
+                                    title="Cerrar Sesión"
+                                >
+                                    <span className="material-icons-round text-lg">logout</span>
+                                </button>
+                            )}
+                        </div>
                         <p className="text-xs sm:text-sm text-gray-400 font-medium truncate">¿Qué se te antoja hoy?</p>
                     </div>
 
@@ -433,6 +620,13 @@ export default function TiendaPage() {
                                     <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full p-[2px] bg-gradient-to-tr from-[#F7941D] to-[#FFC107] shadow-md flex-shrink-0">
                                         <img src={`https://ui-avatars.com/api/?name=${userName}&background=fff&color=F7941D`} className="w-full h-full rounded-full border-2 border-white object-cover" alt="User" />
                                     </div>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="flex items-center justify-center w-9 h-9 rounded-xl bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-500 transition-all"
+                                        title="Cerrar Sesión"
+                                    >
+                                        <span className="material-icons-round text-xl">logout</span>
+                                    </button>
                                 </>
                             ) : (
                                 <button
@@ -465,19 +659,44 @@ export default function TiendaPage() {
 
                 <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 lg:px-8 pb-20 custom-scrollbar scroll-smooth">
                     {/* Hero Banner - Responsive */}
-                    <div className="w-full h-32 sm:h-40 md:h-44 rounded-xl sm:rounded-2xl md:rounded-[28px] bg-[#1D1D1F] text-white mb-4 sm:mb-6 md:mb-8 relative overflow-hidden shadow-xl group flex shrink-0 mt-4">
-                        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-10"></div>
-                        <img
-                            src="https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=3540&auto=format&fit=crop"
-                            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                            alt="Pizza Banner"
-                        />
-                        <div className="relative z-20 flex flex-col justify-center h-full px-4 sm:px-6 md:px-10 max-w-xl sm:max-w-2xl">
-                            <span className="inline-block px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-[#F7941D] w-fit text-[9px] sm:text-[10px] md:text-xs font-bold mb-1.5 sm:mb-2 shadow-lg shadow-orange-500/30">NUEVO LANZAMIENTO</span>
-                            <h2 className="text-base sm:text-xl md:text-2xl lg:text-3xl font-black mb-1 leading-tight">La Pizza Suprema <br className="hidden sm:block" /> <span className="text-[#F7941D]">Edición Limitada</span></h2>
-                            <p className="text-gray-300 font-medium text-[10px] sm:text-xs md:text-sm max-w-md line-clamp-2">Disfruta de nuestra nueva creación con ingredientes seleccionados y masa madre de 48 horas.</p>
+                    {/* Hero Banner - Responsive */}
+                    {activeBanner ? (
+                        <div className="w-full h-32 sm:h-40 md:h-44 rounded-xl sm:rounded-2xl md:rounded-[28px] bg-[#1D1D1F] text-white mb-4 sm:mb-6 md:mb-8 relative overflow-hidden shadow-xl group flex shrink-0 mt-4">
+                            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-10"></div>
+                            <img
+                                src={activeBanner.image_url}
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                                alt={activeBanner.title}
+                            />
+                            <div className="relative z-20 flex flex-col justify-center h-full px-4 sm:px-6 md:px-10 max-w-xl sm:max-w-2xl">
+                                <span className="inline-block px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-[#f7951d] w-fit text-[9px] sm:text-[10px] md:text-xs font-bold mb-1.5 sm:mb-2 shadow-lg shadow-orange-500/30">
+                                    {activeBanner.description ? 'NOVEDAD' : 'AVISO'}
+                                </span>
+                                <h2 className="text-base sm:text-xl md:text-2xl lg:text-3xl font-black mb-1 leading-tight text-white drop-shadow-md">
+                                    {activeBanner.title}
+                                </h2>
+                                {activeBanner.description && (
+                                    <p className="text-gray-100 font-medium text-[10px] sm:text-xs md:text-sm max-w-md line-clamp-2 drop-shadow-sm">
+                                        {activeBanner.description}
+                                    </p>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    ) : (
+                        <div className="w-full h-32 sm:h-40 md:h-44 rounded-xl sm:rounded-2xl md:rounded-[28px] bg-[#1D1D1F] text-white mb-4 sm:mb-6 md:mb-8 relative overflow-hidden shadow-xl group flex shrink-0 mt-4">
+                            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-10"></div>
+                            <img
+                                src="https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=3540&auto=format&fit=crop"
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                                alt="Pizza Banner"
+                            />
+                            <div className="relative z-20 flex flex-col justify-center h-full px-4 sm:px-6 md:px-10 max-w-xl sm:max-w-2xl">
+                                <span className="inline-block px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-[#F7941D] w-fit text-[9px] sm:text-[10px] md:text-xs font-bold mb-1.5 sm:mb-2 shadow-lg shadow-orange-500/30">NUEVO LANZAMIENTO</span>
+                                <h2 className="text-base sm:text-xl md:text-2xl lg:text-3xl font-black mb-1 leading-tight">La Pizza Suprema <br className="hidden sm:block" /> <span className="text-[#F7941D]">Edición Limitada</span></h2>
+                                <p className="text-gray-300 font-medium text-[10px] sm:text-xs md:text-sm max-w-md line-clamp-2">Disfruta de nuestra nueva creación con ingredientes seleccionados y masa madre de 48 horas.</p>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Categories - Responsive Sticky */}
                     <div className="sticky top-0 z-10 bg-[#FAFAFA]/95 backdrop-blur-sm py-2 sm:py-3 mb-3 sm:mb-4 flex gap-1.5 sm:gap-2 overflow-x-auto pb-3 scrollbar-hide -mx-1 px-1">
@@ -686,48 +905,39 @@ export default function TiendaPage() {
                         </div>
                     </div>
 
-                    {/* Modern Order Type Switcher */}
-                    <div className="bg-[#F5F6F8] p-1.5 rounded-2xl flex relative isolation-auto">
-                        {(['dine-in', 'takeout', 'delivery'] as const).map((type) => (
-                            <button
-                                key={type}
-                                onClick={() => setOrderType(type)}
-                                className={`flex-1 py-2.5 rounded-xl text-xs font-bold capitalize transition-all duration-300 z-10 relative ${orderType === type
-                                    ? 'shadow-sm text-[#1D1D1F]'
-                                    : 'text-gray-400 hover:text-gray-600'
-                                    }`}
-                            >
-                                {orderType === type && (
-                                    <span className="absolute inset-0 bg-white rounded-xl shadow-sm -z-10 animate-in fade-in zoom-in-95 duration-200"></span>
-                                )}
-                                {type.replace('-', ' ')}
-                            </button>
-                        ))}
+                    {/* Delivery Fields - Always visible for customer orders */}
+                    <div className="mt-4 p-4 bg-orange-50 rounded-xl space-y-3">
+                        <h4 className="font-bold text-orange-800 text-sm flex items-center gap-2">
+                            <span className="material-icons-round text-sm">delivery_dining</span>
+                            Datos para Domicilio
+                        </h4>
+                        <p className="text-xs text-orange-700 mb-2">
+                            Completa estos datos para recibir tu pedido
+                        </p>
+                        <input
+                            type="text"
+                            placeholder="Nombre completo"
+                            value={userName}
+                            disabled
+                            className="w-full px-3 py-2 rounded-lg border border-orange-200 bg-white text-sm font-medium text-gray-700"
+                        />
+                        <input
+                            type="text"
+                            placeholder="Dirección completa de entrega"
+                            value={deliveryAddress}
+                            onChange={(e) => setDeliveryAddress(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
+                            required
+                        />
+                        <input
+                            type="tel"
+                            placeholder="Teléfono de contacto"
+                            value={phoneNumber}
+                            onChange={(e) => setPhoneNumber(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
+                            required
+                        />
                     </div>
-
-                    {/* Delivery Fields */}
-                    {orderType === 'delivery' && (
-                        <div className="mt-4 p-4 bg-orange-50 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2">
-                            <h4 className="font-bold text-orange-800 text-sm flex items-center gap-2">
-                                <span className="material-icons-round text-sm">delivery_dining</span>
-                                Datos de Envío
-                            </h4>
-                            <input
-                                type="text"
-                                placeholder="Dirección completa"
-                                value={deliveryAddress}
-                                onChange={(e) => setDeliveryAddress(e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
-                            />
-                            <input
-                                type="tel"
-                                placeholder="Teléfono"
-                                value={phoneNumber}
-                                onChange={(e) => setPhoneNumber(e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
-                            />
-                        </div>
-                    )}
                 </div>
 
                 {/* Cart Items List */}
@@ -849,49 +1059,38 @@ export default function TiendaPage() {
                             </button>
                         </div>
 
-                        {/* Order Type Switcher */}
+                        {/* Delivery Fields - Always visible in mobile */}
                         <div className="p-4 sm:p-6 border-b border-gray-100">
-                            <div className="bg-[#F5F6F8] p-1.5 rounded-2xl flex">
-                                {(['dine-in', 'takeout', 'delivery'] as const).map((type) => (
-                                    <button
-                                        key={type}
-                                        onClick={() => setOrderType(type)}
-                                        className={`flex-1 py-2.5 rounded-xl text-xs font-bold capitalize transition-all duration-300 relative ${orderType === type
-                                            ? 'shadow-sm text-[#1D1D1F]'
-                                            : 'text-gray-400'
-                                            }`}
-                                    >
-                                        {orderType === type && (
-                                            <span className="absolute inset-0 bg-white rounded-xl shadow-sm -z-10" />
-                                        )}
-                                        {type.replace('-', ' ')}
-                                    </button>
-                                ))}
+                            <div className="p-3 bg-orange-50 rounded-xl space-y-2">
+                                <h4 className="font-bold text-orange-800 text-sm flex items-center gap-2">
+                                    <span className="material-icons-round text-sm">delivery_dining</span>
+                                    Datos para Domicilio
+                                </h4>
+                                <p className="text-xs text-orange-700 mb-1">
+                                    Completa estos datos para recibir tu pedido
+                                </p>
+                                <input
+                                    type="text"
+                                    placeholder="Nombre completo"
+                                    value={userName}
+                                    disabled
+                                    className="w-full px-3 py-2 rounded-lg border border-orange-200 bg-white text-sm font-medium text-gray-700"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Dirección completa de entrega"
+                                    value={deliveryAddress}
+                                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                                    className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
+                                />
+                                <input
+                                    type="tel"
+                                    placeholder="Teléfono de contacto"
+                                    value={phoneNumber}
+                                    onChange={(e) => setPhoneNumber(e.target.value)}
+                                    className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
+                                />
                             </div>
-
-                            {/* Delivery Fields */}
-                            {orderType === 'delivery' && (
-                                <div className="mt-4 p-3 bg-orange-50 rounded-xl space-y-2">
-                                    <h4 className="font-bold text-orange-800 text-sm flex items-center gap-2">
-                                        <span className="material-icons-round text-sm">delivery_dining</span>
-                                        Datos de Envío
-                                    </h4>
-                                    <input
-                                        type="text"
-                                        placeholder="Dirección completa"
-                                        value={deliveryAddress}
-                                        onChange={(e) => setDeliveryAddress(e.target.value)}
-                                        className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
-                                    />
-                                    <input
-                                        type="tel"
-                                        placeholder="Teléfono"
-                                        value={phoneNumber}
-                                        onChange={(e) => setPhoneNumber(e.target.value)}
-                                        className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
-                                    />
-                                </div>
-                            )}
                         </div>
 
                         {/* Cart Items */}
@@ -990,6 +1189,29 @@ export default function TiendaPage() {
                 </div>
             )}
 
+            {/* Loading Overlay */}
+            {isProcessingOrder && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex flex-col items-center justify-center p-4">
+                    <div className="flex flex-col items-center gap-8 animate-in fade-in zoom-in duration-300">
+                        {/* Pizza loading animation */}
+                        <div className="relative size-32">
+                            <div className="absolute inset-0 border-4 border-primary/30 rounded-full animate-pulse"></div>
+                            <div className="absolute inset-0 border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin"></div>
+                            <div className="absolute inset-0 flex items-center justify-center text-5xl animate-bounce">
+                                🍕
+                            </div>
+                        </div>
+
+                        <div className="text-center space-y-3">
+                            <h3 className="text-3xl font-extrabold text-white tracking-tight">Procesando tu pedido</h3>
+                            <p className="text-gray-300 text-xl font-medium animate-pulse">
+                                {processingStep}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {showOrderSuccess && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#1D1D1F]/60 backdrop-blur-md animate-in fade-in duration-300">
                     <div className="bg-white rounded-[40px] p-10 shadow-2xl max-w-sm w-full text-center transform animate-in zoom-in-95 duration-300 border border-white/20">
@@ -997,16 +1219,45 @@ export default function TiendaPage() {
                             <div className="absolute inset-0 bg-gradient-to-tr from-green-100 to-transparent"></div>
                             <span className="material-icons-round text-5xl text-green-500 relative z-10 animate-bounce">check_circle</span>
                         </div>
-                        <h2 className="text-3xl font-black text-[#1D1D1F] mb-4">¡Pedido Recibido!</h2>
-                        <p className="text-gray-500 mb-10 font-medium leading-relaxed">
-                            Tu orden <span className="text-[#F7941D] font-black">#{lastOrderId}</span> está siendo procesada. Te avisaremos cuando cambie su estado.
+                        <h2 className="text-3xl font-black text-[#1D1D1F] mb-4">¡Pedido Confirmado!</h2>
+                        <p className="text-gray-500 mb-4 font-medium leading-relaxed">
+                            Tu pedido <span className="text-[#F7941D] font-black">#{lastOrderId}</span> ha sido registrado exitosamente.
                         </p>
+                        <div className="bg-green-50 border-2 border-green-200 rounded-2xl p-4 mb-3">
+                            <div className="flex items-center gap-3 mb-2">
+                                <span className="material-icons-round text-green-600">check_circle</span>
+                                <p className="text-sm font-black text-green-800">Enviar Pedido</p>
+                            </div>
+                            <p className="text-xs text-green-700 leading-relaxed mb-3">
+                                Si WhatsApp no se abrió automáticamente, presiona aquí:
+                            </p>
+                            {whatsappLink && (
+                                <a
+                                    href={whatsappLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="w-full py-3 bg-[#25D366] text-white rounded-xl font-bold text-sm shadow-md hover:bg-[#128C7E] transition-all flex items-center justify-center gap-2"
+                                >
+                                    <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" alt="WA" className="w-5 h-5 filter brightness-0 invert" />
+                                    Enviar por WhatsApp para confirmar pedido
+                                </a>
+                            )}
+                        </div>
+                        <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4 mb-8">
+                            <div className="flex items-center gap-3 mb-2">
+                                <span className="material-icons-round text-blue-600">local_shipping</span>
+                                <p className="text-sm font-black text-blue-800">Entrega a Domicilio</p>
+                            </div>
+                            <p className="text-xs text-blue-700 leading-relaxed">
+                                Tu pedido será entregado en: {deliveryAddress}
+                            </p>
+                        </div>
                         <div className="space-y-4">
                             <button
                                 onClick={() => router.push('/tienda/mis-pedidos')}
                                 className="w-full py-4 bg-[#1D1D1F] text-white rounded-[20px] font-black text-lg shadow-xl shadow-black/10 hover:bg-black hover:scale-[1.02] active:scale-95 transition-all duration-300 flex items-center justify-center gap-3"
                             >
-                                <span>Rastrear Pedido</span>
+                                <span>Ver Mi Pedido</span>
                                 <span className="material-icons-round">receipt_long</span>
                             </button>
                             <button

@@ -15,7 +15,7 @@ const supabaseAdmin = createClient(
 
 export async function POST(request: Request) {
     try {
-        const { email, password, fullName, role } = await request.json();
+        const { email, password, fullName, role, phoneNumber, address } = await request.json();
 
         // Validaciones
         if (!email || !password) {
@@ -38,7 +38,9 @@ export async function POST(request: Request) {
             password,
             email_confirm: true, // Auto-confirmar email
             user_metadata: {
-                full_name: fullName || ''
+                full_name: fullName || '',
+                phone_number: phoneNumber || '',
+                address: address || ''
             }
         });
 
@@ -50,18 +52,45 @@ export async function POST(request: Request) {
             );
         }
 
-        // Actualizar el perfil con el rol
-        if (authData.user && role) {
+        // Actualizar el perfil con el rol y datos extra
+        if (authData.user) {
+            const updateData: any = {
+                role: role || 'cliente', // Default to cliente if not specified
+                full_name: fullName || ''
+            };
+
+            // Add optional fields if they exist in the schema (ignoring errors if columns don't exist yet but preventing logical errors)
+            // We assume profile table might be updated later to include these columns
+            // For now, metadata is the safe storage
+            if (phoneNumber) updateData.phone_number = phoneNumber;
+            if (address) updateData.address = address;
+
             const { error: profileError } = await supabaseAdmin
                 .from('profiles')
-                .update({
-                    role: role,
-                    full_name: fullName || ''
-                })
+                .update(updateData)
                 .eq('id', authData.user.id);
 
             if (profileError) {
                 console.error('Error updating profile:', profileError);
+            }
+
+            // Ensure exists in USUARIOS (Legacy table support)
+            // Check if 'usuarios' table exists or update it just in case orders table references it
+            try {
+                const { error: usuariosError } = await supabaseAdmin
+                    .from('usuarios')
+                    .upsert({
+                        id: authData.user.id,
+                        ...updateData,
+                        email: email // usuarios table might need email
+                    })
+                    .select();
+
+                if (usuariosError) {
+                    console.warn('Warning: Could not update usuarios table', usuariosError);
+                }
+            } catch (e) {
+                console.log('Usuarios table might not exist or other error', e);
             }
         }
 

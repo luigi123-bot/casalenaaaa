@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
+import NotificationPanel from '@/components/NotificationPanel';
+import CashierSupportChat from '@/components/CashierSupportChat';
 
 // Types
 interface Category {
@@ -46,10 +49,12 @@ interface CartItem extends Product {
 type OrderType = 'dine-in' | 'takeout' | 'delivery';
 
 export default function CashierPage() {
+    const router = useRouter();
     // Data State
     const [products, setProducts] = useState<Product[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(true);
+    const [activeBanner, setActiveBanner] = useState<any>(null);
 
     // Filter UI State
     const [selectedCategory, setSelectedCategory] = useState<string | number>('all');
@@ -76,6 +81,10 @@ export default function CashierPage() {
     // Customer State (for Delivery)
     const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', address: '' });
     const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
+
+    // UI Modals State
+    const [showNotifications, setShowNotifications] = useState(false);
+    const [showChat, setShowChat] = useState(false);
     const [foundCustomers, setFoundCustomers] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -125,7 +134,7 @@ export default function CashierPage() {
                         }));
                     }
                 } catch (err) {
-                    console.error('Error searching customer:', err);
+                    console.error('Error sefactuarching customer:', err);
                 } finally {
                     setIsSearchingCustomer(false);
                 }
@@ -136,6 +145,25 @@ export default function CashierPage() {
         return () => clearTimeout(timer);
     }, [customerInfo.phone]);
     const [showCustomerModal, setShowCustomerModal] = useState(false);
+
+    // Fetch Active Banner
+    useEffect(() => {
+        const fetchActiveBanner = async () => {
+            try {
+                const { data } = await supabase
+                    .from('banners')
+                    .select('*')
+                    .eq('is_active', true)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                if (data) setActiveBanner(data);
+            } catch (err) {
+                console.error('Error fetching banner:', err);
+            }
+        };
+        fetchActiveBanner();
+    }, []);
 
     const EXTRAS_OPTIONS = [
         { id: 'extra_cheese', name: 'Extra Queso', price: 20 },
@@ -234,6 +262,24 @@ export default function CashierPage() {
         });
     }, [groupedProducts, selectedCategory, searchQuery]);
 
+    const handleBannerClick = () => {
+        if (!activeBanner?.product_id) return;
+
+        const targetProduct = products.find(p => p.id === activeBanner.product_id);
+        if (!targetProduct) return;
+
+        const match = targetProduct.name.match(/^(.*?)\s*\((.*?)\)$/);
+        const baseName = match ? match[1] : targetProduct.name;
+        const targetSize = match ? match[2] : '';
+
+        const group = groupedProducts.find(g => g.name === baseName);
+        if (group) {
+            setSelectedGroupedProduct(group);
+            if (targetSize) setCurrentSize(targetSize);
+            else if (group.variants.length > 0) setCurrentSize(group.variants[0].size);
+        }
+    };
+
     // Cart Logic
     const openProductCustomizer = (group: GroupedProduct) => {
         setSelectedGroupedProduct(group);
@@ -320,14 +366,39 @@ export default function CashierPage() {
                 console.log('✅ [Caja-PDF] URL recibida:', data.url);
 
                 if (data.printed) {
-                    // Success toast or similar
-                    // alert('Ticket enviado a la impresora.'); 
-                    // We can just log it or show a non-intrusive notification. 
-                    // Using console for now as the SuccessModal is already shown.
-                    console.log('Factura impresa automáticamente.');
+                    console.log('Factura impresa automáticamente por el servidor.');
                 } else {
-                    // Fallback: Open PDF if server couldn't print
-                    window.open(data.url, '_blank');
+                    // Print automatically using a hidden iframe to stay on the same page
+                    const iframe = document.createElement('iframe');
+                    // Hide it visually but keep it in layout so browsers allow printing
+                    iframe.style.position = 'fixed';
+                    iframe.style.width = '0px';
+                    iframe.style.height = '0px';
+                    iframe.style.left = '-9999px';
+                    iframe.style.top = '0px';
+                    iframe.src = data.url;
+
+                    iframe.onload = () => {
+                        // Small delay to ensure rendering matches
+                        setTimeout(() => {
+                            try {
+                                iframe.contentWindow?.print();
+                            } catch (e) {
+                                console.error('Error al invocar impresión automática:', e);
+                                // Fallback if iframe print fails
+                                window.open(data.url, '_blank');
+                            }
+                        }, 500);
+                    };
+
+                    document.body.appendChild(iframe);
+
+                    // Cleanup after 5 minutes (users might cancel print dialog slowly)
+                    setTimeout(() => {
+                        if (document.body.contains(iframe)) {
+                            document.body.removeChild(iframe);
+                        }
+                    }, 300000);
                 }
             } else {
                 console.error('❌ [Caja-PDF] Error en respuesta del servidor:', data);
@@ -341,6 +412,11 @@ export default function CashierPage() {
 
 
     const handlePlaceOrder = async () => {
+        if (orderType === 'dine-in' && !tableNumber.trim()) {
+            alert('⚠️ POR FAVOR INGRESA EL NÚMERO DE MESA.');
+            return;
+        }
+
         console.log('🚀 [Cashier] Iniciar proceso de confirmación de pedido...');
         setLoading(true);
         try {
@@ -441,6 +517,16 @@ export default function CashierPage() {
         }
     };
 
+    const handleLogout = async () => {
+        try {
+            await supabase.auth.signOut();
+        } catch (error) {
+            console.error('Error al cerrar sesión:', error);
+        } finally {
+            window.location.href = '/login';
+        }
+    };
+
     return (
         <div className="flex h-full bg-[#f8f7f5] text-[#181511]">
             {/* MAIN CONTENT */}
@@ -478,6 +564,33 @@ export default function CashierPage() {
                         ))}
                     </div>
 
+                    {/* Notification and Chat Buttons */}
+                    <div className="hidden lg:flex gap-2">
+                        <button
+                            onClick={() => setShowNotifications(true)}
+                            className="h-10 w-10 shrink-0 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-orange-50 hover:text-[#F7941D] text-[#8c785f] transition-colors relative"
+                            title="Notificaciones"
+                        >
+                            <span className="material-icons-round">notifications</span>
+                        </button>
+
+                        <button
+                            onClick={() => setShowChat(true)}
+                            className="h-10 w-10 shrink-0 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-purple-50 hover:text-purple-600 text-[#8c785f] transition-colors"
+                            title="Chat Soporte"
+                        >
+                            <span className="material-icons-round">support_agent</span>
+                        </button>
+                    </div>
+
+                    <button
+                        onClick={handleLogout}
+                        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-red-50 hover:text-red-500 text-[#8c785f] transition-colors"
+                        title="Cerrar Sesión"
+                    >
+                        <span className="material-icons-round">logout</span>
+                    </button>
+
                     {/* Mobile Cart Button */}
                     <button
                         onClick={() => setShowPaymentModal(true)}
@@ -496,6 +609,40 @@ export default function CashierPage() {
 
                 {/* Products Grid - Responsive */}
                 <section className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar">
+                    {/* Active Banner for Cashier */}
+                    {activeBanner && (
+                        <div
+                            onClick={handleBannerClick}
+                            className={`mb-6 rounded-2xl overflow-hidden relative h-32 sm:h-40 bg-[#1D1D1F] text-white shadow-lg group shrink-0 select-none transition-all ${activeBanner.product_id ? 'cursor-pointer hover:ring-4 ring-[#f7951d]/50 active:scale-[0.98]' : ''}`}
+                        >
+                            <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/40 to-transparent z-10 pointer-events-none"></div>
+                            <img
+                                src={activeBanner.image_url}
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                                alt={activeBanner.title}
+                            />
+                            <div className="relative z-20 h-full flex flex-col justify-center px-6 sm:px-8 max-w-xl pointer-events-none">
+                                <span className="inline-block px-2 py-1 rounded-full bg-[#f7951d] text-[10px] font-bold w-fit mb-2 shadow-sm">
+                                    {activeBanner.description ? 'PROMOCIÓN ACTIVA' : 'ANUNCIO'}
+                                </span>
+                                <h2 className="text-xl sm:text-2xl font-black mb-1 text-white leading-tight drop-shadow-md">
+                                    {activeBanner.title}
+                                </h2>
+                                {activeBanner.description && (
+                                    <p className="text-sm text-gray-200 font-medium line-clamp-1 drop-shadow-sm opacity-90">
+                                        {activeBanner.description}
+                                    </p>
+                                )}
+                                {activeBanner.product_id && (
+                                    <div className="mt-2 text-[10px] font-bold text-[#f7951d] uppercase tracking-wide flex items-center gap-1 animate-pulse">
+                                        <span className="material-icons-round text-sm">touch_app</span>
+                                        Toca para ordenar
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {loading && !products.length ? (
                         <div className="flex items-center justify-center h-64"><div className="w-10 h-10 border-4 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div></div>
                     ) : (
@@ -715,15 +862,37 @@ export default function CashierPage() {
                                     </button>
                                 ))}
                             </div>
+                            {orderType === 'dine-in' && (
+                                <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 flex justify-between items-center">
+                                    <span className="text-xs font-black text-blue-500 uppercase">Número de Mesa</span>
+                                    <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-blue-200">
+                                        <span className="text-sm font-bold text-blue-400">#</span>
+                                        <input
+                                            type="text"
+                                            placeholder="00"
+                                            value={tableNumber}
+                                            onChange={(e) => setTableNumber(e.target.value)}
+                                            className="w-12 text-center font-black text-[#181511] outline-none"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
                             {paymentMethod === 'efectivo' && (
                                 <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-300">
-                                    <div className="bg-white rounded-2xl p-6 border-2 border-gray-50 shadow-sm">
-                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-2">
+                                    <div className="bg-white rounded-2xl p-4 border-2 border-gray-200 shadow-sm focus-within:border-[#F7941D] transition-colors relative">
+                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-1 absolute top-2 left-4">
                                             {orderType === 'delivery' ? 'Monto Recibido (Opcional)' : 'Monto Recibido'}
                                         </p>
-                                        <div className="flex items-center text-4xl font-black text-[#181511]">
-                                            <span className="mr-2">$</span>
-                                            <input type="number" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} className="w-full outline-none bg-transparent" placeholder="0.00" autoFocus />
+                                        <div className="flex items-center text-4xl font-black text-[#181511] mt-4">
+                                            <span className="mr-2 text-gray-300">$</span>
+                                            <input
+                                                type="number"
+                                                value={amountPaid}
+                                                onChange={(e) => setAmountPaid(e.target.value)}
+                                                className="w-full outline-none bg-transparent placeholder-gray-200"
+                                                placeholder="0.00"
+                                            />
                                         </div>
                                     </div>
                                     {isSufficientPayment && (paidAmount > 0) && (
@@ -745,13 +914,15 @@ export default function CashierPage() {
                                 disabled={
                                     loading ||
                                     (paymentMethod === 'efectivo' && orderType !== 'delivery' && !isSufficientPayment) ||
-                                    (orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address))
+                                    (orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address)) ||
+                                    (orderType === 'dine-in' && !tableNumber.trim())
                                 }
                                 className="w-full bg-[#f7951d] text-white font-black py-5 rounded-2xl shadow-xl active:scale-95 transition-all disabled:opacity-50"
                             >
                                 {loading ? 'PROCESANDO...' :
                                     (orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address)) ? 'FALTA DATOS CLIENTE' :
-                                        'FINALIZAR E IMPRIMIR'}
+                                        (orderType === 'dine-in' && !tableNumber.trim()) ? 'FALTA MESA' :
+                                            'FINALIZAR E IMPRIMIR'}
                             </button>
                             {orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address) && (
                                 <p className="text-center text-[10px] font-bold text-red-500 uppercase tracking-widest animate-pulse">
@@ -907,6 +1078,10 @@ export default function CashierPage() {
                     </div>
                 </div>
             )}
+
+            {/* Modals */}
+            {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
+            {showChat && <CashierSupportChat onClose={() => setShowChat(false)} />}
         </div>
     );
 }

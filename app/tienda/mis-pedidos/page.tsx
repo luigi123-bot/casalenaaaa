@@ -54,21 +54,33 @@ export default function MisPedidosPage() {
     };
 
     const handleCancelOrder = async (orderId: number) => {
-        if (!confirm('¿Estás seguro de que deseas cancelar este pedido?')) return;
+        if (!confirm('¿Estás seguro de que deseas cancelar este pedido? Se eliminará permanentemente.')) return;
 
         try {
-            const { error } = await supabase
-                .from('orders')
-                .update({ status: 'cancelado' })
-                .eq('id', orderId)
-                .eq('status', 'pendiente');
+            // 1. Call API to delete permanently
+            const response = await fetch('/api/orders/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId })
+            });
 
-            if (error) throw error;
-            fetchMyOrders();
-            alert('Pedido cancelado correctamente.');
-        } catch (e) {
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Error al cancelar');
+            }
+
+            alert('Pedido eliminado correctamente.');
+
+            // 2. Notify Restaurant via WhatsApp
+            const message = `Hola, he cancelado mi pedido #${orderId}. Por favor no lo preparen.`;
+            const whatsappUrl = `https://wa.me/527411075056?text=${encodeURIComponent(message)}`;
+            window.open(whatsappUrl, '_blank');
+
+            fetchMyOrders(); // Refresh list immediately
+
+        } catch (e: any) {
             console.error(e);
-            alert('No se pudo cancelar el pedido. Puede que ya esté siendo preparado.');
+            alert(`No se pudo cancelar el pedido: ${e.message}`);
         }
     };
 
@@ -199,6 +211,14 @@ export default function MisPedidosPage() {
                                             <span className="text-lg font-black text-[#181511]">${order.total_amount.toFixed(2)}</span>
                                         </div>
                                         <div className="flex gap-2">
+                                            {order.status === 'pendiente' && (
+                                                <button
+                                                    onClick={() => handleCancelOrder(order.id)}
+                                                    className="px-4 py-2 rounded-xl bg-red-50 text-red-500 font-bold text-[10px] uppercase tracking-widest hover:bg-red-100 transition-colors"
+                                                >
+                                                    Cancelar
+                                                </button>
+                                            )}
                                             <a
                                                 href={getWhatsAppLink(order)}
                                                 target="_blank"

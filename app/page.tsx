@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 // import ThemeToggle from '@/components/ThemeToggle'; // Temporalmente deshabilitado
@@ -12,59 +12,53 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
+  // Check query params manually
+  const [redirectPath, setRedirectPath] = useState('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get('redirect');
+      const emailParam = params.get('email');
+      if (redirect) setRedirectPath(redirect);
+      if (emailParam) setEmail(emailParam);
+    }
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    // Console log para ver las credenciales ingresadas
-    console.log('=== INTENTO DE LOGIN ===');
-    console.log('Email ingresado:', email);
-    console.log('Contraseña ingresada:', password);
-
     try {
-      // 1. Authenticate with Supabase
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      console.log('Respuesta de autenticación:', authData);
-      if (authError) {
-        console.error('Error de autenticación:', authError);
-        throw authError;
-      }
+      if (authError) throw authError;
 
       if (authData.user) {
-        console.log('Usuario autenticado:', authData.user);
+        // If there is a redirect path (e.g. from checkout), use it
+        if (redirectPath) {
+          router.push(redirectPath);
+          return;
+        }
 
-        // 2. Fetch User Profile to get Role
-        const { data: profileData, error: profileError } = await supabase
+        const { data: profileData } = await supabase
           .from('profiles')
           .select('role')
           .eq('id', authData.user.id)
           .single();
 
-        console.log('Datos del perfil en tabla profiles:', profileData);
-        if (profileError) {
-          console.error('Error al buscar perfil:', profileError);
-          // Fallback if profile not found (shouldn't happen with triggers)
-          // Default to cashier or show error
-          console.error('Error fetching profile:', profileError);
+        if (profileData?.role === 'administrador') {
+          router.push('/admin');
+        } else if (profileData?.role === 'cajero') {
           router.push('/cashier');
         } else {
-          // 3. Redirect based on Role
-          console.log('Rol del usuario:', profileData.role);
-          if (profileData.role === 'administrador') {
-            console.log('Redirigiendo a /admin');
-            router.push('/admin');
-          } else {
-            console.log('Redirigiendo a /cashier');
-            router.push('/cashier');
-          }
+          router.push('/tienda'); // Default fallback
         }
       }
-
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err.message || 'Error al iniciar sesión. Verifique sus credenciales.');
@@ -76,8 +70,8 @@ export default function Home() {
     <div className="bg-background dark:bg-background-dark text-text-main dark:text-white font-display transition-colors duration-200 min-h-screen flex flex-col items-center justify-center p-4 relative">
       {/* Theme Toggle - Temporalmente deshabilitado */}
       {/* <div className="absolute top-4 right-4">
-        <ThemeToggle />
-      </div> */}
+         <ThemeToggle />
+       </div> */}
 
       <main className="w-full max-w-[420px]">
         <div className="flex flex-col bg-surface dark:bg-gray-900 rounded-xl shadow-xl border border-border dark:border-gray-800 overflow-hidden">
@@ -204,4 +198,3 @@ export default function Home() {
     </div>
   );
 }
-

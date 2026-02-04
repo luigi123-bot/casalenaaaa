@@ -33,13 +33,17 @@ export default function LoginPage() {
                 .single();
 
             // Redirect based on role
-            if (profile?.role === 'admin') {
+            const role = profile?.role;
+            console.log('👤 [Login] User role found:', role);
+
+            if (role === 'admin' || role === 'administrador') {
                 router.push('/admin');
-            } else if (profile?.role === 'cashier') {
+            } else if (role === 'cashier' || role === 'cajero') {
                 router.push('/cashier');
-            } else if (profile?.role === 'kitchen') {
-                router.push('/kitchen');
+            } else if (role === 'kitchen' || role === 'cocina') {
+                router.push('/cocina');
             } else {
+                // Default to store for clients and others
                 router.push('/tienda');
             }
         } catch (error: any) {
@@ -176,7 +180,7 @@ export default function LoginPage() {
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F7941D] focus:border-transparent focus:bg-white transition-all group-hover:border-gray-300"
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F7941D] focus:border-transparent focus:bg-white text-[#181511] placeholder-gray-400 font-medium transition-all group-hover:border-gray-300"
                                     placeholder="Ingresa tu correo o usuario"
                                     required
                                 />
@@ -195,7 +199,7 @@ export default function LoginPage() {
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F7941D] focus:border-transparent focus:bg-white transition-all group-hover:border-gray-300"
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F7941D] focus:border-transparent focus:bg-white text-[#181511] placeholder-gray-400 font-medium transition-all group-hover:border-gray-300"
                                     placeholder="Ingresa tu contraseña"
                                     required
                                 />

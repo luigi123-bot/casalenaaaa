@@ -31,6 +31,7 @@ export default function Sidebar() {
         { label: 'Dashboard', icon: 'grid_view', href: '/admin' },
         { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
         { label: 'Productos', icon: 'inventory_2', href: '/admin/productos' },
+        { label: 'Anuncios', icon: 'campaign', href: '/admin/anuncios' },
         { label: 'Órdenes', icon: 'receipt_long', href: '/admin/orders' },
         { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
         { label: 'Reportes', icon: 'analytics', href: '/admin/reports' },
@@ -40,11 +41,11 @@ export default function Sidebar() {
 
     // Navigation for Cashier
     const cashierNavItems: NavItem[] = [
-        { label: 'Menú', icon: 'local_pizza', href: '/cashier' },
+        { label: 'Dashboard', icon: 'dashboard', href: '/cashier/dashboard' },
+        { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
         { label: 'Órdenes', icon: 'receipt_long', href: '/cashier/orders' },
-        { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
         { label: 'Inventario', icon: 'inventory_2', href: '/cashier/inventory' },
-        { label: 'Historial', icon: 'history', href: '/cashier/history' },
+        { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
     ];
 
     // Navigation for Kitchen (Cocina)
@@ -157,14 +158,21 @@ export default function Sidebar() {
                         </Link>
                     ) : (
                         <button
-                            onClick={() => {
-                                signOut();
+                            onClick={async () => {
+                                console.log('Iniciando cierre de sesión...');
+                                try {
+                                    await signOut();
+                                } catch (error) {
+                                    console.error('Error al cerrar sesión:', error);
+                                    // Force redirect anyway
+                                    window.location.href = '/login';
+                                }
                                 setIsMobileMenuOpen(false);
                             }}
                             className="flex w-full items-center gap-3 px-3 py-2 rounded-xl text-[#8c785f] hover:bg-[#f5f2f0] cursor-pointer transition-colors"
                         >
                             <span className="material-symbols-outlined text-2xl">logout</span>
-                            <span className="text-sm font-medium">Logout</span>
+                            <span className="text-sm font-medium">Cerrar Sesión</span>
                         </button>
                     )}
                 </div>

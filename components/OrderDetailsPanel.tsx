@@ -148,6 +148,39 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
         }
     };
 
+    const handleDeleteOrder = async () => {
+        if (!confirm('¿CONFIRMAR CANCELACIÓN? Se eliminará de la base de datos y se notificará al cliente.')) return;
+        setUpdating(true);
+
+        try {
+            // 1. Delete via API
+            const response = await fetch('/api/orders/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId: order.id })
+            });
+
+            if (!response.ok) throw new Error('Error al eliminar');
+
+            // 2. Notify Customer via WhatsApp
+            if (order.phone_number) {
+                const cleanPhone = order.phone_number.replace(/\D/g, '');
+                const message = `Hola ${order.customer_name || 'Cliente'}, lamentamos informarle que su pedido #${order.id} ha sido cancelado.`;
+                const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+                window.open(whatsappUrl, '_blank');
+            }
+
+            onClose();
+            if (onStatusChange) onStatusChange();
+
+        } catch (error: any) {
+            console.error(error);
+            alert('Error al cancelar pedido: ' + error.message);
+        } finally {
+            setUpdating(false);
+        }
+    };
+
     const StatusConfig: Record<string, { label: string, color: string, icon: string, nextStatus?: string, nextLabel?: string, nextColor?: string, nextIcon?: string }> = {
         'pendiente': {
             label: 'Pendiente', color: 'bg-yellow-50 border-yellow-200 text-yellow-800', icon: 'hourglass_empty',
@@ -250,11 +283,15 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
                                 {currentStatus.nextLabel}
                             </button>
                         )}
-                        {order.status === 'pendiente' && (
-                            <button onClick={() => handleUpdateStatus('cancelado')} disabled={updating} className="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-2">
-                                <span className="material-symbols-outlined">cancel</span> Rechazar
-                            </button>
-                        )}
+
+                        <button
+                            onClick={handleDeleteOrder}
+                            disabled={updating}
+                            className="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-2"
+                        >
+                            <span className="material-symbols-outlined">delete_forever</span> Cancelar y Eliminar
+                        </button>
+
                         <button onClick={handleGeneratePDF} disabled={updating} className="w-full bg-[#181511] text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-lg hover:bg-black transition-all disabled:opacity-50">
                             <span className="material-symbols-outlined text-2xl">picture_as_pdf</span>
                             Imprimir Ticket (PDF 58mm)
