@@ -37,13 +37,21 @@ export async function PUT(request: Request) {
         }
 
         // 2. Update Auth Metadata (to keep it in sync, optional but recommended)
+        const authUpdates: any = {
+            user_metadata: { full_name: fullName },
+            ban_duration: isActive ? 'none' : '876000h'
+        };
+
+        // Allow Admin to force-reset password if provided
+        // This is useful if users hit email rate limits
+        const { password } = await request.json().catch(() => ({}));
+        if (password && password.length >= 6) {
+            authUpdates.password = password;
+        }
+
         const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
             id,
-            {
-                user_metadata: { full_name: fullName },
-                // Handle active status (ban if inactive)
-                ban_duration: isActive ? 'none' : '876000h' // Ban for 100 years if inactive, 'none' to unban
-            }
+            authUpdates
         );
 
         if (authError) {

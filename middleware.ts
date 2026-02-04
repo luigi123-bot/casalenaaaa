@@ -68,6 +68,13 @@ export async function middleware(request: NextRequest) {
         return response;
     }
 
+    // EXPLICIT BYPASS FOR PASSWORD UPDATE
+    // This ensures that even if logged in, the user can access this page to reset credentials
+    if (pathname === '/update-password') {
+        console.log('🔓 [Middleware] Explicitly allowing /update-password');
+        return response;
+    }
+
     // 1. ROOT PATH HANDLING - ABSOLUTE PRIORITY
     if (pathname === '/') {
         if (!user) {
