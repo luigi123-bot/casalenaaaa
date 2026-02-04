@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
 
 export default function LoginPage() {
@@ -251,6 +252,12 @@ export default function LoginPage() {
                                 </span>
                             </button>
                         </form>
+
+                        <div className="mt-6 text-center">
+                            <Link href="/register" className="text-sm text-[#F7941D] hover:text-[#e8891a] font-bold hover:underline transition-all">
+                                ¿No tienes cuenta? Regístrate aquí
+                            </Link>
+                        </div>
                     </div>
                 </div>
             </div>

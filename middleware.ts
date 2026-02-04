@@ -80,7 +80,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // 2. PUBLIC ROUTES
-    const publicRoutes = ['/login', '/register', '/tienda'];
+    const publicRoutes = ['/login', '/register', '/tienda', '/forgot-password', '/update-password'];
 
     // Logic for public routes
     if (publicRoutes.includes(pathname) || pathname.startsWith('/tienda')) {

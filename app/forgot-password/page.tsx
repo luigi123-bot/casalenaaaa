@@ -9,24 +9,25 @@ export default function ForgotPasswordPage() {
     const [email, setEmail] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [success, setSuccess] = useState(false);
+    const [step, setStep] = useState<'form' | 'success'>('form');
 
     const handleResetPassword = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError('');
-        setSuccess(false);
 
         try {
+            // Updated to use the standard Redirect Link flow which is more reliable by default
             const { error } = await supabase.auth.resetPasswordForEmail(email, {
                 redirectTo: `${window.location.origin}/update-password`,
             });
 
             if (error) throw error;
 
-            setSuccess(true);
+            setStep('success');
         } catch (error: any) {
-            setError(error.message || 'Error al enviar el correo de recuperación');
+            console.error(error);
+            setError(error.message || 'Error al enviar el correo. Verifique que el correo sea correcto o intente más tarde.');
         } finally {
             setLoading(false);
         }
@@ -60,7 +61,7 @@ export default function ForgotPasswordPage() {
                             </span>
                         </h1>
                         <p className="text-lg text-blue-100 max-w-md animate-fade-in-up animation-delay-200">
-                            No te preocupes, te ayudaremos a recuperar el acceso a tu cuenta de forma segura.
+                            Te enviaremos un enlace seguro para que puedas recuperar el acceso a tu cuenta inmediatamente.
                         </p>
                     </div>
                 </div>
@@ -73,10 +74,12 @@ export default function ForgotPasswordPage() {
                         {/* Header */}
                         <div className="mb-8">
                             <h2 className="text-2xl font-black text-gray-900 mb-2">
-                                ¿Olvidaste tu contraseña?
+                                {step === 'form' ? '¿Olvidaste tu contraseña?' : '¡Correo Enviado!'}
                             </h2>
                             <p className="text-sm text-gray-500">
-                                Ingresa tu correo electrónico y te enviaremos las instrucciones para restablecerla.
+                                {step === 'form'
+                                    ? 'Ingresa tu correo electrónico para recibir un enlace de recuperación.'
+                                    : `Hemos enviado las instrucciones a ${email}.`}
                             </p>
                         </div>
 
@@ -87,59 +90,77 @@ export default function ForgotPasswordPage() {
                             </div>
                         )}
 
-                        {success && (
-                            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm animate-fade-in">
-                                ¡Correo enviado! Revisa tu bandeja de entrada para restablecer tu contraseña.
+                        {step === 'form' ? (
+                            <form onSubmit={handleResetPassword} className="space-y-5">
+                                <div className="group">
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                                        Correo electrónico
+                                    </label>
+                                    <input
+                                        type="email"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F7941D] focus:border-transparent focus:bg-white text-[#181511] placeholder-gray-400 font-medium transition-all group-hover:border-gray-300"
+                                        placeholder="tucorreo@ejemplo.com"
+                                        required
+                                    />
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full bg-gradient-to-r from-[#4a7bb8] to-[#2d5a8f] text-white py-3.5 rounded-xl font-bold shadow-lg hover:shadow-2xl transform hover:-translate-y-1 hover:scale-[1.02] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2 relative overflow-hidden group"
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-[#2d5a8f] to-[#4a7bb8] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                                    <span className="relative z-10 flex items-center gap-2">
+                                        {loading ? (
+                                            <>
+                                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                Enviando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                Enviar enlace
+                                                <span className="material-icons-round text-lg group-hover:translate-x-1 transition-transform">send</span>
+                                            </>
+                                        )}
+                                    </span>
+                                </button>
+                            </form>
+                        ) : (
+                            <div className="text-center space-y-6">
+                                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-float">
+                                    <span className="material-icons-round text-4xl text-green-600">mark_email_read</span>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <p className="text-gray-600 font-medium">
+                                        Revisa tu bandeja de entrada (y la carpeta de spam).
+                                    </p>
+                                    <p className="text-sm text-gray-500">
+                                        Haz clic en el enlace que te enviamos para crear una nueva contraseña.
+                                    </p>
+                                </div>
+
+                                <button
+                                    onClick={() => setStep('form')}
+                                    className="text-sm text-[#F7941D] font-bold hover:underline"
+                                >
+                                    ¿No recibiste el correo? Intentar de nuevo
+                                </button>
                             </div>
                         )}
 
-                        <form onSubmit={handleResetPassword} className="space-y-5">
-                            <div className="group">
-                                <label className="block text-sm font-bold text-gray-700 mb-2">
-                                    Correo electrónico
-                                </label>
-                                <input
-                                    type="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F7941D] focus:border-transparent focus:bg-white text-[#181511] placeholder-gray-400 font-medium transition-all group-hover:border-gray-300"
-                                    placeholder="tucorreo@ejemplo.com"
-                                    required
-                                />
-                            </div>
-
+                        <div className="text-center mt-8 pt-6 border-t border-gray-100">
                             <button
-                                type="submit"
-                                disabled={loading}
-                                className="w-full bg-gradient-to-r from-[#4a7bb8] to-[#2d5a8f] text-white py-3.5 rounded-xl font-bold shadow-lg hover:shadow-2xl transform hover:-translate-y-1 hover:scale-[1.02] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2 relative overflow-hidden group"
+                                type="button"
+                                onClick={() => router.push('/login')}
+                                className="text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors flex items-center justify-center gap-2 mx-auto"
                             >
-                                <div className="absolute inset-0 bg-gradient-to-r from-[#2d5a8f] to-[#4a7bb8] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                                <span className="relative z-10 flex items-center gap-2">
-                                    {loading ? (
-                                        <>
-                                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                            Enviando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            Enviar instrucciones
-                                            <span className="material-icons-round text-lg group-hover:translate-x-1 transition-transform">send</span>
-                                        </>
-                                    )}
-                                </span>
+                                <span className="material-icons-round text-sm">arrow_back</span>
+                                Volver al inicio de sesión
                             </button>
-
-                            <div className="text-center mt-6">
-                                <button
-                                    type="button"
-                                    onClick={() => router.push('/login')}
-                                    className="text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors flex items-center justify-center gap-2 mx-auto"
-                                >
-                                    <span className="material-icons-round text-sm">arrow_back</span>
-                                    Volver al inicio de sesión
-                                </button>
-                            </div>
-                        </form>
+                        </div>
                     </div>
                 </div>
             </div>

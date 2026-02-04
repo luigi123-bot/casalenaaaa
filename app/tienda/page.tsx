@@ -576,13 +576,22 @@ export default function TiendaPage() {
                                 Hola, {userName ? userName.split(' ')[0] : 'Invitado'} 👋
                             </h1>
                             {userId && (
-                                <button
-                                    onClick={handleLogout}
-                                    className="sm:hidden w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500 transition-colors"
-                                    title="Cerrar Sesión"
-                                >
-                                    <span className="material-icons-round text-lg">logout</span>
-                                </button>
+                                <div className="flex gap-2 sm:hidden">
+                                    <button
+                                        onClick={() => router.push('/update-password')}
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                                        title="Cambiar Contraseña"
+                                    >
+                                        <span className="material-icons-round text-lg">lock</span>
+                                    </button>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500 transition-colors"
+                                        title="Cerrar Sesión"
+                                    >
+                                        <span className="material-icons-round text-lg">logout</span>
+                                    </button>
+                                </div>
                             )}
                         </div>
                         <p className="text-xs sm:text-sm text-gray-400 font-medium truncate">¿Qué se te antoja hoy?</p>
@@ -612,6 +621,14 @@ export default function TiendaPage() {
                                     >
                                         <span className="material-icons-round text-sm">receipt_long</span>
                                         Pedidos
+                                    </button>
+                                    <button
+                                        onClick={() => router.push('/update-password')}
+                                        className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-50 text-gray-600 font-bold text-xs hover:bg-gray-100 transition-colors whitespace-nowrap"
+                                        title="Cambiar Contraseña"
+                                    >
+                                        <span className="material-icons-round text-sm">lock</span>
+                                        <span className="hidden xl:inline">Contraseña</span>
                                     </button>
                                     <div className="text-right hidden xl:block">
                                         <p className="text-xs font-bold text-gray-900 truncate max-w-[100px]">{userName}</p>
