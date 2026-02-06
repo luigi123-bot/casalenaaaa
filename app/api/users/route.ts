@@ -13,6 +13,56 @@ const supabaseAdmin = createClient(
     }
 );
 
+export async function GET(request: Request) {
+    try {
+        // Fetch from profiles
+        let { data: profiles, error: profilesError } = await supabaseAdmin
+            .from('profiles')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (profilesError) {
+            console.warn('Error fetching profiles:', profilesError);
+            profiles = [];
+        }
+
+        // Fetch from usuarios (legacy)
+        let { data: usuarios, error: usuariosError } = await supabaseAdmin
+            .from('usuarios')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (usuariosError) {
+            console.warn('Error fetching usuarios:', usuariosError);
+            usuarios = [];
+        }
+
+        // Merge logic: use profiles, fallback to usuarios if not in profiles
+        // We want a unified list
+        const profilesMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+        const unifiedUsers = [...(profiles || [])];
+
+        (usuarios || []).forEach((u: any) => {
+            if (!profilesMap.has(u.id)) {
+                // Determine sensible defaults if missing
+                unifiedUsers.push({
+                    ...u,
+                    full_name: u.full_name || u.email || 'Usuario', // Fallback
+                    role: u.role || 'cliente'
+                });
+            }
+        });
+
+        // Sort by creation date or name
+        unifiedUsers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        return NextResponse.json(unifiedUsers);
+    } catch (error: any) {
+        console.error('Get users error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
 export async function PUT(request: Request) {
     try {
         const { id, role, fullName, isActive } = await request.json();

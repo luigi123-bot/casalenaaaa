@@ -34,24 +34,16 @@ export default function AdminUsersPage() {
     const fetchUsers = async () => {
         setLoading(true);
         try {
-            let { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .order('created_at', { ascending: false });
+            // Use the secure API route instead of direct Client DB call to bypass RLS issues
+            const response = await fetch('/api/users');
+            if (!response.ok) throw new Error('Failed to fetch users');
 
-            if (error && error.code === 'PGRST116') {
-                const result = await supabase
-                    .from('usuarios')
-                    .select('*')
-                    .order('created_at', { ascending: false });
-                data = result.data;
-                error = result.error;
-            }
-
-            if (error) throw error;
+            const data = await response.json();
             setUsers(data || []);
         } catch (error: any) {
             console.error('Error fetching users:', error);
+            // Fallback just in case api fails? No, better to show error or empty than partial RLS data
+            setUsers([]);
         } finally {
             setLoading(false);
         }

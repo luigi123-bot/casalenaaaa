@@ -572,7 +572,7 @@ export default function TiendaPage() {
                     {/* User Greeting & Logout (Mobile) */}
                     <div className="flex flex-col justify-center min-w-0">
                         <div className="flex items-center gap-2">
-                            <h1 className="text-lg sm:text-xl md:text-2xl font-black text-[#1D1D1F] tracking-tight truncate">
+                            <h1 className={`text-lg sm:text-xl md:text-2xl font-black text-[#1D1D1F] tracking-tight truncate ${userId ? 'pl-12 xl:pl-0' : ''}`}>
                                 Hola, {userName ? userName.split(' ')[0] : 'Invitado'} 👋
                             </h1>
                             {userId && (
@@ -612,7 +612,7 @@ export default function TiendaPage() {
                         </div>
 
                         {/* User Profile - Desktop */}
-                        <div className="hidden sm:flex items-center gap-2 md:gap-3 pl-3 md:pl-4 border-l border-gray-200">
+                        <div className={`${userId ? 'hidden sm:flex' : 'flex'} items-center gap-2 md:gap-3 pl-2 sm:pl-3 md:pl-4 border-l border-gray-200 shrink-0`}>
                             {userId ? (
                                 <>
                                     <button
