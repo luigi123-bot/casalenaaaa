@@ -26,6 +26,8 @@ const printWithTimeout = async (command: string, timeoutMs: number = 3000) => {
 };
 
 export async function POST(req: NextRequest) {
+    let tempFilePath: string | null = null;
+
     try {
         const body = await req.json();
         const { order, items, commerce } = body;
@@ -60,22 +62,25 @@ export async function POST(req: NextRequest) {
             }))
         };
 
-        const outputPath = path.join(process.cwd(), 'public', 'tickets', `ticket_${order.id}.pdf`);
-        const ticketsDir = path.join(process.cwd(), 'public', 'tickets');
-        if (!fs.existsSync(ticketsDir)) fs.mkdirSync(ticketsDir, { recursive: true });
+        // Create temp directory if it doesn't exist
+        const tempDir = path.join(process.cwd(), 'temp');
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-        // Generate PDF using Native TypeScript Generator
-        await generateTicketPDF(ticketData, outputPath);
+        // Generate PDF in temp location
+        tempFilePath = path.join(tempDir, `ticket_${order.id}_${Date.now()}.pdf`);
+        await generateTicketPDF(ticketData, tempFilePath);
 
-        // OPTIMIZED AUTO-PRINTING (Linux/CUPS)
+        // AUTO-PRINT (Linux/CUPS)
         let printed = false;
+        let printError = null;
+
         try {
-            console.log(`🖨️ [Server] Printing: ${outputPath}`);
+            console.log(`🖨️ [Server] Auto-printing ticket for order ${order.id}...`);
 
             // ⚡ Strategy 1: Use Cached Printer (Fastest)
             if (cachedPrinter) {
                 console.log(`⚡ [Server] Using cached printer: ${cachedPrinter}`);
-                await printWithTimeout(`lp -d ${cachedPrinter} "${outputPath}"`);
+                await printWithTimeout(`lp -d ${cachedPrinter} "${tempFilePath}"`);
                 printed = true;
             } else {
                 // 🔍 Strategy 2: Discovery Phase (First time only)
@@ -84,7 +89,7 @@ export async function POST(req: NextRequest) {
                     const { stdout: defaultPrinter } = await execPromise('lpstat -d') as any;
 
                     if (!defaultPrinter.includes('no system default destination')) {
-                        await printWithTimeout(`lp "${outputPath}"`);
+                        await printWithTimeout(`lp "${tempFilePath}"`);
                         console.log('✅ [Server] Printed to system default');
                         printed = true;
                     } else {
@@ -98,7 +103,7 @@ export async function POST(req: NextRequest) {
                             if (printerName) {
                                 cachedPrinter = printerName; // CACHE IT!
                                 console.log(`✅ [Server] Found & Cached printer: ${printerName}`);
-                                await printWithTimeout(`lp -d ${printerName} "${outputPath}"`);
+                                await printWithTimeout(`lp -d ${printerName} "${tempFilePath}"`);
                                 printed = true;
                             }
                         } else {
@@ -109,16 +114,53 @@ export async function POST(req: NextRequest) {
                     throw e; // Propagate to outer catch
                 }
             }
-        } catch (printError) {
-            console.warn('⚠️ [Server] Best-effort print failed:', printError);
-            // We proceed returning the PDF URL, user can print manually
+        } catch (error: any) {
+            console.error('⚠️ [Server] Print failed:', error);
+            printError = error.message;
         }
 
-        const publicUrl = `/tickets/ticket_${order.id}.pdf`;
-        return NextResponse.json({ url: publicUrl, printed });
+        // Clean up: Delete temp file immediately after printing (or attempting to print)
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+            try {
+                fs.unlinkSync(tempFilePath);
+                console.log(`🗑️ [Server] Deleted temp file: ${tempFilePath}`);
+            } catch (cleanupError) {
+                console.warn('⚠️ [Server] Could not delete temp file:', cleanupError);
+            }
+        }
+
+        // Return only print status (no URL)
+        if (printed) {
+            return NextResponse.json({
+                success: true,
+                printed: true,
+                message: 'Ticket printed successfully'
+            });
+        } else {
+            return NextResponse.json({
+                success: false,
+                printed: false,
+                error: printError || 'Could not print ticket',
+                message: 'Print failed - please check printer connection'
+            }, { status: 500 });
+        }
 
     } catch (error: any) {
-        console.error('API Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error('❌ [Server] API Error:', error);
+
+        // Clean up temp file if it exists
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+            try {
+                fs.unlinkSync(tempFilePath);
+            } catch (cleanupError) {
+                console.warn('⚠️ [Server] Could not delete temp file:', cleanupError);
+            }
+        }
+
+        return NextResponse.json({
+            success: false,
+            error: error.message,
+            message: 'Failed to generate or print ticket'
+        }, { status: 500 });
     }
 }

@@ -14,14 +14,28 @@ export default function CustomerSupportChat() {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
-    const [loading, setLoading] = useState(false);
     const [hasUnread, setHasUnread] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [userId, setUserId] = useState<string | null>(null);
     const [userName, setUserName] = useState<string | null>(null);
 
+    // Refs for stale closure prevention in callbacks
+    const isOpenRef = useRef(isOpen);
+
     useEffect(() => {
-        // Auth check
+        isOpenRef.current = isOpen;
+        if (isOpen) {
+            setHasUnread(false);
+            setTimeout(scrollToBottom, 50);
+        }
+    }, [isOpen]);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    // 1. Auth Check
+    useEffect(() => {
         const checkUser = async () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
@@ -29,49 +43,86 @@ export default function CustomerSupportChat() {
                 // Fetch name if possible, or use 'Cliente'
                 const { data: profile } = await supabase.from('usuarios').select('full_name').eq('id', user.id).single();
                 setUserName(profile?.full_name || user.email || 'Cliente');
-                fetchMessages(user.id);
-                subscribeToMessages(user.id);
             }
         };
-
         checkUser();
     }, []);
 
+    // 2. Data Fetching & Subscription & Polling
+    useEffect(() => {
+        if (!userId) return;
+
+        console.log('--- Initializing Chat for User:', userId);
+
+        // Initial Fetch
+        fetchMessages(userId);
+
+        // Realtime Subscription
+        const channel = supabase
+            .channel(`chat_customer_${userId}`)
+            .on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `user_id=eq.${userId}` },
+                (payload) => {
+                    const newMsg = payload.new as Message;
+                    console.log('--- Realtime msg received:', newMsg);
+
+                    setMessages((prev) => {
+                        // Prevent duplicates
+                        if (prev.some(m => m.id === newMsg.id)) return prev;
+                        return [...prev, newMsg];
+                    });
+
+                    // Use Ref to check current open status
+                    if (newMsg.sender === 'admin' && !isOpenRef.current) {
+                        setHasUnread(true);
+                        try {
+                            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3');
+                            audio.play().catch(() => { });
+                        } catch (e) { }
+                    }
+                    setTimeout(scrollToBottom, 100);
+                }
+            )
+            .subscribe((status) => {
+                console.log(`--- Subscription status detected: ${status}`);
+            });
+
+        // Polling Fallback (every 3 seconds)
+        const pollInterval = setInterval(() => {
+            fetchMessages(userId);
+        }, 3000);
+
+        return () => {
+            console.log('--- Cleaning up chat subscription ---');
+            supabase.removeChannel(channel);
+            clearInterval(pollInterval);
+        };
+    }, [userId]);
+
     const fetchMessages = async (uid: string) => {
-        const { data } = await supabase
+        const { data, error } = await supabase
             .from('chat_messages')
             .select('*')
             .eq('user_id', uid)
             .order('created_at', { ascending: true });
 
-        if (data) setMessages(data);
-    };
+        if (error) {
+            console.error('Error fetching messages:', error);
+            return;
+        }
 
-    const subscribeToMessages = (uid: string) => {
-        const channel = supabase
-            .channel(`chat:${uid}`)
-            .on(
-                'postgres_changes',
-                { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `user_id=eq.${uid}` },
-                (payload) => {
-                    const newMsg = payload.new as Message;
-                    setMessages((prev) => {
-                        // Prevent duplicates (e.g. from optimistic update that got confirmed)
-                        if (prev.some(m => m.id === newMsg.id)) return prev;
-                        return [...prev, newMsg];
-                    });
-                    if (newMsg.sender === 'admin' && !isOpen) {
-                        setHasUnread(true);
-                        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3');
-                        audio.play().catch(e => { });
-                    }
+        if (data) {
+            setMessages(prev => {
+                // If the data is identical (by length and last ID), don't update to avoid flicker? 
+                // Or just update. React is efficient.
+                // Simple equality check to reduce re-renders
+                if (data.length === prev.length && data.length > 0 && data[data.length - 1].id === prev[prev.length - 1].id) {
+                    return prev;
                 }
-            )
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
+                return data;
+            });
+        }
     };
 
     const handleSendMessage = async (e: React.FormEvent) => {
@@ -79,9 +130,9 @@ export default function CustomerSupportChat() {
         if (!newMessage.trim() || !userId) return;
 
         const msgContent = newMessage.trim();
-        setNewMessage(''); // clear input
+        setNewMessage('');
 
-        // Optimistic update
+        // Optimistic
         const tempId = Date.now();
         const optimisticMsg: Message = {
             id: tempId,
@@ -90,6 +141,7 @@ export default function CustomerSupportChat() {
             created_at: new Date().toISOString()
         };
         setMessages(prev => [...prev, optimisticMsg]);
+        setTimeout(scrollToBottom, 50);
 
         try {
             const { data, error } = await supabase
@@ -105,29 +157,20 @@ export default function CustomerSupportChat() {
 
             if (error) throw error;
 
-            // Limit duplicate if subscription catches it too (dedupe by content/time key if needed, or replace tempId)
-            // Ideally real-time handles incoming. We can filter out the tempId one if we want, but for now simple optimistic is better than lag.
-            // A better way is: don't rely on subscription for MY OWN messages if I verify them here.
-
-            // Update the optimistic message with real ID (optional but good practice)
-            setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: data.id } : m));
+            // Replace optimistic with real
+            setMessages(prev => prev.map(m => m.id === tempId ? data : m));
 
         } catch (error) {
             console.error('Error sending message:', error);
-            alert('Error al enviar mensaje');
-            // Rollback optimistic
-            setMessages(prev => prev.filter(m => m.id !== tempId));
+            setMessages(prev => prev.filter(m => m.id !== tempId)); // remove failed
         }
     };
 
     useEffect(() => {
-        if (isOpen) {
-            setHasUnread(false);
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }
-    }, [messages, isOpen]);
+        scrollToBottom();
+    }, [messages]);
 
-    if (!userId) return null; // Don't show if not logged in (or maybe show prompts)
+    if (!userId) return null; // Don't show if not logged in
 
     return (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none">

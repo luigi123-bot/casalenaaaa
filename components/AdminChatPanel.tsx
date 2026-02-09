@@ -27,9 +27,8 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [reply, setReply] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    // Use a ref to access the current selected user inside the subscription callback
     const selectedUserRef = useRef<string | null>(null);
+    const retryCountRef = useRef(0);
 
     useEffect(() => {
         selectedUserRef.current = selectedUserId;
@@ -38,7 +37,6 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
     // Handle initial preselection
     useEffect(() => {
         if (preselectedUserId) {
-            setSelectedUserId(preselectedUserId);
             loadConversation(preselectedUserId);
         }
     }, [preselectedUserId]);
@@ -47,12 +45,13 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
     useEffect(() => {
         fetchConversations();
 
+        // Realtime subscription setup
         const channel = supabase
             .channel('admin_chat_global')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, (payload) => {
                 const newMsg = payload.new as ChatMessage;
+                console.log('--- Realtime msg received:', newMsg);
 
-                // 1. Update messages list if this chat is open
                 if (selectedUserRef.current === newMsg.user_id) {
                     setMessages(prev => {
                         if (prev.some(m => m.id === newMsg.id)) return prev;
@@ -64,7 +63,6 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
                     }
                 }
 
-                // 2. Update conversation list
                 setConversations(prev => {
                     const existingIdx = prev.findIndex(c => c.userId === newMsg.user_id);
                     let newConvs = [...prev];
@@ -99,17 +97,40 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
         };
     }, []);
 
-    const fetchConversations = async () => {
+    const fetchConversations = async (isRetry = false) => {
+        console.log(`=== ADMIN CHAT: FETCHING CONVERSATIONS (Attempt ${retryCountRef.current + 1}) ===`);
         try {
             const { data, error } = await supabase
                 .from('chat_messages')
                 .select('*')
                 .order('created_at', { ascending: false });
 
-            if (error || !data) return;
+            if (error) {
+                console.error('--- Error fetching messages:', error);
+                if (retryCountRef.current < 3) {
+                    retryCountRef.current++;
+                    console.log(`--- Retrying in 1s... (Attempt ${retryCountRef.current})`);
+                    setTimeout(() => fetchConversations(true), 1000);
+                }
+                return;
+            }
+
+            if (!data || data.length === 0) {
+                console.log('--- No messages found in DB ---');
+                return;
+            }
+
+            console.log(`--- Fetched ${data.length} raw messages ---`);
 
             const convMap = new Map<string, Conversation>();
+            let skippedCount = 0;
+
             data.forEach((msg: ChatMessage) => {
+                if (!msg.user_id) {
+                    skippedCount++;
+                    return;
+                }
+
                 if (!convMap.has(msg.user_id)) {
                     convMap.set(msg.user_id, {
                         userId: msg.user_id,
@@ -119,26 +140,42 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
                         unreadCount: 0
                     });
                 }
-                if (!msg.is_read && msg.sender === 'client') {
-                    const conv = convMap.get(msg.user_id)!;
-                    conv.unreadCount++;
+            });
+
+            if (skippedCount > 0) {
+                console.log(`--- Skipped ${skippedCount} messages due to missing user_id ---`);
+            }
+
+            const unreadCounts = new Map<string, number>();
+            data.forEach((msg: ChatMessage) => {
+                if (msg.user_id && !msg.is_read && msg.sender === 'client') {
+                    unreadCounts.set(msg.user_id, (unreadCounts.get(msg.user_id) || 0) + 1);
+                }
+            });
+
+            unreadCounts.forEach((count, userId) => {
+                if (convMap.has(userId)) {
+                    convMap.get(userId)!.unreadCount = count;
                 }
             });
 
             const sortedConversations = Array.from(convMap.values());
+            console.log(`--- identified ${sortedConversations.length} conversations ---`);
             setConversations(sortedConversations);
 
-            // If we have a preselected user, ensure they are in the list or loaded
             if (preselectedUserId && !convMap.has(preselectedUserId)) {
-                // If the user isn't in history yet, they might be new. loadConversation handles fetching.
                 loadConversation(preselectedUserId);
             }
+
+            retryCountRef.current = 0;
+
         } catch (err) {
             console.error('Error fetching conversations:', err);
         }
     };
 
     const loadConversation = async (userId: string) => {
+        console.log(`=== LOADING CONVERSATION: ${userId} ===`);
         setSelectedUserId(userId);
 
         setConversations(prev => prev.map(c =>
@@ -151,7 +188,10 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
             .eq('user_id', userId)
             .order('created_at', { ascending: true });
 
-        if (data) setMessages(data);
+        if (data) {
+            console.log(`--- Fetched ${data.length} messages for chat ---`);
+            setMessages(data);
+        }
         await markAsRead(userId);
     };
 
@@ -185,7 +225,8 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
             user_id: selectedUserId,
             sender: 'admin',
             message: content,
-            customer_name: 'Soporte'
+            customer_name: 'Soporte',
+            is_read: true
         });
 
         if (error) console.error('Failed to send', error);
@@ -215,6 +256,9 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
                 <div className="w-full sm:w-[350px] bg-gray-50 border-r border-gray-200 flex flex-col">
                     <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-white">
                         <h2 className="font-bold text-xl text-gray-900">Mensajes</h2>
+                        <button onClick={() => fetchConversations()} className="p-2 hover:bg-gray-100 rounded-full transition-colors" title="Actualizar">
+                            <span className="material-symbols-outlined text-gray-500 text-sm">refresh</span>
+                        </button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto">
@@ -233,7 +277,7 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
                                             : 'border-l-4 border-transparent hover:bg-gray-100'
                                         }`}
                                 >
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shadow-sm
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shadow-sm shrink-0
                                         ${selectedUserId === conv.userId ? 'bg-[#F27405] text-white' : 'bg-gray-200 text-gray-600'}
                                     `}>
                                         {conv.userName.charAt(0).toUpperCase()}
@@ -286,12 +330,14 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
                             <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-[#FAFAFA]">
                                 {messages.map((msg, index) => {
                                     const isFirst = index === 0 || messages[index - 1].sender !== msg.sender;
+                                    const isAdmin = msg.sender === 'admin';
+
                                     return (
                                         <div
                                             key={msg.id}
-                                            className={`flex flex-col ${msg.sender === 'admin' ? 'items-end' : 'items-start'}`}
+                                            className={`flex flex-col ${isAdmin ? 'items-end' : 'items-start'}`}
                                         >
-                                            {isFirst && msg.sender === 'client' && (
+                                            {isFirst && !isAdmin && (
                                                 <span className="text-[10px] text-gray-400 ml-4 mb-1">
                                                     {msg.customer_name}
                                                 </span>
@@ -299,13 +345,13 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
                                             <div
                                                 className={`
                                                     max-w-[70%] px-4 py-3 text-sm shadow-sm relative group
-                                                    ${msg.sender === 'admin'
+                                                    ${isAdmin
                                                         ? 'bg-gradient-to-br from-[#F27405] to-[#FF8C1A] text-white rounded-2xl rounded-tr-sm'
                                                         : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-tl-sm'}
                                                 `}
                                             >
                                                 <p className="whitespace-pre-wrap leading-relaxed">{msg.message}</p>
-                                                <div className={`text-[9px] mt-1 text-right opacity-80 ${msg.sender === 'admin' ? 'text-white' : 'text-gray-400'}`}>
+                                                <div className={`text-[9px] mt-1 text-right opacity-80 ${isAdmin ? 'text-white' : 'text-gray-400'}`}>
                                                     {formatTime(msg.created_at)}
                                                 </div>
                                             </div>
@@ -343,7 +389,7 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
                             </div>
                             <h3 className="text-xl font-bold text-gray-800 mb-2">Casalena Chat</h3>
                             <p className="text-gray-500 max-w-sm text-center text-sm">
-                                Selecciona una conversación de la lista para ver los detalles, responder a clientes y gestionar el soporte.
+                                Selecciona una conversación de la lista para gestionar el soporte.
                             </p>
                         </div>
                     )}

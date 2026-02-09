@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/utils/supabase/client';
 
 interface ReportData {
     id: number;
@@ -15,6 +16,18 @@ interface ReportData {
 export default function ReportsPage() {
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+
+    // Filters State
+    const [categories, setCategories] = useState<any[]>([]);
+    const [cashiers, setCashiers] = useState<any[]>([]);
+    const [selectedCategory, setSelectedCategory] = useState('all');
+    const [selectedCashier, setSelectedCashier] = useState('all');
+    const [paymentMethods, setPaymentMethods] = useState({
+        card: true,
+        cash: true,
+        online: true
+    });
+
     const [reportData, setReportData] = useState<ReportData[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -26,6 +39,30 @@ export default function ReportsPage() {
             const params = new URLSearchParams();
             if (startDate) params.append('startDate', startDate);
             if (endDate) params.append('endDate', endDate);
+
+            // Add Filters
+            if (selectedCashier !== 'all') params.append('cashierId', selectedCashier);
+            if (selectedCategory !== 'all') params.append('categoryId', selectedCategory);
+
+            const methods = [];
+            if (paymentMethods.card) methods.push('tarjeta');
+            if (paymentMethods.cash) methods.push('efectivo');
+            if (paymentMethods.online) methods.push('online'); // or 'en_linea' depending on DB value?
+            // Let's assume 'tarjeta', 'efectivo', 'online' match DB. 
+            // If DB uses 'credit_card', mapped logic is needed. Assuming simplistics for now.
+
+            // Only filter by payment method if NOT all are selected (to include nulls/others if 'all' is desired)
+            const allSelected = paymentMethods.card && paymentMethods.cash && paymentMethods.online;
+            if (!allSelected && methods.length > 0) {
+                params.append('paymentMethods', methods.join(','));
+            } else if (methods.length === 0) {
+                // specific case: if nothing selected, maybe show nothing? or show all? 
+                // Let's assume user wants to see nothing if they uncheck everything, 
+                // BUT preventing empty result is friendlier. Let's send a standard 'none' or just handle empty.
+                // If we send nothing, API might return all. 
+                // If users uncheck all, they usually expect 0 results.
+                if (!allSelected) params.append('paymentMethods', 'none');
+            }
 
             const res = await fetch(`/api/reports/sales?${params.toString()}`);
             if (!res.ok) throw new Error('Error al obtener datos');
@@ -40,28 +77,120 @@ export default function ReportsPage() {
         }
     };
 
+    // Initial Data Fetch
+    useEffect(() => {
+        const fetchData = async () => {
+            // Fetch Categories
+            const { data: cats } = await supabase.from('categories').select('*');
+            if (cats) setCategories(cats);
+
+            // Fetch Staff (Cashiers/Waiters from usuarios or custom query)
+            // Assuming 'usuarios' table holds users. 
+            // If you don't have roles, we fetch all. If you have roles, filter.
+            // Let's try fetching all for now or filter by role if possible.
+            const { data: users } = await supabase.from('usuarios').select('id, full_name, role');
+            if (users) {
+                // Filter if roles exist, otherwise show all
+                const staff = users.filter(u => ['admin', 'cajero', 'mesero'].includes(u.role || '') || !u.role);
+                setCashiers(staff.length ? staff : users);
+            }
+        };
+        fetchData();
+    }, []);
+
+    // Filter Effect
+    useEffect(() => {
+        generateReport();
+    }, [startDate, endDate, selectedCategory, selectedCashier, paymentMethods]);
+
     const exportToCSV = () => {
         if (reportData.length === 0) return;
 
+        // --- Calculate Summaries ---
+        const totalSales = reportData.reduce((sum, item) => sum + item.amount, 0);
+        const totalTransactions = reportData.length;
+        const averageTicket = totalTransactions ? (totalSales / totalTransactions) : 0;
+
+        // Payment Method Breakdown
+        const payMethods: Record<string, number> = {};
+        reportData.forEach(r => {
+            const method = r.payment_method || 'Desconocido';
+            payMethods[method] = (payMethods[method] || 0) + r.amount;
+        });
+
+        // Status Breakdown
+        const statusCounts: Record<string, number> = {};
+        reportData.forEach(r => {
+            const status = r.status || 'Desconocido';
+            statusCounts[status] = (statusCounts[status] || 0) + 1;
+        });
+
+        // --- meaningful CSV Construction ---
+        // Using array of arrays to handle rows, then joining.
+        const rows: string[][] = [];
+
+        // 1. Title & Date
+        rows.push(['REPORTE DE VENTAS - CASALENA']);
+        rows.push([`Generado el: ${new Date().toLocaleString()}`]);
+        rows.push([`Periodo: ${startDate || 'Inicio'} a ${endDate || 'Fin'}`]);
+        rows.push([]); // Empty line
+
+        // 2. Main KPIs
+        rows.push(['RESUMEN GENERAL']);
+        rows.push(['Ventas Totales', 'Transacciones', 'Ticket Promedio']);
+        rows.push([
+            totalSales.toFixed(2),
+            totalTransactions.toString(),
+            averageTicket.toFixed(2)
+        ]);
+        rows.push([]);
+
+        // 3. Payment Method Breakdown
+        rows.push(['DESGLOSE POR MÉTODO DE PAGO']);
+        rows.push(['Método', 'Total Vendido']);
+        Object.entries(payMethods).forEach(([method, amount]) => {
+            rows.push([method.toUpperCase(), amount.toFixed(2)]);
+        });
+        rows.push([]);
+
+        // 4. Status Breakdown
+        rows.push(['ESTADO DE ÓRDENES']);
+        rows.push(['Estado', 'Cantidad']);
+        Object.entries(statusCounts).forEach(([status, count]) => {
+            rows.push([status.toUpperCase(), count.toString()]);
+        });
+        rows.push([]);
+        rows.push(['--------------------------------------------------']);
+        rows.push([]);
+
+        // 5. Detailed Data Table
+        rows.push(['DETALLE DE TRANSACCIONES']);
         const headers = ['ID Orden', 'Fecha', 'Hora', 'Artículos', 'Monto', 'Estado', 'Método de Pago'];
-        const csvContent = [
-            headers.join(','),
-            ...reportData.map(row => [
-                row.id,
+        rows.push(headers);
+
+        reportData.forEach(row => {
+            rows.push([
+                row.id.toString(),
                 row.date,
                 row.time,
-                `"${row.items.replace(/"/g, '""')}"`, // Escape quotes in items
+                row.items,
                 row.amount.toFixed(2),
                 row.status,
                 row.payment_method
-            ].join(','))
-        ].join('\n');
+            ]);
+        });
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        // Convert to CSV String (Robust with quoting)
+        const csvContent = rows.map(r =>
+            r.map(c => `"${(c || '').replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+
+        // Download
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.setAttribute('href', url);
-        link.setAttribute('download', `reporte_ventas_${startDate || 'inicio'}_${endDate || 'fin'}.csv`);
+        link.setAttribute('download', `reporte_ventas_${startDate || 'completo'}_${endDate || 'completo'}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -69,10 +198,13 @@ export default function ReportsPage() {
 
     const getStatusBadgeClass = (status: string) => {
         switch (status) {
-            case 'completado': return 'bg-green-100 text-green-800';
+            case 'completado':
+            case 'entregado': return 'bg-green-100 text-green-800'; // Added entregado usually used
             case 'pendiente': return 'bg-yellow-100 text-yellow-800';
-            case 'en_preparacion': return 'bg-blue-100 text-blue-800';
+            case 'en_preparacion':
+            case 'preparando': return 'bg-blue-100 text-blue-800';
             case 'cancelado': return 'bg-red-100 text-red-800';
+            case 'listo': return 'bg-purple-100 text-purple-800';
             default: return 'bg-gray-100 text-gray-800';
         }
     };
@@ -121,11 +253,15 @@ export default function ReportsPage() {
                             <div className="flex flex-col gap-2 flex-1">
                                 <label className="text-sm font-bold text-[#181511]">Categoría</label>
                                 <div className="relative">
-                                    <select className="w-full appearance-none rounded-xl border border-[#e6e1db] bg-white px-4 py-3 text-sm font-medium text-[#181511] focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary">
-                                        <option>Todas las Categorías</option>
-                                        <option>Pizzas</option>
-                                        <option>Complementos</option>
-                                        <option>Bebidas</option>
+                                    <select
+                                        value={selectedCategory}
+                                        onChange={(e) => setSelectedCategory(e.target.value)}
+                                        className="w-full appearance-none rounded-xl border border-[#e6e1db] bg-white px-4 py-3 text-sm font-medium text-[#181511] focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                                    >
+                                        <option value="all">Todas las Categorías</option>
+                                        {categories.map((cat) => (
+                                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                        ))}
                                     </select>
                                     <span className="material-symbols-outlined absolute right-3 top-3 text-[#8c785f] pointer-events-none">expand_more</span>
                                 </div>
@@ -135,10 +271,15 @@ export default function ReportsPage() {
                             <div className="flex flex-col gap-2 flex-1">
                                 <label className="text-sm font-bold text-[#181511]">Cajero</label>
                                 <div className="relative">
-                                    <select className="w-full appearance-none rounded-xl border border-[#e6e1db] bg-white px-4 py-3 text-sm font-medium text-[#181511] focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary">
-                                        <option>Todo el Personal</option>
-                                        <option>Luis</option>
-                                        <option>Maria</option>
+                                    <select
+                                        value={selectedCashier}
+                                        onChange={(e) => setSelectedCashier(e.target.value)}
+                                        className="w-full appearance-none rounded-xl border border-[#e6e1db] bg-white px-4 py-3 text-sm font-medium text-[#181511] focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                                    >
+                                        <option value="all">Todo el Personal</option>
+                                        {cashiers.map((user) => (
+                                            <option key={user.id} value={user.id}>{user.full_name || user.email || 'Sin nombre'}</option>
+                                        ))}
                                     </select>
                                     <span className="material-symbols-outlined absolute right-3 top-3 text-[#8c785f] pointer-events-none">expand_more</span>
                                 </div>
@@ -149,35 +290,70 @@ export default function ReportsPage() {
                                 <label className="text-sm font-bold text-[#181511]">Tipo de Pago</label>
                                 <div className="flex flex-wrap gap-2">
                                     <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#e6e1db] px-3 py-2 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                                        <input defaultChecked className="size-4 accent-primary rounded border-gray-300" type="checkbox" />
+                                        <input
+                                            type="checkbox"
+                                            checked={paymentMethods.card}
+                                            onChange={(e) => setPaymentMethods(prev => ({ ...prev, card: e.target.checked }))}
+                                            className="size-4 accent-primary rounded border-gray-300"
+                                        />
                                         <span className="text-sm font-medium">Tarjeta</span>
                                     </label>
                                     <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#e6e1db] px-3 py-2 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                                        <input defaultChecked className="size-4 accent-primary rounded border-gray-300" type="checkbox" />
+                                        <input
+                                            type="checkbox"
+                                            checked={paymentMethods.cash}
+                                            onChange={(e) => setPaymentMethods(prev => ({ ...prev, cash: e.target.checked }))}
+                                            className="size-4 accent-primary rounded border-gray-300"
+                                        />
                                         <span className="text-sm font-medium">Efectivo</span>
                                     </label>
                                     <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#e6e1db] px-3 py-2 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                                        <input className="size-4 accent-primary rounded border-gray-300" type="checkbox" />
+                                        <input
+                                            type="checkbox"
+                                            checked={paymentMethods.online}
+                                            onChange={(e) => setPaymentMethods(prev => ({ ...prev, online: e.target.checked }))}
+                                            className="size-4 accent-primary rounded border-gray-300"
+                                        />
                                         <span className="text-sm font-medium">En Línea</span>
                                     </label>
                                 </div>
                             </div>
                         </div>
 
+                        {/* Error Message */}
+                        {error && (
+                            <div className="bg-red-50 text-red-600 p-4 rounded-lg text-sm">
+                                {error}
+                            </div>
+                        )}
+
                         {/* Actions */}
                         <div className="flex justify-end gap-4 pt-4 border-t border-[#e6e1db]">
-                            <button
-                                onClick={generateReport}
-                                disabled={loading}
-                                className="px-6 py-3 bg-primary text-[#181511] font-bold rounded-xl hover:bg-[#e68a1b] transition-colors disabled:opacity-50 flex items-center gap-2 group w-full md:w-auto justify-center"
-                            >
-                                {loading ? (
-                                    <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
-                                ) : (
-                                    <span className="material-symbols-outlined group-hover:scale-110 transition-transform">search</span>
+                            <div className="flex items-center gap-2 text-sm text-[#8c785f] mr-auto">
+                                {loading && (
+                                    <>
+                                        <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+                                        Actualizando...
+                                    </>
                                 )}
-                                Generar Reporte
-                            </button>
+                            </div>
+
+                            {(startDate || endDate || selectedCategory !== 'all' || selectedCashier !== 'all' || !paymentMethods.card || !paymentMethods.cash || !paymentMethods.online) && (
+                                <button
+                                    onClick={() => {
+                                        setStartDate('');
+                                        setEndDate('');
+                                        setSelectedCategory('all');
+                                        setSelectedCashier('all');
+                                        setPaymentMethods({ card: true, cash: true, online: true });
+                                    }}
+                                    className="px-4 py-3 bg-white border border-[#e6e1db] text-[#8c785f] font-bold rounded-xl hover:bg-gray-50 transition-colors flex items-center gap-2"
+                                >
+                                    <span className="material-symbols-outlined">filter_alt_off</span>
+                                    Limpiar Filtros
+                                </button>
+                            )}
+
                             {reportData.length > 0 && (
                                 <button
                                     onClick={exportToCSV}
@@ -255,7 +431,7 @@ export default function ReportsPage() {
                 {reportData.length === 0 && !loading && !error && (
                     <div className="text-center py-20 text-[#8c785f]">
                         <span className="material-symbols-outlined text-4xl mb-2">analytics</span>
-                        <p>Selecciona un rango de fechas y genera un reporte.</p>
+                        <p>No se encontraron resultados con los filtros seleccionados.</p>
                     </div>
                 )}
             </div>

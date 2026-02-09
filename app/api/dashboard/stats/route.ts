@@ -6,133 +6,115 @@ const supabase = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
-        console.log('=== FETCHING DASHBOARD STATS ===');
+        const { searchParams } = new URL(request.url);
+        const range = searchParams.get('range') || 'week'; // 'week', 'month', 'year'
 
-        // Obtener ventas totales
-        const { data: ordersData, error: ordersError } = await supabase
+        console.log(`=== FETCHING DASHBOARD STATS (Range: ${range}) ===`);
+
+        // Obtener TODAS las órdenes (para poder filtrar en memoria rápidamente)
+        // En producción con miles de datos, esto debería filtrarse en DB.
+        const { data: allOrders, error: ordersError } = await supabase
             .from('orders')
-            .select('total_amount, tax_amount, created_at, status');
+            .select('id, total_amount, tax_amount, created_at, status');
 
         if (ordersError) {
             console.error('Error fetching orders:', ordersError);
             throw ordersError;
         }
 
-        console.log('Orders fetched:', ordersData?.length);
+        // Definir rangos de fecha
+        const now = new Date();
+        let startDate = new Date();
+        let prevStartDate = new Date();
+        let prevEndDate = new Date();
 
-        // Calcular estadísticas
-        const totalSales = ordersData?.reduce((sum, order) => sum + parseFloat(order.total_amount || '0'), 0) || 0;
-        const totalOrders = ordersData?.length || 0;
-        const completedOrders = ordersData?.filter(o => o.status === 'completado').length || 0;
-        const avgOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+        if (range === 'month') {
+            // Mes Actual vs Mes Anterior
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            prevStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            prevEndDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+        } else if (range === 'year') {
+            // Año Actual vs Año Anterior
+            startDate = new Date(now.getFullYear(), 0, 1);
+            prevStartDate = new Date(now.getFullYear() - 1, 0, 1);
+            prevEndDate = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
+        } else {
+            // Semana (Últimos 7 días vs 7 días anteriores)
+            startDate.setDate(now.getDate() - 7);
+            prevEndDate.setDate(now.getDate() - 8);
+            prevStartDate.setDate(now.getDate() - 15);
+        }
 
-        // Obtener productos más vendidos
+        // Filtrar órdenes
+        const currentOrders = allOrders?.filter(o => {
+            const date = new Date(o.created_at);
+            return date >= startDate && date <= now;
+        }) || [];
+
+        const prevOrders = allOrders?.filter(o => {
+            const date = new Date(o.created_at);
+            return date >= prevStartDate && date <= prevEndDate;
+        }) || [];
+
+        console.log(`Orders: Current ${currentOrders.length} | Prev ${prevOrders.length}`);
+
+        // Calcular Métricas
+        const calculateSales = (orders: any[]) => orders.reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0);
+
+        const currentSales = calculateSales(currentOrders);
+        const prevSales = calculateSales(prevOrders);
+
+        const currentCount = currentOrders.length;
+        const currentAvg = currentCount > 0 ? currentSales / currentCount : 0;
+
+        const completedOrders = currentOrders.filter(o => o.status === 'completado').length;
+
+        // Generar datos del gráfico
+        let chartData: { day: string; amount: number; date: string }[] = [];
+
+        if (range === 'week') {
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(now.getDate() - i);
+                const dateStr = d.toISOString().split('T')[0];
+                const dayName = d.toLocaleDateString('es-ES', { weekday: 'short' });
+
+                const dayTotal = currentOrders.filter(o => o.created_at.startsWith(dateStr))
+                    .reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0);
+
+                chartData.push({ day: dayName.toUpperCase(), date: dateStr, amount: dayTotal });
+            }
+        } else if (range === 'month') {
+            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            for (let i = 1; i <= daysInMonth; i++) {
+                const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                if (new Date(dateStr) > now) break;
+
+                const dayTotal = currentOrders.filter(o => o.created_at.startsWith(dateStr))
+                    .reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0);
+
+                chartData.push({ day: `${i}`, date: dateStr, amount: dayTotal });
+            }
+        } else if (range === 'year') {
+            const monthNames = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+            for (let i = 0; i < 12; i++) {
+                const monthPrefix = `${now.getFullYear()}-${String(i + 1).padStart(2, '0')}`;
+                const monthTotal = currentOrders.filter(o => o.created_at.startsWith(monthPrefix))
+                    .reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0);
+
+                chartData.push({ day: monthNames[i], date: monthPrefix, amount: monthTotal });
+            }
+        }
+
+        // Obtener Top Product (Global)
         const { data: topProducts, error: productsError } = await supabase
             .from('order_items')
-            .select(`
-        product_id,
-        quantity,
-        products (name)
-      `)
+            .select(`quantity, products (name)`)
             .limit(1);
 
-        if (productsError) {
-            console.error('Error fetching top products:', productsError);
-        }
-
-        console.log('Top products:', topProducts);
-
-        // Calcular ventas de la última semana
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-
-        const weeklyOrders = ordersData?.filter(order =>
-            new Date(order.created_at) >= oneWeekAgo
-        ) || [];
-
-        const weeklySales = weeklyOrders.reduce((sum, order) =>
-            sum + parseFloat(order.total_amount || '0'), 0
-        );
-
-        console.log('Weekly sales:', weeklySales);
-
-        // Calcular historial de ventas (últimos 7 días)
-        const dailyStats = [];
-        const today = new Date();
-
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date(today);
-            d.setDate(today.getDate() - i);
-            const dateStr = d.toISOString().split('T')[0];
-            const dayName = d.toLocaleDateString('es-ES', { weekday: 'short' });
-
-            const dayOrders = ordersData?.filter(o =>
-                o.created_at.startsWith(dateStr)
-            ) || [];
-
-            const dayTotal = dayOrders.reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0);
-
-            dailyStats.push({
-                date: dateStr,
-                day: dayName,
-                amount: dayTotal
-            });
-        }
-
-        console.log('Daily stats:', dailyStats);
-
-        // Obtener estadísticas por categoría
-        const { data: categoryItems, error: catError } = await supabase
-            .from('order_items')
-            .select(`
-                quantity,
-                products (
-                    name,
-                    categories (name)
-                )
-            `);
-
-        interface CategoryStat {
-            name: string;
-            count: number;
-            percentage: number;
-        }
-
-        let categoryStats: CategoryStat[] = [];
-        if (!catError && categoryItems) {
-            const catMap = new Map<string, number>();
-            let totalItems = 0;
-
-            categoryItems.forEach((item: any) => {
-                let catName = 'Uncategorized';
-
-                // Determine category name safely handling potential array/object discrepancies
-                const product = Array.isArray(item.products) ? item.products[0] : item.products;
-
-                if (product?.categories) {
-                    catName = Array.isArray(product.categories)
-                        ? product.categories[0]?.name
-                        : product.categories.name;
-                }
-
-                if (!catName) catName = 'Uncategorized';
-
-                const qty = item.quantity || 0;
-
-                catMap.set(catName, (catMap.get(catName) || 0) + qty);
-                totalItems += qty;
-            });
-
-            categoryStats = Array.from(catMap.entries()).map(([name, count]) => ({
-                name,
-                count,
-                percentage: totalItems > 0 ? (count / totalItems) * 100 : 0
-            })).sort((a, b) => b.count - a.count).slice(0, 4);
-        }
-
-        // Safe top product name extraction
+        // Safe top product name helper
         const getProductName = (p: any) => {
             if (!p) return 'N/A';
             const prod = Array.isArray(p.products) ? p.products[0] : p.products;
@@ -143,18 +125,44 @@ export async function GET() {
             ? getProductName(topProducts[0])
             : 'N/A';
 
+        // Obtener Category Stats (Global)
+        const { data: categoryItems, error: catError } = await supabase
+            .from('order_items')
+            .select(`quantity, products (name, categories (name))`);
+
+        interface CategoryStat { name: string; count: number; percentage: number; }
+        let categoryStats: CategoryStat[] = [];
+
+        if (!catError && categoryItems) {
+            const catMap = new Map<string, number>();
+            let totalItems = 0;
+            categoryItems.forEach((item: any) => {
+                let catName = 'Uncategorized';
+                const product = Array.isArray(item.products) ? item.products[0] : item.products;
+                if (product?.categories) {
+                    catName = Array.isArray(product.categories) ? product.categories[0]?.name : product.categories.name;
+                }
+                if (!catName) catName = 'Otros';
+                const qty = item.quantity || 0;
+                catMap.set(catName, (catMap.get(catName) || 0) + qty);
+                totalItems += qty;
+            });
+            categoryStats = Array.from(catMap.entries()).map(([name, count]) => ({
+                name, count, percentage: totalItems > 0 ? (count / totalItems) * 100 : 0
+            })).sort((a, b) => b.count - a.count).slice(0, 4);
+        }
+
+        // Construct final stats
         const stats = {
-            totalSales: totalSales.toFixed(2),
-            totalOrders,
-            avgOrderValue: avgOrderValue.toFixed(2),
+            totalSales: currentSales.toFixed(2),
+            totalOrders: currentCount,
+            avgOrderValue: currentAvg.toFixed(2),
             completedOrders,
-            weeklySales: weeklySales.toFixed(2),
+            weeklySales: currentSales.toFixed(2),
             topProduct: topProductName,
-            chartData: dailyStats,
+            chartData,
             categoryStats
         };
-
-        console.log('Dashboard stats:', stats);
 
         return NextResponse.json(stats);
 

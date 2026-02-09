@@ -42,23 +42,21 @@ interface TicketData {
 export async function generateTicketPDF(data: TicketData, outputPath: string): Promise<string> {
     const { comercio, pedido, productos } = data;
 
-    // Dimensions for 58mm thermal printer (58mm = ~164.4 points)
+    // Dimensions for 58mm thermal printer
     const mmToPoints = 2.83465;
     const width = 58 * mmToPoints;
     const margin = 2 * mmToPoints;
     const usableWidth = width - (margin * 2);
 
-    // Initial constants
-    // Use an absolute path that works in Next.js development and potentially production (if assets copied)
+    // Font and spacing constants
     const fontPath = path.join(process.cwd(), 'public', 'fonts', 'casalena-font.ttf');
-    const fontSizeNormal = 8;
-    const fontSizeHeader = 10;
-    const lineHeight = 10;
+    const fontSizeNormal = 12;
+    const fontSizeHeader = 16;
+    const lineHeight = 22; // Increased for better spacing
 
     console.log(`[TicketGen] Looking for font at: ${fontPath}`);
 
-    // 2. Read font as Buffer REQUIRED
-    // We MUST use a custom font buffer to avoid PDFKit looking for StandardAFM fonts which are missing in serverless/nextjs bundles
+    // Read font buffer
     let fontBuffer: Buffer;
     try {
         if (fs.existsSync(fontPath)) {
@@ -70,19 +68,14 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
         }
     } catch (e) {
         console.error('[TicketGen] Error reading font file:', e);
-        throw e; // Fail hard if no font, otherwise PDFKit crashes obscurely later
+        throw e;
     }
 
-    // 1. Calculate height dynamically with a generous buffer to prevent page breaks
-    // Thermal printers cut the paper, so extra white space at the bottom is better than splitting content
-    // Header(8 lines) + Info(6) + Separators(3) + Products(buffer 3 lines each) + Totals(8) + Footer(4) + Delivery(6)
-    const estimatedLines = 35 + (productos.length * 3) + (pedido.cliente ? 8 : 0);
-    const height = (estimatedLines * lineHeight) + 60; // Extra padding
+    // Calculate height with extra padding
+    const estimatedLines = 40 + (productos.length * 4) + (pedido.cliente ? 10 : 0);
+    const height = (estimatedLines * lineHeight) + 100;
 
-
-    // 3. Create the PDF Document
-    // Use autoFirstPage: false to prevent loading default font (Helvetica) immediately
-    // CRITICAL: Pass 'font' option with buffer to prevent PDFKit from loading standard fonts from disk
+    // Create PDF
     const doc = new PDFDocument({
         size: [width, height],
         margins: { top: margin, bottom: margin, left: margin, right: margin },
@@ -92,26 +85,40 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
 
     const stream = fs.createWriteStream(outputPath);
     doc.pipe(stream);
-
-    // 4. Assign font IMMEDIATELY before adding page
-    // Using the buffer directly avoids any FS lookups for .afm files
     doc.font(fontBuffer);
-
-    // 5. Add the page manually now that font is set
     doc.addPage({
         size: [width, height],
         margins: { top: margin, bottom: margin, left: margin, right: margin }
     });
-
-    // Re-assert font for the page context just in case
     doc.font(fontBuffer);
+
+    // Add logo watermark covering the entire background
+    try {
+        const logoPath = path.join(process.cwd(), 'public', 'logo-main.jpg');
+        if (fs.existsSync(logoPath)) {
+            // Make logo cover most of the ticket width
+            const logoWidth = width - (margin * 4); // Leave small margins
+            const logoHeight = logoWidth; // Keep aspect ratio square
+            const logoX = (width - logoWidth) / 2;
+            const logoY = margin * 3; // Start near the top
+
+            doc.save();
+            doc.opacity(0.08); // Very light watermark so text is readable
+            doc.image(logoPath, logoX, logoY, {
+                width: logoWidth,
+                height: logoHeight,
+                align: 'center'
+            });
+            doc.restore(); // Restore opacity for text
+        }
+    } catch (e) {
+        console.warn('[TicketGen] Could not add logo watermark:', e);
+    }
 
     let currentY = margin;
 
     const textLine = (text: string, options: { align?: 'left' | 'center' | 'right', bold?: boolean, size?: number } = {}) => {
         const { align = 'left', size = fontSizeNormal } = options;
-
-        // Always set font buffer
         doc.font(fontBuffer).fontSize(size);
 
         if (align === 'center') {
@@ -133,92 +140,162 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
         currentY += lineHeight;
     };
 
-    // --- SECCIÓN: ENCABEZADO ---
-    textLine(comercio.nombre.toUpperCase(), { size: fontSizeHeader, align: 'center', bold: true });
-    textLine(`Tel: ${comercio.telefono}`, { align: 'center' });
-    textLine(comercio.direccion, { align: 'center' });
+    // --- HEADER ---
+    // Title with character spacing for better readability
+    doc.font(fontBuffer).fontSize(16);
+    doc.text("CASALEÑA", margin, currentY, {
+        width: usableWidth,
+        align: 'center',
+        characterSpacing: 2 // Separate letters
+    });
+    currentY += lineHeight + 15; // Extra space after title (increased separation)
+
+    // Address
+    textLine("Blvd. Juan N Alvarez, CP 41706", { size: 10, align: 'center' });
+    currentY += 3; // Small gap
+
+    // Phone
+    textLine("Tel: 741-101-1595", { size: 10, align: 'center' });
+    currentY += 5; // Space before separator
 
     drawSeparator();
+    currentY += 8;
 
-    // --- SECCIÓN: INFO PEDIDO ---
+    // --- ORDER INFO ---
     const now = new Date();
     textLine(`FECHA: ${now.toLocaleDateString('es-MX')}`);
     textLine(`HORA:  ${now.toLocaleTimeString('es-MX')}`);
-    textLine(`TICKET: ${pedido.id}`, { bold: true });
 
+    currentY += 5;
     if (pedido.tipo) {
-        textLine(`MODO: ${pedido.tipo.toUpperCase()}`, { bold: true });
+        textLine(pedido.tipo.toUpperCase(), { align: 'center', bold: true, size: 14 });
     }
+
+    // BIG TABLE NUMBER - Very visible for kitchen
     if (pedido.mesa) {
-        textLine(`MESA: ${pedido.mesa}`, { bold: true });
+        currentY += 5;
+        doc.font(fontBuffer).fontSize(10);
+        doc.text("MESA:", margin, currentY, { width: usableWidth, align: 'center' });
+        currentY += lineHeight;
+
+        doc.font(fontBuffer).fontSize(28);
+        doc.text(pedido.mesa, margin, currentY, {
+            width: usableWidth,
+            align: 'center',
+            characterSpacing: 3 // Separate digits
+        });
+        currentY += lineHeight + 10;
+    } else {
+        currentY += 5;
     }
+
+    // --- NOTES SECTION - Blank space for handwritten notes ---
+    drawSeparator();
+    currentY += 5;
+
+    textLine("NOTAS:", { bold: true, size: 10 });
+    currentY += 5;
+
+    // Draw empty rectangle for notes
+    const notesHeight = 60; // Height for writing notes
+    doc.rect(margin + 5, currentY, usableWidth - 10, notesHeight)
+        .stroke();
+    currentY += notesHeight + 10;
 
     drawSeparator();
+    currentY += 10;
 
-    // --- SECCIÓN: PRODUCTOS ---
-    // Column Headers
-    doc.font(fontBuffer).fontSize(fontSizeNormal);
-    doc.text('Cant', margin, currentY);
-    doc.text('Producto', margin + (10 * mmToPoints), currentY);
+    // --- BIG ORDER ID with leading zeros ---
+    const formattedId = pedido.id.toString().padStart(5, '0');
+    textLine('NOTA DE PEDIDO', { size: 10, align: 'center', bold: true });
+    textLine(formattedId, { size: 32, align: 'center', bold: true });
+
+    currentY += 10;
+    drawSeparator();
+    currentY += 8;
+
+    // --- PRODUCTS TABLE ---
+    const xQty = margin;
+    const xName = margin + 15;
+
+    doc.font(fontBuffer).fontSize(10);
+    doc.text('Ct', xQty, currentY);
+    doc.text('Producto', xName, currentY);
     doc.text('Total', margin, currentY, { width: usableWidth, align: 'right' });
     currentY += lineHeight;
+    currentY += 3;
 
-    doc.font(fontBuffer).fontSize(fontSizeNormal);
+    doc.font(fontBuffer).fontSize(12);
     productos.forEach(p => {
-        const nombre = (p.nombre || 'Producto').substring(0, 18);
-        doc.text((p.cantidad || 1).toString(), margin, currentY);
-        doc.text(nombre, margin + (10 * mmToPoints), currentY);
+        const cleanName = (p.nombre || 'Producto').substring(0, 10);
+
+        doc.text((p.cantidad || 1).toString(), xQty, currentY);
+        doc.text(cleanName, xName, currentY);
         doc.text(`$${(p.precio || 0).toFixed(2)}`, margin, currentY, { width: usableWidth, align: 'right' });
         currentY += lineHeight;
 
         if (p.detalle) {
-            textLine(`  *${p.detalle}`, { size: fontSizeNormal - 1 });
+            doc.fontSize(10);
+            doc.text(` *${p.detalle}`, xName, currentY);
+            doc.fontSize(12);
+            currentY += lineHeight;
         }
+        currentY += 4;
     });
 
     drawSeparator();
+    currentY += 8;
 
-    // --- SECCIÓN: TOTALES ---
-    doc.font(fontBuffer).fontSize(fontSizeNormal);
-    doc.text('SUBTOTAL:', margin, currentY);
-    doc.text(`$${pedido.subtotal.toFixed(2)}`, margin, currentY, { width: usableWidth, align: 'right' });
-    currentY += lineHeight;
+    // --- TOTALS ---
+    doc.font(fontBuffer).fontSize(12);
 
-    doc.font(fontBuffer).fontSize(fontSizeNormal);
-    doc.text('TOTAL:', margin, currentY);
-    doc.text(`$${pedido.total.toFixed(2)}`, margin, currentY, { width: usableWidth, align: 'right' });
-    currentY += lineHeight;
+    const totalLine = (label: string, value: string) => {
+        doc.text(label, margin, currentY);
+        doc.text(value, margin, currentY, { width: usableWidth, align: 'right' });
+        currentY += lineHeight;
+    };
 
+    totalLine('SUBTOTAL:', `$${pedido.subtotal.toFixed(2)}`);
+    totalLine('TOTAL:', `$${pedido.total.toFixed(2)}`);
+    currentY += 3;
     textLine(`PAGO: ${pedido.metodo_pago.toUpperCase()}`);
 
     if (pedido.metodo_pago.toUpperCase() === 'EFECTIVO' || pedido.pago_con) {
         const pago = pedido.pago_con || pedido.total;
         const cambio = pedido.cambio || 0;
-        textLine(`RECIBIDO: $${pago.toFixed(2)}`);
-        textLine(`CAMBIO:   $${cambio.toFixed(2)}`, { bold: true });
+        totalLine('RECIBIDO:', `$${pago.toFixed(2)}`);
+        totalLine('CAMBIO:', `$${cambio.toFixed(2)}`);
     }
 
     drawSeparator();
+    currentY += 8;
 
-    // --- SECCIÓN: CLIENTE (SI ES DOMICILIO) ---
+    // --- CUSTOMER INFO ---
     if (pedido.cliente) {
-        textLine("CLIENTE:", { bold: true });
+        textLine("DATOS CLIENTE:", { bold: true });
         textLine(pedido.cliente.nombre);
         textLine(pedido.cliente.telefono);
-
-        const address = pedido.cliente.direccion;
-        const chunkSize = 25;
-        for (let i = 0; i < address.length; i += chunkSize) {
-            textLine(address.substring(i, i + chunkSize));
-        }
+        textLine(pedido.cliente.direccion, { size: 10 });
         drawSeparator();
+        currentY += 8;
     }
 
-    // --- SECCIÓN: PIE ---
-    textLine("¡GRACIAS POR SU COMPRA!", { align: 'center', bold: true });
-    textLine("Vuelva pronto", { align: 'center' });
 
-    // Finalize
+
+    // --- FOOTER ---
+    currentY += 20; // More space before footer
+
+    // Thank you message with character spacing
+    doc.font(fontBuffer).fontSize(12);
+    doc.text("¡GRACIAS POR SU COMPRA!", margin, currentY, {
+        width: usableWidth,
+        align: 'center',
+        characterSpacing: 1.5 // Separate letters
+    });
+    currentY += lineHeight + 5; // Extra space between lines
+
+    textLine("Vuelva pronto", { align: 'center', size: 11 });
+
     doc.end();
 
     return new Promise((resolve, reject) => {

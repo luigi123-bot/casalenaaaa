@@ -15,6 +15,7 @@ export default function AdminUsersPage() {
     const [loadingCustomers, setLoadingCustomers] = useState(false);
     const [showCustomerModal, setShowCustomerModal] = useState(false);
     const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+    const [editingCustomerType, setEditingCustomerType] = useState<string | null>(null); // New state for type
     const [customerFormData, setCustomerFormData] = useState({
         full_name: '',
         phone: '',
@@ -91,7 +92,6 @@ export default function AdminUsersPage() {
                     address: c.address || c.direccion || ''
                 })),
                 ...profilesData.map(p => {
-                    console.log('👤 Profile raw:', p); // Debug
                     return {
                         id: p.id,
                         full_name: p.full_name || p.nombre || 'Usuario App',
@@ -109,7 +109,6 @@ export default function AdminUsersPage() {
                 }))
             ].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
 
-            console.log('📋 Combined Customers:', combined); // Debug
             setCustomers(combined);
         } catch (error: any) {
             console.error('Error fetching customers:', error);
@@ -148,16 +147,37 @@ export default function AdminUsersPage() {
         setCreating(true);
         try {
             if (editingCustomerId) {
-                const { error } = await supabase.from('customers').update(customerFormData).eq('id', editingCustomerId);
-                if (error) throw error;
+                if (editingCustomerType === 'customer') {
+                    // Update 'customers' table (Occasional)
+                    const { error } = await supabase.from('customers').update({
+                        full_name: customerFormData.full_name,
+                        phone: customerFormData.phone,
+                        address: customerFormData.address
+                    }).eq('id', editingCustomerId);
+                    if (error) throw error;
+                } else {
+                    // Update 'profiles' table (App User)
+                    const { error } = await supabase.from('profiles').update({
+                        full_name: customerFormData.full_name,
+                        phone_number: customerFormData.phone, // Map phone -> phone_number
+                        address: customerFormData.address
+                    }).eq('id', editingCustomerId);
+                    if (error) throw error;
+                }
                 alert('Cliente actualizado');
             } else {
-                const { error } = await supabase.from('customers').insert([customerFormData]);
+                // Create new (Default to 'customers' table for now)
+                const { error } = await supabase.from('customers').insert([{
+                    full_name: customerFormData.full_name,
+                    phone: customerFormData.phone,
+                    address: customerFormData.address
+                }]);
                 if (error) throw error;
                 alert('Cliente guardado');
             }
             setShowCustomerModal(false);
             setEditingCustomerId(null);
+            setEditingCustomerType(null); // Reset type
             setCustomerFormData({ full_name: '', phone: '', address: '' });
             fetchCustomers();
         } catch (error: any) {
@@ -210,10 +230,6 @@ export default function AdminUsersPage() {
         }
     };
 
-    const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' });
-    };
-
     if (loading) {
         return (
             <div className="flex-1 flex items-center justify-center h-full bg-[#fcfbf9]">
@@ -241,7 +257,7 @@ export default function AdminUsersPage() {
                     )}
 
                     {activeTab === 'customers' && (
-                        <button onClick={() => { setEditingCustomerId(null); setCustomerFormData({ full_name: '', phone: '', address: '' }); setShowCustomerModal(true); }} className="bg-[#181511] text-white px-6 py-3 rounded-xl font-bold shadow-lg flex items-center gap-2">
+                        <button onClick={() => { setEditingCustomerId(null); setEditingCustomerType(null); setCustomerFormData({ full_name: '', phone: '', address: '' }); setShowCustomerModal(true); }} className="bg-[#181511] text-white px-6 py-3 rounded-xl font-bold shadow-lg flex items-center gap-2">
                             <span className="material-symbols-outlined">face</span> Nuevo Cliente
                         </button>
                     )}
@@ -307,7 +323,12 @@ export default function AdminUsersPage() {
                                         <td className="px-6 py-4 text-[#8c785f] text-xs max-w-xs truncate">{c.address}</td>
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex justify-center gap-2">
-                                                <button onClick={() => { setEditingCustomerId(c.id); setCustomerFormData({ full_name: c.full_name, phone: c.phone, address: c.address }); setShowCustomerModal(true); }} className="text-blue-500 p-2 rounded-full hover:bg-blue-50">
+                                                <button onClick={() => {
+                                                    setEditingCustomerId(c.id);
+                                                    setEditingCustomerType(c.type); // Set Type Here!
+                                                    setCustomerFormData({ full_name: c.full_name, phone: c.phone, address: c.address });
+                                                    setShowCustomerModal(true);
+                                                }} className="text-blue-500 p-2 rounded-full hover:bg-blue-50">
                                                     <span className="material-symbols-outlined text-[20px]">edit</span>
                                                 </button>
                                                 {c.type === 'customer' && (
@@ -364,7 +385,6 @@ export default function AdminUsersPage() {
                 </div>
             )}
 
-            {/* User Modal Placeholder - Simplified for fix */}
             {showModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#181511]/60 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl p-8">

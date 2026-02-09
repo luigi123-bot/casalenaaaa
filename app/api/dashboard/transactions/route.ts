@@ -24,7 +24,7 @@ export async function GET(request: Request) {
         created_at,
         order_items (
           quantity,
-          products (name)
+          product_name
         )
       `)
             .order('created_at', { ascending: false })
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
         // Formatear las transacciones
         const transactions = orders?.map(order => {
             const items = order.order_items?.map(item =>
-                `${item.quantity}x ${item.products?.[0]?.name}`
+                `${item.quantity}x ${item.product_name}`
             ).join(', ') || 'No items';
 
             return {

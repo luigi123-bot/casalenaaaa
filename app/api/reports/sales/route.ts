@@ -11,30 +11,75 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const startDate = searchParams.get('startDate');
         const endDate = searchParams.get('endDate');
+        const cashierId = searchParams.get('cashierId');
+        const categoryId = searchParams.get('categoryId');
+        const paymentMethods = searchParams.get('paymentMethods');
 
         console.log('=== GENERATING SALES REPORT ===');
-        console.log('Range:', startDate, 'to', endDate);
+        console.log({ startDate, endDate, cashierId, categoryId, paymentMethods });
 
-        let query = supabase
-            .from('orders')
-            .select(`
+        // Base query with necessary joins
+        // We use !inner for filtering by category content if needed
+        let selectQuery = `
+            id,
+            total_amount,
+            status,
+            payment_method,
+            created_at,
+            user_id,
+            order_items (
+                quantity,
+                products (
+                    name,
+                    category_id
+                )
+            )
+        `;
+
+        // If category is selected, we need to enforce the join to filter orders
+        if (categoryId && categoryId !== 'all') {
+            selectQuery = `
                 id,
                 total_amount,
                 status,
                 payment_method,
                 created_at,
-                order_items (
+                user_id,
+                order_items!inner (
                     quantity,
-                    products (name)
+                    products!inner (
+                        name,
+                        category_id
+                    )
                 )
-            `)
+            `;
+        }
+
+        let query = supabase
+            .from('orders')
+            .select(selectQuery)
             .order('created_at', { ascending: false });
 
-        if (startDate) {
-            query = query.gte('created_at', `${startDate}T00:00:00`);
+        // Filter by Date
+        if (startDate) query = query.gte('created_at', `${startDate}T00:00:00`);
+        if (endDate) query = query.lte('created_at', `${endDate}T23:59:59`);
+
+        // Filter by Cashier
+        if (cashierId && cashierId !== 'all') {
+            query = query.eq('user_id', cashierId);
         }
-        if (endDate) {
-            query = query.lte('created_at', `${endDate}T23:59:59`);
+
+        // Filter by Payment Methods
+        if (paymentMethods) {
+            const methods = paymentMethods.split(',').filter(Boolean);
+            if (methods.length > 0) {
+                query = query.in('payment_method', methods);
+            }
+        }
+
+        // Filter by Category
+        if (categoryId && categoryId !== 'all') {
+            query = query.eq('order_items.products.category_id', categoryId);
         }
 
         const { data: orders, error } = await query;
@@ -45,10 +90,11 @@ export async function GET(request: Request) {
         }
 
         // Formatear datos para el reporte
-        const reportData = orders?.map(order => {
+        const reportData = (orders as any[])?.map(order => {
             // Calcular detalle de items
-            const items = order.order_items?.map(item =>
-                `${item.quantity}x ${item.products?.[0]?.name}`
+            // Note: If filtering by category with !inner, accessing order.order_items might only show the matched items or all depending on Supabase version
+            const items = order.order_items?.map((item: any) =>
+                `${item.quantity}x ${item.products?.name || 'Item'}`
             ).join(', ') || 'Sin items';
 
             return {

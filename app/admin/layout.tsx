@@ -17,6 +17,7 @@ const manrope = Manrope({
 
 function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     const { loading } = useAuth();
+    const [hasOpened, setHasOpened] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [selectedChatUser, setSelectedChatUser] = useState<string | null>(null);
 
@@ -29,6 +30,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
                 setSelectedChatUser(null);
             }
             setIsChatOpen(true);
+            setHasOpened(true);
         };
 
         window.addEventListener('open-admin-chat' as any, handleOpenChat);
@@ -47,15 +49,22 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
                 {children}
             </div>
 
-            {/* Floating Chat Panel */}
-            {isChatOpen && (
-                <AdminChatPanel
-                    onClose={() => {
-                        setIsChatOpen(false);
-                        setSelectedChatUser(null);
-                    }}
-                    preselectedUserId={selectedChatUser}
-                />
+            {/* Floating Chat Panel - Persisted (Lazy Loaded) */}
+            {(isChatOpen || hasOpened) && (
+                <div className={isChatOpen ? 'block' : 'hidden'}>
+                    <AdminChatPanel
+                        onClose={() => {
+                            setIsChatOpen(false);
+                            // Do not reset selected user immediately if you want state to persist exactly as is
+                            // Or reset it if you want “neutral” state next time? 
+                            // User asked for "persistence", so keeping it might be better, 
+                            // BUT preselectedUserId is usually for "intent".
+                            // Let's reset the intent prop, but the internal state stays.
+                            setSelectedChatUser(null);
+                        }}
+                        preselectedUserId={selectedChatUser}
+                    />
+                </div>
             )}
         </div>
     );

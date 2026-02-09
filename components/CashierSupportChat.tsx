@@ -20,17 +20,20 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
     const [sessionId, setSessionId] = useState<string | null>(null);
 
     useEffect(() => {
+        console.log('=== OPENING SUPPORT CHAT - INITIALIZING SESSION ===');
         initializeChatSession();
     }, []);
 
     useEffect(() => {
         if (sessionId) {
+            console.log(`=== SESSION ID SET: ${sessionId} - FETCHING MESSAGES ===`);
             fetchMessages();
             subscribeToMessages();
         }
     }, [sessionId]);
 
     const initializeChatSession = async () => {
+        console.log('--- Checking for active session ---');
         // Check if there's an active session
         const { data: existingSession } = await supabase
             .from('chat_sessions')
@@ -40,8 +43,10 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
             .single();
 
         if (existingSession) {
+            console.log('--- Found existing active session:', existingSession.id);
             setSessionId(existingSession.id);
         } else {
+            console.log('--- No active session found, creating new one ---');
             // Create new session
             const { data: newSession } = await supabase
                 .from('chat_sessions')
@@ -54,6 +59,7 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
                 .single();
 
             if (newSession) {
+                console.log('--- New session created:', newSession.id);
                 setSessionId(newSession.id);
             }
         }
@@ -62,13 +68,19 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
     const fetchMessages = async () => {
         if (!sessionId) return;
 
-        const { data } = await supabase
+        console.log(`--- Fetching messages for session ${sessionId} ---`);
+        const { data, error } = await supabase
             .from('chat_messages')
             .select('*')
             .eq('session_id', sessionId)
             .order('created_at', { ascending: true });
 
+        if (error) {
+            console.error('--- Error fetching messages:', error);
+        }
+
         if (data) {
+            console.log(`--- Fetched ${data.length} messages ---`);
             setMessages(data);
         }
     };
@@ -184,8 +196,8 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
                             >
                                 <div
                                     className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.sender_type === 'cashier'
-                                            ? 'bg-[#F7941D] text-white rounded-br-md'
-                                            : 'bg-white text-[#181511] rounded-bl-md border border-gray-100'
+                                        ? 'bg-[#F7941D] text-white rounded-br-md'
+                                        : 'bg-white text-[#181511] rounded-bl-md border border-gray-100'
                                         }`}
                                 >
                                     {message.sender_type === 'support' && (
@@ -197,8 +209,8 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
                                         {message.content}
                                     </p>
                                     <p className={`text-[10px] mt-1 ${message.sender_type === 'cashier'
-                                            ? 'text-white/70'
-                                            : 'text-gray-400'
+                                        ? 'text-white/70'
+                                        : 'text-gray-400'
                                         }`}>
                                         {formatTime(message.created_at)}
                                     </p>

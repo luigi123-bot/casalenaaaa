@@ -27,27 +27,33 @@ export default function AdminPage() {
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('week');
 
     useEffect(() => {
         fetchDashboardData();
-    }, []);
+    }, [timeRange]);
 
     const fetchDashboardData = async () => {
-        setLoading(true);
+        if (!stats) setLoading(true); // Only show full loader on first load
+        else setIsRefreshing(true); // Show refresh indicator on subsequent updates
+
         try {
-            console.log('=== FETCHING ADMIN DASHBOARD DATA ===');
+            console.log(`=== FETCHING ADMIN DASHBOARD DATA (Range: ${timeRange}) ===`);
 
             // Fetch both in parallel to speed up
+            // Note: transactions don't depend on range currently, but we refetch to keep sync if needed
+            // If optimize: only fetch transactions once or separately.
             const [statsRes, transactionsRes] = await Promise.all([
-                fetch('/api/dashboard/stats'),
+                fetch(`/api/dashboard/stats?range=${timeRange}`),
                 fetch('/api/dashboard/transactions?limit=5')
             ]);
 
             const statsData = await statsRes.json();
             const transactionsData = await transactionsRes.json();
 
-            console.log('Stats received:', statsData);
-            console.log('Transactions received:', transactionsData);
+            // console.log('Stats received:', statsData);
+            // console.log('Transactions received:', transactionsData);
 
             setStats(statsData);
             setTransactions(Array.isArray(transactionsData) ? transactionsData : []);
@@ -56,6 +62,7 @@ export default function AdminPage() {
             console.error('Error fetching dashboard data:', error);
         } finally {
             setLoading(false);
+            setIsRefreshing(false);
         }
     };
 
@@ -86,6 +93,24 @@ export default function AdminPage() {
                 return 'Cancelled';
             default:
                 return status;
+        }
+    };
+
+    const getChartTitle = () => {
+        switch (timeRange) {
+            case 'week': return 'Ingresos Semanales';
+            case 'month': return 'Ingresos Mensuales';
+            case 'year': return 'Ingresos Anuales';
+            default: return 'Ingresos';
+        }
+    };
+
+    const getChartSubtitle = () => {
+        switch (timeRange) {
+            case 'week': return 'Últimos 7 días';
+            case 'month': return 'Este mes';
+            case 'year': return 'Este año';
+            default: return '';
         }
     };
 
@@ -123,8 +148,8 @@ export default function AdminPage() {
                                     <div className="flex items-center gap-1 text-xs sm:text-sm">
                                         <span className="material-symbols-outlined text-green-600 text-base sm:text-lg">trending_up</span>
                                         <span className="text-green-600 font-bold">+12%</span>
-                                        <span className="text-[#8c785f] hidden sm:inline">vs semana anterior</span>
-                                        <span className="text-[#8c785f] sm:hidden">vs semana ant.</span>
+                                        <span className="text-[#8c785f] hidden sm:inline">vs periodo anterior</span>
+                                        <span className="text-[#8c785f] sm:hidden">vs anterior</span>
                                     </div>
                                 </div>
 
@@ -142,8 +167,8 @@ export default function AdminPage() {
                                     <div className="flex items-center gap-1 text-xs sm:text-sm">
                                         <span className="material-symbols-outlined text-green-600 text-base sm:text-lg">trending_up</span>
                                         <span className="text-green-600 font-bold">+5%</span>
-                                        <span className="text-[#8c785f] hidden sm:inline">vs semana anterior</span>
-                                        <span className="text-[#8c785f] sm:hidden">vs semana ant.</span>
+                                        <span className="text-[#8c785f] hidden sm:inline">vs periodo anterior</span>
+                                        <span className="text-[#8c785f] sm:hidden">vs anterior</span>
                                     </div>
                                 </div>
 
@@ -161,8 +186,8 @@ export default function AdminPage() {
                                     <div className="flex items-center gap-1 text-xs sm:text-sm">
                                         <span className="material-symbols-outlined text-red-500 text-base sm:text-lg">trending_down</span>
                                         <span className="text-red-500 font-bold">-2%</span>
-                                        <span className="text-[#8c785f] hidden sm:inline">vs semana anterior</span>
-                                        <span className="text-[#8c785f] sm:hidden">vs semana ant.</span>
+                                        <span className="text-[#8c785f] hidden sm:inline">vs periodo anterior</span>
+                                        <span className="text-[#8c785f] sm:hidden">vs anterior</span>
                                     </div>
                                 </div>
 
@@ -188,15 +213,38 @@ export default function AdminPage() {
                             {/* Charts Section - Responsive */}
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
                                 {/* Line Chart - Takes 2 columns on large screens */}
-                                <div className="lg:col-span-2 rounded-xl border border-[#e6e1db] bg-white p-4 sm:p-6 shadow-sm">
+                                <div className="lg:col-span-2 rounded-xl border border-[#e6e1db] bg-white p-4 sm:p-6 shadow-sm relative transition-all">
+                                    {isRefreshing && (
+                                        <div className="absolute inset-0 bg-white/60 z-10 flex items-center justify-center backdrop-blur-[1px] rounded-xl transition-all duration-300">
+                                            <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                                        </div>
+                                    )}
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 gap-3">
                                         <div>
-                                            <p className="text-[#181511] text-base sm:text-lg font-bold">Ingresos Semanales</p>
-                                            <p className="text-[#8c785f] text-xs sm:text-sm">Últimos 7 días</p>
+                                            <p className="text-[#181511] text-base sm:text-lg font-bold">{getChartTitle()}</p>
+                                            <p className="text-[#8c785f] text-xs sm:text-sm">{getChartSubtitle()}</p>
                                         </div>
-                                        <div className="flex items-center gap-2 bg-green-50 px-3 py-1 rounded-full w-fit">
-                                            <span className="material-symbols-outlined text-green-600 text-sm">arrow_upward</span>
-                                            <span className="text-green-700 text-sm font-bold">${stats?.weeklySales || '0'}</span>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex bg-gray-100 rounded-lg p-1">
+                                                <button
+                                                    onClick={() => setTimeRange('week')}
+                                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${timeRange === 'week' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                >
+                                                    Semana
+                                                </button>
+                                                <button
+                                                    onClick={() => setTimeRange('month')}
+                                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${timeRange === 'month' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                >
+                                                    Mes
+                                                </button>
+                                                <button
+                                                    onClick={() => setTimeRange('year')}
+                                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${timeRange === 'year' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                >
+                                                    Año
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="w-full h-[180px] sm:h-[240px] relative">
@@ -222,16 +270,19 @@ export default function AdminPage() {
                                                     const paddingBottom = 40;
                                                     const usableHeight = height - paddingBottom;
 
+                                                    // Ensure we have enough data points to render something meaningful
+                                                    const xStep = data.length > 1 ? width / (data.length - 1) : width;
+
                                                     // Generate points
                                                     const points = data.map((d, i) => {
-                                                        const x = (i / (data.length - 1)) * width;
+                                                        const x = i * xStep;
                                                         const y = height - ((d.amount / maxVal) * usableHeight) - 20; // 20px padding bottom
                                                         return `${x},${y}`;
                                                     }).join(' ');
 
                                                     const areaPath = `M0,${height} ${points.split(' ').map((p, i) => {
                                                         const [x, y] = p.split(',');
-                                                        return i === 0 ? `L${x},${y}` : `L${x},${y}`;
+                                                        return `L${x},${y}`;
                                                     }).join(' ')} V${height} Z`.replace('M0,240 L', 'M');
 
                                                     // Simple Polyline for the line
@@ -242,8 +293,13 @@ export default function AdminPage() {
                                                             <path d={`${areaPath}`} fill="url(#gradient)"></path>
                                                             <path d={linePath} fill="none" stroke="#f7951d" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3"></path>
                                                             {data.map((d, i) => {
-                                                                const x = (i / (data.length - 1)) * width;
+                                                                const x = i * xStep;
                                                                 const y = height - ((d.amount / maxVal) * usableHeight) - 20;
+                                                                // Show tooltip/dot only for fewer points to avoid clutter, or show all
+                                                                const showDot = data.length <= 15 || i % Math.ceil(data.length / 15) === 0;
+
+                                                                if (!showDot) return null;
+
                                                                 return (
                                                                     <g key={i} className="group/point">
                                                                         <circle cx={x} cy={y} fill="white" r="4" stroke="#f7951d" strokeWidth="2" className="cursor-pointer transition-all duration-300 hover:r-6" />
@@ -259,14 +315,18 @@ export default function AdminPage() {
                                             </svg>
                                         ) : (
                                             <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                                                No hay datos diarios disponibles
+                                                No hay datos disponibles para este periodo
                                             </div>
                                         )}
                                     </div>
                                     <div className="flex justify-between mt-3 sm:mt-4 text-[#8c785f] text-[10px] sm:text-xs font-bold uppercase tracking-wider overflow-x-auto scrollbar-hide">
-                                        {stats?.chartData?.map((d, i) => (
-                                            <span key={i} className="shrink-0">{d.day}</span>
-                                        ))}
+                                        {stats?.chartData?.map((d, i) => {
+                                            // Only show labels occasionally if many data points
+                                            const showLabel = stats.chartData.length <= 12 || i % Math.ceil(stats.chartData.length / 12) === 0;
+                                            return (
+                                                <span key={i} className={`shrink-0 ${!showLabel && 'hidden'}`}>{d.day}</span>
+                                            );
+                                        })}
                                     </div>
                                 </div>
 
