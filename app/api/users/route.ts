@@ -38,22 +38,20 @@ export async function GET(request: Request) {
         }
 
         // Merge logic: use profiles, fallback to usuarios if not in profiles
-        // We want a unified list
         const profilesMap = new Map((profiles || []).map((p: any) => [p.id, p]));
         const unifiedUsers = [...(profiles || [])];
 
         (usuarios || []).forEach((u: any) => {
             if (!profilesMap.has(u.id)) {
-                // Determine sensible defaults if missing
                 unifiedUsers.push({
                     ...u,
-                    full_name: u.full_name || u.email || 'Usuario', // Fallback
+                    full_name: u.full_name || u.email || 'Usuario',
                     role: u.role || 'cliente'
                 });
             }
         });
 
-        // Sort by creation date or name
+        // Sort by creation date
         unifiedUsers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
         return NextResponse.json(unifiedUsers);
@@ -65,20 +63,21 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
     try {
-        const { id, role, fullName, isActive } = await request.json();
+        const { id, role, fullName, email, password, isActive } = await request.json();
 
         if (!id) {
             return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
         }
 
         // 1. Update Profile (Role & Full Name)
+        const profileUpdates: any = {
+            role,
+            full_name: fullName,
+        };
+
         const { error: profileError } = await supabaseAdmin
             .from('profiles')
-            .update({
-                role,
-                full_name: fullName,
-                // Add status column if you have it in profiles, otherwise we might need to handle 'isActive' via auth.admin.updateUser ban/unban
-            })
+            .update(profileUpdates)
             .eq('id', id);
 
         if (profileError) {
@@ -86,17 +85,24 @@ export async function PUT(request: Request) {
             throw new Error(profileError.message);
         }
 
-        // 2. Update Auth Metadata (to keep it in sync, optional but recommended)
+        // 2. Update Auth User (email, password, metadata)
         const authUpdates: any = {
             user_metadata: { full_name: fullName },
-            ban_duration: isActive ? 'none' : '876000h'
         };
 
-        // Allow Admin to force-reset password if provided
-        // This is useful if users hit email rate limits
-        const { password } = await request.json().catch(() => ({}));
+        // Update email if provided
+        if (email) {
+            authUpdates.email = email;
+        }
+
+        // Update password if provided (optional)
         if (password && password.length >= 6) {
             authUpdates.password = password;
+        }
+
+        // Handle active/inactive status
+        if (isActive !== undefined) {
+            authUpdates.ban_duration = isActive ? 'none' : '876000h';
         }
 
         const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
@@ -126,8 +132,7 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
         }
 
-        // Delete from Supabase Auth (this usually cascades to public.users/profiles if configured, 
-        // but we'll let Supabase handle the foreign key cascade if it exists, or just auth deletion)
+        // Delete from Supabase Auth (cascades to profiles if configured)
         const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
 
         if (error) {

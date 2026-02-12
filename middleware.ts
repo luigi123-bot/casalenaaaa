@@ -56,10 +56,8 @@ export async function middleware(request: NextRequest) {
 
     // Get user session securely
     const { data: { user } } = await supabase.auth.getUser();
-
     const { pathname } = request.nextUrl;
 
-    // DEBUG LOGS - FORCE VISIBILITY
     console.log('🚧 [Middleware] Request:', request.method, pathname);
 
     // SKIP MIDDLEWARE FOR API ROUTES
@@ -69,115 +67,114 @@ export async function middleware(request: NextRequest) {
     }
 
     // EXPLICIT BYPASS FOR PASSWORD UPDATE
-    // This ensures that even if logged in, the user can access this page to reset credentials
     if (pathname === '/update-password') {
         console.log('🔓 [Middleware] Explicitly allowing /update-password');
         return response;
     }
 
-    // 1. ROOT PATH HANDLING - ABSOLUTE PRIORITY
-    if (pathname === '/') {
-        if (!user) {
-            console.log('🚀 [Middleware] ROOT -> /tienda (No session detected)');
-            const url = request.nextUrl.clone();
-            url.pathname = '/tienda';
-            return NextResponse.redirect(url);
-        }
-        console.log('👤 [Middleware] ROOT with session -> Proceeding to role check');
-    }
-
-    // 2. PUBLIC ROUTES
+    // PUBLIC ROUTES
     const publicRoutes = ['/login', '/register', '/tienda', '/forgot-password', '/update-password'];
 
-    // Logic for public routes
+    // Handle public routes
     if (publicRoutes.includes(pathname) || pathname.startsWith('/tienda')) {
         console.log('✅ [Middleware] Public route - allowing access to:', pathname);
-        if (user) {
-            // Only redirect if trying to access login/register
-            if (pathname === '/login' || pathname === '/register') {
-                // Fetch role to redirect
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('role')
-                    .eq('id', user.id)
-                    .single();
 
-                // If profile not found, try 'usuarios' table or default to something safe
-                let role = profile?.role;
-                if (!role) {
-                    const { data: usuario } = await supabase
-                        .from('usuarios')
-                        .select('role')
-                        .eq('id', user.id)
-                        .single();
-                    role = usuario?.role;
-                }
-
-                const redirectUrl = getRoleBasedRedirect(role);
-                console.log('🔄 [Middleware] Redirecting authenticated user from', pathname, 'to', redirectUrl);
-                return NextResponse.redirect(new URL(redirectUrl, request.url));
-            }
+        // If user is authenticated and trying to access login/register, redirect to their dashboard
+        if (user && (pathname === '/login' || pathname === '/register')) {
+            const role = await getUserRole(supabase, user.id);
+            const redirectUrl = getRoleBasedRedirect(role);
+            console.log('🔄 [Middleware] Authenticated user on login/register, redirecting to:', redirectUrl);
+            return NextResponse.redirect(new URL(redirectUrl, request.url));
         }
-        // Allow access to /tienda without auth
-        console.log('✅ [Middleware] Allowing access to /tienda');
+
         return response;
     }
 
-    // Protected routes
+    // PROTECTED ROUTES - Require authentication
     if (!user) {
+        console.log('🔒 [Middleware] No user session, redirecting to login');
         const loginUrl = new URL('/login', request.url);
         loginUrl.searchParams.set('redirect', pathname);
         return NextResponse.redirect(loginUrl);
     }
 
-    // Role checks
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
+    // Get user role
+    const role = await getUserRole(supabase, user.id);
+    console.log('👤 [Middleware] User role:', role, 'accessing:', pathname);
 
-    let role = profile?.role;
-    // Fallback if not in profiles
-    if (!role) {
-        const { data: usuario } = await supabase
-            .from('usuarios')
-            .select('role')
-            .eq('id', user.id)
-            .single();
-        role = usuario?.role;
+    // ROOT PATH - Redirect to role-based dashboard
+    if (pathname === '/') {
+        const redirectUrl = getRoleBasedRedirect(role);
+        console.log('🏠 [Middleware] Root path, redirecting to:', redirectUrl);
+        return NextResponse.redirect(new URL(redirectUrl, request.url));
     }
 
-    // Redirect logic
+    // ROLE-BASED ACCESS CONTROL
+    // Admin routes - accessible by admin and cajero
     if (pathname.startsWith('/admin')) {
         if (role !== 'administrador' && role !== 'cajero') {
+            console.log('⛔ [Middleware] Unauthorized access to /admin, redirecting');
             return NextResponse.redirect(new URL(getRoleBasedRedirect(role), request.url));
         }
     }
 
+    // Cashier routes - accessible by cajero and admin
+    if (pathname.startsWith('/cashier')) {
+        if (role !== 'cajero' && role !== 'administrador') {
+            console.log('⛔ [Middleware] Unauthorized access to /cashier, redirecting');
+            return NextResponse.redirect(new URL(getRoleBasedRedirect(role), request.url));
+        }
+    }
+
+    // Kitchen routes - only for cocina role
     if (pathname.startsWith('/cocina')) {
         if (role !== 'cocina') {
+            console.log('⛔ [Middleware] Unauthorized access to /cocina, redirecting');
             return NextResponse.redirect(new URL(getRoleBasedRedirect(role), request.url));
         }
     }
 
-    if (pathname === '/') {
-        return NextResponse.redirect(new URL(getRoleBasedRedirect(role), request.url));
-    }
-
+    console.log('✅ [Middleware] Access granted to:', pathname);
     return response;
 }
 
+// Helper function to get user role
+async function getUserRole(supabase: any, userId: string): Promise<string | undefined> {
+    // Try profiles table first
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+
+    if (profile?.role) {
+        return profile.role;
+    }
+
+    // Fallback to usuarios table
+    const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('role')
+        .eq('id', userId)
+        .single();
+
+    return usuario?.role;
+}
+
 function getRoleBasedRedirect(role: string | undefined): string {
+    console.log('🎯 [getRoleBasedRedirect] Role:', role);
+
     switch (role) {
         case 'administrador':
-        case 'cajero':
             return '/admin/users';
+        case 'cajero':
+            return '/cashier';
         case 'cocina':
             return '/cocina';
         case 'cliente':
             return '/tienda';
         default:
+            console.log('⚠️ [getRoleBasedRedirect] Unknown role, defaulting to /login');
             return '/login';
     }
 }

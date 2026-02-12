@@ -32,6 +32,14 @@ export default function AdminUsersPage() {
         isActive: true
     });
 
+    // Toast notification state
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+    const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 4000);
+    };
+
     const fetchUsers = async () => {
         setLoading(true);
         try {
@@ -196,7 +204,13 @@ export default function AdminUsersPage() {
                 response = await fetch('/api/users', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: editingUserId, ...formData }),
+                    body: JSON.stringify({
+                        id: editingUserId,
+                        fullName: formData.fullName,
+                        email: formData.email,
+                        password: formData.password || undefined,
+                        role: formData.role
+                    }),
                 });
             } else {
                 response = await fetch('/api/register', {
@@ -207,26 +221,29 @@ export default function AdminUsersPage() {
             }
             if (!response.ok) {
                 const data = await response.json();
-                throw new Error(data.error || 'Error');
+                throw new Error(data.error || 'Error al procesar');
             }
-            alert('Éxito');
+            showToast(editingUserId ? '✅ Usuario actualizado correctamente' : '✅ Usuario creado exitosamente', 'success');
             setShowModal(false);
+            setEditingUserId(null);
+            setFormData({ fullName: '', email: '', password: '', role: 'cliente', isActive: true });
             fetchUsers();
         } catch (error: any) {
-            alert(error.message);
+            showToast('❌ ' + error.message, 'error');
         } finally {
             setCreating(false);
         }
     };
 
     const handleDelete = async (userId: string) => {
-        if (!confirm('¿Eliminar usuario?')) return;
+        if (!confirm('¿Eliminar usuario permanentemente?')) return;
         try {
             const response = await fetch(`/api/users?id=${userId}`, { method: 'DELETE' });
-            if (!response.ok) throw new Error('Error');
+            if (!response.ok) throw new Error('Error al eliminar');
+            showToast('🗑️ Usuario eliminado correctamente', 'info');
             fetchUsers();
         } catch (error: any) {
-            alert(error.message);
+            showToast('❌ ' + error.message, 'error');
         }
     };
 
@@ -295,9 +312,18 @@ export default function AdminUsersPage() {
                                             <span className="bg-orange-50 text-[#F27405] px-3 py-1 rounded-full text-[10px] font-black uppercase">{u.role}</span>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <button onClick={() => handleDelete(u.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-colors">
-                                                <span className="material-symbols-outlined text-[20px]">delete</span>
-                                            </button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => {
+                                                    setEditingUserId(u.id);
+                                                    setFormData({ fullName: u.full_name, email: u.email, password: '', role: u.role, isActive: true });
+                                                    setShowModal(true);
+                                                }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-full transition-colors">
+                                                    <span className="material-symbols-outlined text-[20px]">edit</span>
+                                                </button>
+                                                <button onClick={() => handleDelete(u.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-full transition-colors">
+                                                    <span className="material-symbols-outlined text-[20px]">delete</span>
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -387,23 +413,60 @@ export default function AdminUsersPage() {
 
             {showModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#181511]/60 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl p-8">
-                        <h2 className="text-xl font-black mb-6">{editingUserId ? 'Editar' : 'Nuevo'} Usuario</h2>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <input name="fullName" placeholder="Nombre" value={formData.fullName} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" required />
-                            <input name="email" type="email" placeholder="Email" value={formData.email} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" required />
-                            {!editingUserId && <input name="password" type="password" placeholder="Contraseña" value={formData.password} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold" required />}
-                            <select name="role" value={formData.role} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold capitalize">
-                                <option value="cliente">Cliente</option>
-                                <option value="administrador">Administrador</option>
-                                <option value="cajero">Cajero</option>
-                                <option value="cocina">Cocina</option>
-                            </select>
-                            <div className="flex gap-4 pt-4">
-                                <button type="button" onClick={() => setShowModal(false)} className="flex-1 font-bold text-gray-400">Cancelar</button>
-                                <button type="submit" className="flex-1 bg-[#F27405] text-white py-4 rounded-2xl font-black shadow-lg">Guardar</button>
+                    <div className="bg-white w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl">
+                        <div className="p-8 border-b border-gray-100 bg-[#fcfbf9] flex justify-between items-center">
+                            <h2 className="text-xl font-black">{editingUserId ? 'Editar' : 'Nuevo'} Usuario</h2>
+                            <button type="button" onClick={() => { setShowModal(false); setEditingUserId(null); setFormData({ fullName: '', email: '', password: '', role: 'cliente', isActive: true }); }} className="text-gray-400 hover:text-gray-600">
+                                <span className="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+                        <form onSubmit={handleSubmit} className="p-8 space-y-5">
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Nombre Completo</label>
+                                <input name="fullName" placeholder="Ej. Juan Pérez" value={formData.fullName} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold focus:border-[#F27405] outline-none transition-all" required />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Correo Electrónico</label>
+                                <input name="email" type="email" placeholder="correo@ejemplo.com" value={formData.email} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold focus:border-[#F27405] outline-none transition-all" required />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">{editingUserId ? 'Nueva Contraseña (opcional)' : 'Contraseña'}</label>
+                                <input name="password" type="password" placeholder={editingUserId ? 'Dejar vacío para mantener actual' : 'Mínimo 6 caracteres'} value={formData.password} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold focus:border-[#F27405] outline-none transition-all" required={!editingUserId} />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Rol del Usuario</label>
+                                <select name="role" value={formData.role} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold capitalize focus:border-[#F27405] outline-none transition-all">
+                                    <option value="cliente">Cliente</option>
+                                    <option value="administrador">Administrador</option>
+                                    <option value="cajero">Cajero</option>
+                                    <option value="cocina">Cocina</option>
+                                </select>
+                            </div>
+                            <div className="flex gap-4 pt-6">
+                                <button type="button" onClick={() => { setShowModal(false); setEditingUserId(null); setFormData({ fullName: '', email: '', password: '', role: 'cliente', isActive: true }); }} className="flex-1 font-bold text-gray-400 hover:text-gray-600 transition-colors">Cancelar</button>
+                                <button type="submit" disabled={creating} className="flex-1 bg-[#F27405] hover:bg-[#e06804] text-white py-4 rounded-2xl font-black shadow-lg shadow-orange-100 uppercase tracking-widest text-sm transition-all disabled:opacity-50">
+                                    {creating ? 'Guardando...' : (editingUserId ? 'Actualizar' : 'Crear Usuario')}
+                                </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Toast Notification */}
+            {toast && (
+                <div className="fixed top-8 right-8 z-[100] animate-in slide-in-from-top-2 duration-300">
+                    <div className={`px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 min-w-[300px] border-2 ${toast.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
+                            toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+                                'bg-blue-50 border-blue-200 text-blue-800'
+                        }`}>
+                        <span className="material-symbols-outlined text-2xl">
+                            {toast.type === 'success' ? 'check_circle' : toast.type === 'error' ? 'error' : 'info'}
+                        </span>
+                        <p className="font-bold text-sm flex-1">{toast.message}</p>
+                        <button onClick={() => setToast(null)} className="text-gray-400 hover:text-gray-600">
+                            <span className="material-symbols-outlined text-lg">close</span>
+                        </button>
                     </div>
                 </div>
             )}

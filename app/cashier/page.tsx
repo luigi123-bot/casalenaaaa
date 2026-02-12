@@ -802,20 +802,20 @@ export default function CashierPage() {
                     {loading && !products.length ? (
                         <div className="flex items-center justify-center h-64"><div className="w-10 h-10 border-4 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div></div>
                     ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-5 lg:gap-6 pb-20 lg:pb-8">
+                        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-1.5 sm:gap-2 lg:gap-2.5 pb-16 lg:pb-6">
                             {filteredGroupedProducts.map((group) => (
                                 <div
                                     key={group.name}
                                     onClick={() => openProductCustomizer(group)}
-                                    className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-[#e8e5e1] flex flex-col group hover:shadow-lg transition-all cursor-pointer"
+                                    className="bg-white p-1.5 sm:p-2 rounded-lg shadow-sm border border-[#e8e5e1] flex flex-col group hover:shadow-lg transition-all cursor-pointer"
                                 >
-                                    <div className="relative w-full aspect-square bg-gray-50 rounded-lg mb-3 sm:mb-4 overflow-hidden">
-                                        {group.imagen_url ? <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><span className="material-icons-round text-3xl sm:text-4xl">restaurant</span></div>}
-                                        <div className="absolute top-2 right-2 bg-white/90 backdrop-blur px-2 py-1 rounded-md text-[10px] font-black shadow-sm">DESDE ${group.basePrice}</div>
+                                    <div className="relative w-full aspect-[3/2] bg-gray-50 rounded-md mb-1.5 overflow-hidden">
+                                        {group.imagen_url ? <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><span className="material-icons-round text-xl sm:text-2xl">restaurant</span></div>}
+                                        <div className="absolute top-1 right-1 bg-white/90 backdrop-blur px-1.5 py-0.5 rounded text-[9px] font-black shadow-sm">$${group.basePrice}</div>
                                     </div>
-                                    <h3 className="font-bold text-base sm:text-lg mb-1 line-clamp-1">{group.name}</h3>
-                                    <p className="text-[#8c785f] text-xs line-clamp-2 mb-3 sm:mb-4 flex-1">{group.description}</p>
-                                    <button className="w-full bg-[#181511] text-white py-2 sm:py-2.5 rounded-lg text-sm font-bold active:scale-95 transition-all">Seleccionar</button>
+                                    <h3 className="font-bold text-[9px] sm:text-[10px] mb-0.5 line-clamp-1 leading-tight">{group.name}</h3>
+                                    <p className="text-[#8c785f] text-[8px] line-clamp-1 mb-1.5 flex-1">{group.description}</p>
+                                    <button className="w-full bg-[#181511] text-white py-1 rounded text-[8px] sm:text-[9px] font-bold active:scale-95 transition-all">Agregar</button>
                                 </div>
                             ))}
                         </div>

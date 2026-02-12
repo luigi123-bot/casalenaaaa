@@ -38,11 +38,11 @@ export default function LoginPage() {
             const role = profile?.role;
             console.log('👤 [Login] User role found:', role);
 
-            if (role === 'admin' || role === 'administrador') {
-                router.push('/admin');
-            } else if (role === 'cashier' || role === 'cajero') {
+            if (role === 'administrador') {
+                router.push('/admin/users');
+            } else if (role === 'cajero') {
                 router.push('/cashier');
-            } else if (role === 'kitchen' || role === 'cocina') {
+            } else if (role === 'cocina') {
                 router.push('/cocina');
             } else {
                 // Default to store for clients and others
