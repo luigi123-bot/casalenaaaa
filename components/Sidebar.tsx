@@ -86,7 +86,7 @@ export default function Sidebar() {
             {/* Mobile Menu Button - Fixed */}
             <button
                 onClick={() => setIsMobileMenuOpen(true)}
-                className="xl:hidden fixed top-4 left-4 z-40 p-2 rounded-xl bg-white border border-[#e6e1db] shadow-lg hover:bg-gray-50 transition-colors"
+                className="lg:hidden fixed top-4 left-4 z-40 p-2 rounded-xl bg-white border border-[#e6e1db] shadow-lg hover:bg-gray-50 transition-colors"
             >
                 <span className="material-symbols-outlined text-2xl text-[#181511]">menu</span>
             </button>
@@ -94,22 +94,22 @@ export default function Sidebar() {
             {/* Mobile Overlay */}
             {isMobileMenuOpen && (
                 <div
-                    className="xl:hidden fixed inset-0 bg-black/50 z-40"
+                    className="lg:hidden fixed inset-0 bg-black/50 z-40"
                     onClick={() => setIsMobileMenuOpen(false)}
                 />
             )}
 
             {/* Sidebar - Hidden on mobile, slides in when open */}
             <aside className={`
-                fixed xl:static inset-y-0 left-0 z-50
+                fixed lg:static inset-y-0 left-0 z-50
                 w-64 flex-shrink-0 flex flex-col bg-white border-r border-[#e6e1db] h-full overflow-y-auto
                 transform transition-transform duration-300 ease-in-out
-                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full xl:translate-x-0'}
+                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
             `}>
                 {/* Mobile Close Button */}
                 <button
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="xl:hidden absolute top-4 right-4 p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                    className="lg:hidden absolute top-4 right-4 p-2 rounded-xl hover:bg-gray-100 transition-colors"
                 >
                     <span className="material-symbols-outlined text-2xl text-[#181511]">close</span>
                 </button>

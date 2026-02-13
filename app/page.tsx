@@ -52,9 +52,9 @@ export default function Home() {
           .single();
 
         if (profileData?.role === 'administrador') {
-          router.push('/admin/users');
+          router.push('/admin');
         } else if (profileData?.role === 'cajero') {
-          router.push('/cashier');
+          router.push('/cashier/dashboard');
         } else if (profileData?.role === 'cocina') {
           router.push('/cocina');
         } else {

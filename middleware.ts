@@ -196,9 +196,9 @@ function getRoleBasedRedirect(role: string | undefined): string {
 
     switch (role) {
         case 'administrador':
-            return '/admin/users';
+            return '/admin';
         case 'cajero':
-            return '/cashier';
+            return '/cashier/dashboard';
         case 'cocina':
             return '/cocina';
         case 'cliente':

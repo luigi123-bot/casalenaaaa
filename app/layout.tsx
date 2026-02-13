@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import InstallPWA from "@/components/InstallPWA";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -55,6 +56,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${plusJakartaSans.variable} font-sans antialiased bg-background-light dark:bg-background-dark text-text-dark dark:text-text-light transition-colors duration-300`}
       >
+        <InstallPWA />
         <Providers>
           {children}
         </Providers>
