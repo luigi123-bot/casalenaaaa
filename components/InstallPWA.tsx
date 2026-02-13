@@ -54,10 +54,10 @@ export default function InstallPWA() {
     return (
         <>
             {showInstallBtn && (
-                <div className="fixed bottom-4 left-4 z-[9999] animate-bounce-custom">
+                <div className="fixed bottom-6 left-6 z-[100] animate-bounce">
                     <button
                         onClick={handleInstallClick}
-                        className="flex items-center gap-2 bg-[#F7941D] hover:bg-[#e68a1b] text-white px-4 py-3 rounded-full shadow-lg hover:shadow-xl transition-all font-bold text-sm"
+                        className="flex items-center gap-3 bg-[#F7941D] hover:bg-[#e68a1b] text-white px-6 py-4 rounded-full shadow-2xl hover:shadow-orange-500/50 transition-all font-bold text-base border-2 border-white ring-2 ring-orange-200"
                     >
                         <span className="material-icons-round">download</span>
                         Instalar App
