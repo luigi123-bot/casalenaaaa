@@ -582,6 +582,13 @@ export default function CashierPage() {
                 throw new Error('Sesión expirada o inválida. Por favor reinicie sesión.');
             }
 
+            // Ensure profile exists (Sync)
+            try {
+                await fetch('/api/sync-profile', { method: 'POST' });
+            } catch (syncErr) {
+                console.warn('⚠️ [Cashier] Error syncing profile (non-fatal):', syncErr);
+            }
+
             const orderPayload = {
                 user_id: user.id,
                 status: 'confirmado',
