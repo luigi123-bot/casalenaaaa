@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest"
   },
   "dependencies": {
+    "@ducanh2912/next-pwa": "^10.2.9",
     "@supabase/auth-helpers-nextjs": "^0.15.0",
     "@supabase/realtime-js": "^2.93.3",
     "@supabase/ssr": "^0.8.0",

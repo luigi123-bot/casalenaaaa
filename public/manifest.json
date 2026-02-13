@@ -1,0 +1,16 @@
+{
+    "name": "Casaleña POS",
+    "short_name": "Casaleña",
+    "description": "Sistema de Punto de Venta para pizzería",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#ffffff",
+    "icons": [
+        {
+            "src": "/casalena-logo.jpg",
+            "sizes": "512x512",
+            "type": "image/jpeg"
+        }
+    ]
+}
