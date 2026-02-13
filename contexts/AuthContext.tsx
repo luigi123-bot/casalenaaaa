@@ -52,8 +52,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         .eq('id', session.user.id)
                         .single();
 
-                    // If profiles doesn't exist, try 'usuarios' table
-                    if (error && error.code === 'PGRST116') {
+                    if (error) {
+                        console.warn('Error fetching from profiles, trying usuarios fallback:', error.message);
                         const result = await supabase
                             .from('usuarios')
                             .select('*')
@@ -67,12 +67,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             id: profile.id,
                             email: profile.email,
                             full_name: profile.full_name || 'Usuario',
-                            role: profile.role,
+                            role: profile.role ? profile.role.toLowerCase() : 'cliente', // Normalize role
                             avatar_url: profile.avatar_url,
                         });
                     } else {
-                        console.warn('Profile not found for session user');
-                        setUser(null);
+                        // Fallback using session data if DB fetch completely fails
+                        console.warn('Profile not found in DB, using session fallback');
+                        setUser({
+                            id: session.user.id,
+                            email: session.user.email || '',
+                            full_name: session.user.user_metadata?.full_name || 'Usuario',
+                            role: (session.user.user_metadata?.role || 'cliente').toLowerCase(),
+                            avatar_url: '',
+                        });
                     }
                 } else {
                     setUser(null);
@@ -98,15 +105,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         .eq('id', session.user.id)
                         .single();
 
-                    // If profiles doesn't exist, try 'usuarios' table
-                    if (error && error.code === 'PGRST116') {
-                        console.log('Table "profiles" not found, trying "usuarios"...');
+                    if (error) {
                         const result = await supabase
                             .from('usuarios')
                             .select('*')
                             .eq('id', session.user.id)
                             .single();
-
                         profile = result.data;
                     }
 
@@ -115,8 +119,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             id: profile.id,
                             email: profile.email,
                             full_name: profile.full_name || 'Usuario',
-                            role: profile.role,
+                            role: profile.role ? profile.role.toLowerCase() : 'cliente',
                             avatar_url: profile.avatar_url,
+                        });
+                    } else {
+                        setUser({
+                            id: session.user.id,
+                            email: session.user.email || '',
+                            full_name: session.user.user_metadata?.full_name || 'Usuario',
+                            role: (session.user.user_metadata?.role || 'cliente').toLowerCase(),
+                            avatar_url: '',
                         });
                     }
                 } else {
