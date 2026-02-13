@@ -109,7 +109,7 @@ export async function POST(request: Request) {
             user: {
                 id: authData.user?.id,
                 email: authData.user?.email,
-                role: role || 'cajero'
+                role: role || 'cliente'
             }
         });
 

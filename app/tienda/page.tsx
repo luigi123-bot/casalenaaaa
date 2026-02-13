@@ -3,6 +3,11 @@
 import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
+import { addPointsForOrder, applyCoupon } from '@/utils/gamification';
+import dynamic from 'next/dynamic';
+import React, { FC, ReactNode } from 'react';
+import Image from 'next/image';
+import GamificationInline from '@/components/GamificationInline';
 
 // Types
 interface Category {
@@ -54,9 +59,13 @@ export default function TiendaPage() {
     const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(true);
     const [userName, setUserName] = useState('');
+    const [userLevel, setUserLevel] = useState<string>('bronce');
 
     // UI State
-    const [selectedCategory, setSelectedCategory] = useState<string | number>('all');
+    const [selectedCategory, setSelectedCategory] = useState<string | number>('Todas');
+    const [pointsEarned, setPointsEarned] = useState(0);
+    const [newLevel, setNewLevel] = useState<string | null>(null);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedProduct, setSelectedProduct] = useState<GroupedProduct | null>(null);
     const [currentSize, setCurrentSize] = useState<string>('');
@@ -123,7 +132,7 @@ export default function TiendaPage() {
     useEffect(() => {
         if (userId) {
             const pendingCart = localStorage.getItem('pendingCart');
-            const pendingDeliveryAddress = localStorage.getItem(' pendingDeliveryAddress');
+            const pendingDeliveryAddress = localStorage.getItem('pendingDeliveryAddress');
             const pendingPhoneNumber = localStorage.getItem('pendingPhoneNumber');
 
             if (pendingCart) {
@@ -170,26 +179,70 @@ export default function TiendaPage() {
             setUserName(fullName);
             if (phone) setPhoneNumber(phone);
             if (address) setDeliveryAddress(address);
+
+            // Obtener nivel del usuario desde gamificación
+            try {
+                const response = await fetch(`/api/gamification?userId=${session.user.id}`);
+                const data = await response.json();
+                if (data.points) {
+                    setUserLevel(data.points.current_level || 'bronce');
+                }
+            } catch (error) {
+                console.error('Error fetching user level:', error);
+            }
+        }
+    };
+
+    const getLevelBadgeColor = (level: string) => {
+        switch (level) {
+            case 'platino': return 'text-purple-600';
+            case 'oro': return 'text-yellow-600';
+            case 'plata': return 'text-gray-600';
+            default: return 'text-orange-600';
+        }
+    };
+
+    const getLevelIcon = (level: string) => {
+        switch (level) {
+            case 'platino': return '💎';
+            case 'oro': return '👑';
+            case 'plata': return '⭐';
+            default: return '🥉';
         }
     };
 
     const fetchCategories = async () => {
-        const { data } = await supabase
+        console.log('🔄 Fetching Categories...');
+        const { data, error } = await supabase
             .from('categories')
             .select('*')
-            .order('name');
+            .order('id');
+
+        console.log('📦 Categories result:', data?.length, error);
+        if (error) console.error('Error categories:', error);
+
         setCategories(data || []);
     };
 
     const fetchProducts = async () => {
+        console.log('🔄 Fetching Products...');
         setLoading(true);
-        const { data } = await supabase
-            .from('products')
-            .select('*, categories(name)')
-            .eq('available', true)
-            .order('name');
-        setProducts(data || []);
-        setLoading(false);
+        try {
+            const { data, error } = await supabase
+                .from('products')
+                .select('*, categories(name)')
+                .eq('available', true) // Keep original product selection
+                .order('name'); // Keep original ordering
+
+            console.log('🍔 Products result:', data?.length, error);
+            if (error) console.error('Error products:', error);
+
+            setProducts(data || []);
+        } catch (e) {
+            console.error('Exception fetching products:', e);
+        } finally {
+            setLoading(false);
+        }
     };
 
     // Derived State: Group Products
@@ -241,7 +294,7 @@ export default function TiendaPage() {
 
     const filteredGroupedProducts = useMemo(() => {
         return groupedProducts.filter(product => {
-            const matchesCategory = selectedCategory === 'all' || product.category_id === selectedCategory;
+            const matchesCategory = selectedCategory === 'Todas' || product.category_id === selectedCategory;
             const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
             return matchesCategory && matchesSearch;
         });
@@ -474,7 +527,21 @@ export default function TiendaPage() {
                 console.error('Error al notificar cajero:', notifyError);
             }
 
-            // 6. Clear cart and show success
+            // 6. Agregar puntos de gamificación
+            setProcessingStep('Sumando puntos de recompensa...');
+            try {
+                const pointsResult = await addPointsForOrder(userId, cartTotals.total, orderData.id.toString());
+                if (pointsResult && pointsResult.success) {
+                    setPointsEarned(pointsResult.pointsEarned || 0);
+                    setNewLevel(pointsResult.newLevel);
+                    console.log(`✨ ¡${pointsResult.pointsEarned} puntos ganados!`);
+                }
+            } catch (pointsError) {
+                console.error('Error al agregar puntos:', pointsError);
+                // No bloqueamos el flujo si falla la gamificación
+            }
+
+            // 7. Clear cart and show success
             setCart([]);
             setDeliveryAddress('');
             setPhoneNumber('');
@@ -616,6 +683,14 @@ export default function TiendaPage() {
                             {userId ? (
                                 <>
                                     <button
+                                        onClick={() => router.push('/tienda/gamification')}
+                                        className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow-md transition-all whitespace-nowrap group ${getLevelBadgeColor(userLevel)}`}
+                                        title="Ver mis recompensas y nivel"
+                                    >
+                                        <span className="text-lg group-hover:scale-110 transition-transform">{getLevelIcon(userLevel)}</span>
+                                        <span className="text-xs font-bold uppercase tracking-wide">{userLevel}</span>
+                                    </button>
+                                    <button
                                         onClick={() => router.push('/tienda/mis-pedidos')}
                                         className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-orange-50 text-[#F7941D] font-bold text-xs hover:bg-orange-100 transition-colors whitespace-nowrap"
                                     >
@@ -632,7 +707,9 @@ export default function TiendaPage() {
                                     </button>
                                     <div className="text-right hidden xl:block">
                                         <p className="text-xs font-bold text-gray-900 truncate max-w-[100px]">{userName}</p>
-                                        <p className="text-[10px] text-[#F7941D] font-bold tracking-wide uppercase">VIP</p>
+                                        <p className={`text-[10px] font-bold tracking-wide uppercase ${getLevelBadgeColor(userLevel)}`}>
+                                            {getLevelIcon(userLevel)} {userLevel}
+                                        </p>
                                     </div>
                                     <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full p-[2px] bg-gradient-to-tr from-[#F7941D] to-[#FFC107] shadow-md flex-shrink-0">
                                         <img src={`https://ui-avatars.com/api/?name=${userName}&background=fff&color=F7941D`} className="w-full h-full rounded-full border-2 border-white object-cover" alt="User" />
@@ -718,8 +795,8 @@ export default function TiendaPage() {
                     {/* Categories - Responsive Sticky */}
                     <div className="sticky top-0 z-10 bg-[#FAFAFA]/95 backdrop-blur-sm py-2 sm:py-3 mb-3 sm:mb-4 flex gap-1.5 sm:gap-2 overflow-x-auto pb-3 scrollbar-hide -mx-1 px-1">
                         <button
-                            onClick={() => setSelectedCategory('all')}
-                            className={`px-3 sm:px-4 md:px-5 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs md:text-sm font-bold whitespace-nowrap transition-all duration-300 flex-shrink-0 ${selectedCategory === 'all'
+                            onClick={() => setSelectedCategory('Todas')}
+                            className={`px-3 sm:px-4 md:px-5 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs md:text-sm font-bold whitespace-nowrap transition-all duration-300 flex-shrink-0 ${selectedCategory === 'Todas'
                                 ? 'bg-[#1D1D1F] text-white shadow-md scale-105'
                                 : 'bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-900 shadow-sm border border-gray-100'
                                 }`}
@@ -791,8 +868,11 @@ export default function TiendaPage() {
 
                 {/* PRODUCT CUSTOMIZATION MODAL */}
                 {selectedProduct && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm animate-in fade-in duration-200">
-                        <div className="bg-white rounded-[32px] w-full max-w-4xl max-h-[90%] shadow-2xl flex overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+                        {/* Overlay to close */}
+                        <div className="absolute inset-0" onClick={() => setSelectedProduct(null)}></div>
+
+                        <div className="relative bg-white rounded-[32px] w-full max-w-4xl max-h-[90%] shadow-2xl flex overflow-hidden animate-in zoom-in-95 duration-200">
                             {/* Modal Left Image */}
                             <div className="w-1/2 bg-gray-50 relative hidden md:block">
                                 <img
@@ -809,9 +889,9 @@ export default function TiendaPage() {
                             </div>
 
                             {/* Modal Right Content */}
-                            <div className="flex-1 flex flex-col h-full bg-white">
-                                <div className="p-8 pb-4 flex justify-between items-center border-b border-gray-100">
-                                    <h3 className="text-xl font-bold text-[#1D1D1F] md:hidden">{selectedProduct.name}</h3>
+                            <div className="flex-1 flex flex-col h-full bg-white relative">
+                                <div className="p-6 sm:p-8 pb-4 flex justify-between items-center border-b border-gray-100">
+                                    <h3 className="text-xl font-bold text-[#1D1D1F] md:hidden line-clamp-1">{selectedProduct.name}</h3>
                                     <span className="text-gray-400 text-xs uppercase font-bold tracking-wider hidden md:block">Personaliza tu orden</span>
                                     <button
                                         onClick={() => setSelectedProduct(null)}
@@ -821,7 +901,7 @@ export default function TiendaPage() {
                                     </button>
                                 </div>
 
-                                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                                <div className="flex-1 overflow-y-auto p-6 sm:p-8 custom-scrollbar">
                                     {/* Size Selection */}
                                     <div className="mb-8">
                                         <h4 className="font-bold text-[#1D1D1F] mb-4 flex items-center gap-2">
@@ -861,7 +941,7 @@ export default function TiendaPage() {
                                             <span className="material-icons-round text-[#F7941D]">extension</span>
                                             Agrega extras (Opcional)
                                         </h4>
-                                        <div className="grid grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             {EXTRAS_OPTIONS.map((extra) => (
                                                 <label
                                                     key={extra.id}
@@ -1237,8 +1317,17 @@ export default function TiendaPage() {
                             <span className="material-icons-round text-5xl text-green-500 relative z-10 animate-bounce">check_circle</span>
                         </div>
                         <h2 className="text-3xl font-black text-[#1D1D1F] mb-4">¡Pedido Confirmado!</h2>
-                        <p className="text-gray-500 mb-4 font-medium leading-relaxed">
-                            Tu pedido <span className="text-[#F7941D] font-black">#{lastOrderId}</span> ha sido registrado exitosamente.
+                        {pointsEarned > 0 && (
+                            <div className="bg-gradient-to-r from-yellow-300 to-orange-400 p-4 rounded-xl mb-6 shadow-lg transform rotate-1 border-2 border-white/50">
+                                <p className="font-bold text-white text-lg drop-shadow-sm flex items-center justify-center gap-2">
+                                    <span className="material-icons-round animate-spin-slow">stars</span>
+                                    ¡Ganaste {pointsEarned} Puntos!
+                                </p>
+                                {newLevel && <p className="text-white text-sm font-bold mt-1">¡Nuevo Nivel: {newLevel.toUpperCase()}! 🎉</p>}
+                            </div>
+                        )}
+                        <p className="text-gray-600 mb-8 leading-relaxed">
+                            Tu pedido ha sido enviado al sistema. Serás redirigido a WhatsApp para confirmar los detalles.
                         </p>
                         <div className="bg-green-50 border-2 border-green-200 rounded-2xl p-4 mb-3">
                             <div className="flex items-center gap-3 mb-2">
@@ -1270,6 +1359,7 @@ export default function TiendaPage() {
                             </p>
                         </div>
                         <div className="space-y-4">
+
                             <button
                                 onClick={() => router.push('/tienda/mis-pedidos')}
                                 className="w-full py-4 bg-[#1D1D1F] text-white rounded-[20px] font-black text-lg shadow-xl shadow-black/10 hover:bg-black hover:scale-[1.02] active:scale-95 transition-all duration-300 flex items-center justify-center gap-3"

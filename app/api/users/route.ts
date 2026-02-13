@@ -69,6 +69,8 @@ export async function PUT(request: Request) {
             return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
         }
 
+        console.log(`📝 [API Update User] Updating user: ${id}, Role: ${role}, Name: ${fullName}`);
+
         // 1. Update Profile (Role & Full Name)
         const profileUpdates: any = {
             role,
@@ -83,6 +85,25 @@ export async function PUT(request: Request) {
         if (profileError) {
             console.error('Error updating profile:', profileError);
             throw new Error(profileError.message);
+        } else {
+            console.log('✅ [API Update User] Profile updated successfully');
+        }
+
+        // 1a. Update USUARIOS table (Legacy Sync)
+        // To ensure consistency if any part of the app still relies on this table
+        try {
+            const { error: usuariosError } = await supabaseAdmin
+                .from('usuarios')
+                .update({ role: role, full_name: fullName })
+                .eq('id', id);
+
+            if (usuariosError) {
+                console.warn('⚠️ [API Update User] Warning: Could not update usuarios table', usuariosError);
+            } else {
+                console.log('✅ [API Update User] Legacy usuarios table updated successfully');
+            }
+        } catch (e) {
+            console.log('⚠️ [API Update User] Usuarios table might not exist or other error', e);
         }
 
         // 2. Update Auth User (email, password, metadata)

@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
+import { addPointsForOrder } from '@/utils/gamification';
 
 interface OrderItem {
     id: number;
@@ -26,6 +27,7 @@ interface Order {
     order_type?: string;
     delivery_address?: string;
     phone_number?: string;
+    user_id?: string; // Agregado para gamificación
 }
 
 interface OrderDetailsPanelProps {
@@ -136,6 +138,8 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
 
             if (newStatus === 'confirmado') {
                 setShowSuccessModal(true);
+            } else if (newStatus === 'entregado') {
+                if (onStatusChange) onStatusChange();
             } else {
                 if (onStatusChange) onStatusChange();
             }

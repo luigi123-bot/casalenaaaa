@@ -79,12 +79,22 @@ export async function middleware(request: NextRequest) {
     if (publicRoutes.includes(pathname) || pathname.startsWith('/tienda')) {
         console.log('✅ [Middleware] Public route - allowing access to:', pathname);
 
-        // If user is authenticated and trying to access login/register, redirect to their dashboard
-        if (user && (pathname === '/login' || pathname === '/register')) {
+        // If user is authenticated
+        if (user) {
             const role = await getUserRole(supabase, user.id);
-            const redirectUrl = getRoleBasedRedirect(role);
-            console.log('🔄 [Middleware] Authenticated user on login/register, redirecting to:', redirectUrl);
-            return NextResponse.redirect(new URL(redirectUrl, request.url));
+
+            // If user is authenticated and trying to access login/register, redirect to their dashboard
+            if (pathname === '/login' || pathname === '/register') {
+                const redirectUrl = getRoleBasedRedirect(role);
+                console.log('🔄 [Middleware] Authenticated user on login/register, redirecting to:', redirectUrl);
+                return NextResponse.redirect(new URL(redirectUrl, request.url));
+            }
+
+            // Redirect cashier to cashier dashboard if they try to access the store
+            if (role === 'cajero' && pathname.startsWith('/tienda')) {
+                console.log('🔄 [Middleware] Cashier user on /tienda, redirecting to /cashier');
+                return NextResponse.redirect(new URL('/cashier', request.url));
+            }
         }
 
         return response;
@@ -135,21 +145,39 @@ export async function middleware(request: NextRequest) {
     }
 
     console.log('✅ [Middleware] Access granted to:', pathname);
+
+    // Add cache control headers - revalidate every 5 minutes
+    response.headers.set('Cache-Control', 'private, max-age=300, must-revalidate');
+
     return response;
 }
 
 // Helper function to get user role
 async function getUserRole(supabase: any, userId: string): Promise<string | undefined> {
     // Try profiles table first
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .single();
+    try {
+        const { data: profile, error } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', userId)
+            .single();
 
-    if (profile?.role) {
-        return profile.role;
+        if (profile) {
+            // If profile exists, use its role. If role is missing/null, default to 'cliente'
+            // This prevents falling back to legacy/incorrect data in 'usuarios' if profile exists
+            const finalRole = profile.role || 'cliente';
+            console.log('👤 [getUserRole] Found in profiles:', finalRole);
+            return finalRole;
+        }
+
+        if (error && error.code !== 'PGRST116') { // PGRST116 is "The result contains 0 rows"
+            console.error('❌ [getUserRole] Error fetching profile:', error);
+        }
+    } catch (err) {
+        console.error('❌ [getUserRole] Exception fetching profile:', err);
     }
+
+    console.log('⚠️ [getUserRole] Profile not found, falling back to usuarios table');
 
     // Fallback to usuarios table
     const { data: usuario } = await supabase
@@ -158,7 +186,9 @@ async function getUserRole(supabase: any, userId: string): Promise<string | unde
         .eq('id', userId)
         .single();
 
-    return usuario?.role;
+    const fallbackRole = usuario?.role;
+    console.log('👤 [getUserRole] Found in usuarios:', fallbackRole);
+    return fallbackRole;
 }
 
 function getRoleBasedRedirect(role: string | undefined): string {

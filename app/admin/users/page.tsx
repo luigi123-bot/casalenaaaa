@@ -6,7 +6,7 @@ import { supabase } from '@/utils/supabase/client';
 export default function AdminUsersPage() {
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'users' | 'customers' | 'roles'>('users');
+    const [activeTab, setActiveTab] = useState<'users' | 'customers' | 'roles' | 'ranking'>('users');
     const [editingUserId, setEditingUserId] = useState<string | null>(null);
     const [activeActionId, setActiveActionId] = useState<string | null>(null);
 
@@ -21,6 +21,10 @@ export default function AdminUsersPage() {
         phone: '',
         address: ''
     });
+
+    // Gamification State
+    const [ranking, setRanking] = useState<any[]>([]);
+    const [loadingRanking, setLoadingRanking] = useState(false);
 
     const [showModal, setShowModal] = useState(false);
     const [creating, setCreating] = useState(false);
@@ -143,7 +147,23 @@ export default function AdminUsersPage() {
 
     useEffect(() => {
         if (activeTab === 'customers') fetchCustomers();
+        if (activeTab === 'ranking') fetchRanking();
     }, [activeTab]);
+
+    const fetchRanking = async () => {
+        setLoadingRanking(true);
+        try {
+            const res = await fetch('/api/gamification?mode=ranking');
+            if (res.ok) {
+                const data = await res.json();
+                setRanking(data || []);
+            }
+        } catch (error) {
+            console.error('Error fetching ranking:', error);
+        } finally {
+            setLoadingRanking(false);
+        }
+    };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -281,18 +301,79 @@ export default function AdminUsersPage() {
                 </div>
 
                 <div className="flex gap-6 border-b border-[#e6e1db]">
-                    {['users', 'customers', 'roles'].map((tab) => (
+                    {['users', 'customers', 'roles', 'ranking'].map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab as any)}
                             className={`pb-4 px-2 text-sm font-bold uppercase tracking-widest transition-all border-b-2 ${activeTab === tab ? 'border-[#F27405] text-[#F27405]' : 'border-transparent text-[#8c785f]'}`}
                         >
-                            {tab === 'users' ? 'Usuarios' : tab === 'customers' ? 'Clientes' : 'Roles'}
+                            {tab === 'users' ? 'Usuarios' : tab === 'customers' ? 'Clientes' : tab === 'ranking' ? 'Ranking' : 'Roles'}
                         </button>
                     ))}
                 </div>
 
-                {activeTab === 'users' ? (
+                {activeTab === 'ranking' ? (
+                    <div className="bg-white rounded-2xl border border-[#e6e1db] overflow-hidden shadow-sm">
+                        {loadingRanking ? (
+                            <div className="p-12 flex flex-col items-center justify-center text-center">
+                                <div className="w-10 h-10 border-4 border-orange-100 border-t-[#F7941D] rounded-full animate-spin mb-4"></div>
+                                <p className="text-[#8c785f] font-bold text-sm">Cargando ranking...</p>
+                            </div>
+                        ) : (
+                            <table className="w-full text-left">
+                                <thead className="bg-[#fcfbf9] text-[#8c785f] text-[10px] font-black uppercase tracking-widest border-b border-[#e6e1db]">
+                                    <tr>
+                                        <th className="px-6 py-4 w-20 text-center"># Rank</th>
+                                        <th className="px-6 py-4">Usuario</th>
+                                        <th className="px-6 py-4">Nivel</th>
+                                        <th className="px-6 py-4 text-right">Puntos Totales</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-[#e6e1db]">
+                                    {ranking.map((user, index) => (
+                                        <tr key={user.user_id} className={`hover:bg-[#fcfbf9] text-sm font-medium transition-colors ${index < 3 ? 'bg-orange-50/30' : ''}`}>
+                                            <td className="px-6 py-4 text-center">
+                                                {index === 0 && <span className="text-2xl leading-none">🥇</span>}
+                                                {index === 1 && <span className="text-2xl leading-none">🥈</span>}
+                                                {index === 2 && <span className="text-2xl leading-none">🥉</span>}
+                                                {index > 2 && <span className="font-black text-gray-400">#{index + 1}</span>}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold text-[#181511]">{user.full_name || 'Usuario'}</span>
+                                                    <span className="text-xs text-[#8c785f]">{user.email || 'Sin correo'}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1
+                                                    ${user.level === 'platino' ? 'bg-slate-800 text-white' :
+                                                        user.level === 'oro' ? 'bg-yellow-100 text-yellow-800' :
+                                                            user.level === 'plata' ? 'bg-gray-100 text-gray-600' :
+                                                                'bg-orange-50 text-orange-800'}`}>
+                                                    <span className="material-symbols-outlined text-[14px]">
+                                                        {user.level === 'platino' ? 'diamond' : user.level === 'oro' ? 'workspace_premium' : 'military_tech'}
+                                                    </span>
+                                                    {user.level}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-black text-[#F27405] text-lg">
+                                                {user.points?.toLocaleString()} pts
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {ranking.length === 0 && (
+                                        <tr>
+                                            <td colSpan={4} className="px-6 py-12 text-center text-gray-400">
+                                                <span className="material-symbols-outlined text-4xl mb-2 opacity-30">trophy</span>
+                                                <p className="text-sm font-medium">Aún no hay usuarios en el ranking.</p>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                ) : activeTab === 'users' ? (
                     <div className="bg-white rounded-2xl border border-[#e6e1db] overflow-hidden shadow-sm">
                         <table className="w-full text-left">
                             <thead className="bg-[#fcfbf9] text-[#8c785f] text-[10px] font-black uppercase tracking-widest border-b border-[#e6e1db]">
@@ -457,8 +538,8 @@ export default function AdminUsersPage() {
             {toast && (
                 <div className="fixed top-8 right-8 z-[100] animate-in slide-in-from-top-2 duration-300">
                     <div className={`px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 min-w-[300px] border-2 ${toast.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
-                            toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
-                                'bg-blue-50 border-blue-200 text-blue-800'
+                        toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+                            'bg-blue-50 border-blue-200 text-blue-800'
                         }`}>
                         <span className="material-symbols-outlined text-2xl">
                             {toast.type === 'success' ? 'check_circle' : toast.type === 'error' ? 'error' : 'info'}
