@@ -78,6 +78,7 @@ export default function CashierPage() {
 
     // Printing State
     const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const successModalRef = useRef(false); // Persist modal state across re-renders
 
     // Customer State (for Delivery)
     const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', address: '' });
@@ -518,7 +519,7 @@ export default function CashierPage() {
             const data = await response.json();
 
             if (data.success && data.url) {
-                console.log('✅ [Caja-PDF] PDF Generado. Abriendo vista previa.');
+                console.log('✅ [Caja-PDF] PDF Generado. Abriendo para imprimir.');
 
                 // Convert Data URI to Blob URL to avoid cross-origin issues
                 try {
@@ -534,24 +535,37 @@ export default function CashierPage() {
                         const blob = new Blob([bytes], { type: 'application/pdf' });
                         const blobUrl = URL.createObjectURL(blob);
 
-                        // AUTO PRINT via hidden iframe
+                        // AUTO PRINT via hidden iframe (WORKING METHOD)
+                        console.log('🖨️ [Caja-PDF] Cargando PDF en iframe oculto...');
                         const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
                         if (iframe) {
                             iframe.src = blobUrl;
                             // Wait for load, then print
                             iframe.onload = () => {
-                                iframe.contentWindow?.focus();
-                                iframe.contentWindow?.print();
+                                console.log('📄 [Caja-PDF] PDF cargado. Iniciando impresión...');
+                                setTimeout(() => {
+                                    try {
+                                        iframe.contentWindow?.focus();
+                                        iframe.contentWindow?.print();
+                                        console.log('✅ [Caja-PDF] Comando de impresión enviado.');
+                                    } catch (e) {
+                                        console.error('❌ Error al imprimir:', e);
+                                    }
+                                }, 100);
                             };
+                        } else {
+                            console.error('❌ [Caja-PDF] No se encontró el iframe de impresión.');
                         }
                     } else {
-                        // Fallback for non-base64 (though server returns base64)
+                        // Fallback for non-base64
                         const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
                         if (iframe) {
                             iframe.src = data.url;
                             iframe.onload = () => {
-                                iframe.contentWindow?.focus();
-                                iframe.contentWindow?.print();
+                                setTimeout(() => {
+                                    iframe.contentWindow?.focus();
+                                    iframe.contentWindow?.print();
+                                }, 100);
                             };
                         }
                     }
@@ -562,8 +576,10 @@ export default function CashierPage() {
                     if (iframe) {
                         iframe.src = data.url;
                         iframe.onload = () => {
-                            iframe.contentWindow?.focus();
-                            iframe.contentWindow?.print();
+                            setTimeout(() => {
+                                iframe.contentWindow?.focus();
+                                iframe.contentWindow?.print();
+                            }, 100);
                         };
                     }
                 }
@@ -661,6 +677,7 @@ export default function CashierPage() {
 
             // Success!
             setShowSuccessModal(true);
+            successModalRef.current = true; // Persist in ref too
 
             // Print Ticket (PDF)
             try {
@@ -1203,14 +1220,20 @@ export default function CashierPage() {
 
 
 
-            {showSuccessModal && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[#181511]/90 backdrop-blur-md">
+            {(showSuccessModal || successModalRef.current) && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#181511]/90 backdrop-blur-md">
                     <div className="bg-white rounded-[40px] p-12 text-center shadow-2xl transform scale-100 animate-in zoom-in-95 duration-300">
                         <div className="size-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-8">
                             <span className="material-icons-round text-6xl text-green-500 animate-bounce">check_circle</span>
                         </div>
                         <h3 className="text-4xl font-black mb-4">¡LISTO!</h3>
-                        <p className="text-gray-500 font-medium max-w-[240px] mx-auto mb-8">La orden ha sido enviada e impresa correctamente.</p>
+                        <p className="text-gray-500 font-medium max-w-[240px] mx-auto mb-4">La orden ha sido enviada correctamente.</p>
+
+                        {/* Printing indicator */}
+                        <div className="flex items-center justify-center gap-2 mb-8 text-[#f7951d]">
+                            <span className="material-icons-round text-lg animate-pulse">print</span>
+                            <span className="text-sm font-bold">Imprimiendo ticket...</span>
+                        </div>
 
                         <div className="flex flex-col gap-3">
                             <button
@@ -1221,6 +1244,7 @@ export default function CashierPage() {
                                     setCustomerInfo({ name: '', phone: '', address: '' });
                                     setTableNumber('');
                                     setShowSuccessModal(false);
+                                    successModalRef.current = false; // Clear ref too
                                     setShowPaymentModal(false);
                                     setLoading(false);
                                     setPaymentMethod('efectivo');
@@ -1238,14 +1262,12 @@ export default function CashierPage() {
 
 
 
+
             {/* Modals */}
             {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
             {showChat && <CashierSupportChat onClose={() => setShowChat(false)} />}
 
-            {/* Hidden Iframe for Auto-Printing 
-                NOTE: We cannot use display:none (className="hidden") because some browsers won't print it.
-                We use absolute positioning off-screen instead.
-            */}
+            {/* Hidden Iframe for Auto-Printing */}
             <iframe
                 id="hidden-print-frame"
                 style={{
