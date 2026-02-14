@@ -53,7 +53,7 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
     const fontSizeHeader = 16;
     const lineHeight = 22; // Increased for better spacing
 
-    console.log('[TicketGen] Using built-in Helvetica font for serverless compatibility');
+    console.log('[TicketGen] Generating PDF in-memory for serverless compatibility');
 
     // Calculate height with extra padding
     const estimatedLines = 40 + (productos.length * 4) + (pedido.cliente ? 10 : 0);
@@ -66,8 +66,9 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
         autoFirstPage: false
     });
 
-    const stream = fs.createWriteStream(outputPath);
-    doc.pipe(stream);
+    // Collect PDF data in memory instead of writing to file (serverless compatible)
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
 
     // Use built-in Helvetica font (always available)
     doc.font('Helvetica');
@@ -263,7 +264,21 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
     doc.end();
 
     return new Promise((resolve, reject) => {
-        stream.on('finish', () => resolve(outputPath));
-        stream.on('error', reject);
+        doc.on('end', () => {
+            try {
+                const pdfBuffer = Buffer.concat(chunks);
+
+                // Write to file if outputPath is provided (for backward compatibility)
+                if (outputPath) {
+                    fs.writeFileSync(outputPath, pdfBuffer);
+                }
+
+                resolve(outputPath);
+            } catch (error) {
+                reject(error);
+            }
+        });
+
+        doc.on('error', reject);
     });
 }
