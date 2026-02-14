@@ -52,42 +52,51 @@ export async function POST(request: Request) {
         const userAddress = address || user.user_metadata.address || '';
         const userEmail = user.email;
 
-        // 1. Ensure PROFILES (Insert BASE fields only to avoid Schema Error)
-        const profileData: any = {
-            id: user.id,
-            full_name: userName,
-            role: 'cliente'
-        };
-        // Removed phone/address insert to avoid PGRST204 error until DB schema is updated
-        // if (userPhone) profileData.phone_number = userPhone;
-        // if (userAddress) profileData.address = userAddress;
+        // 1. Check existing profile to PREVENT ROLE OVERWRITE
+        let currentRole = 'cliente';
 
-        const { error: profileError } = await supabaseAdmin
+        const { data: existingProfile } = await supabaseAdmin
             .from('profiles')
-            .upsert(profileData)
-            .select();
+            .select('role')
+            .eq('id', user.id)
+            .single();
 
-        if (profileError) console.error('Error syncing profile:', profileError);
+        if (existingProfile && existingProfile.role) {
+            currentRole = existingProfile.role;
+            console.log(`🔒 [Sync-Profile] Preserving existing role: ${currentRole} for ${userEmail}`);
+        } else {
+            console.log(`🆕 [Sync-Profile] New user or no role, defaulting to: ${currentRole}`);
+        }
 
-        // 2. Ensure USUARIOS (Legacy)
-        const usuariosData: any = {
+        // 2. Upsert PROFILE (Preserving Role)
+        const profileData = {
             id: user.id,
             full_name: userName,
             email: userEmail,
-            role: 'cliente'
+            role: currentRole // Use preserved role
         };
-        // Removed phone/address insert to avoid PGRST204 error
-        // if (userPhone) usuariosData.phone_number = userPhone;
-        // if (userAddress) usuariosData.address = userAddress;
+
+        const { error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .upsert(profileData, { onConflict: 'id' });
+
+        if (profileError) console.error('Error syncing profile:', profileError);
+
+        // 3. Upsert USUARIOS (Legacy - Preserving Role)
+        const usuariosData = {
+            id: user.id,
+            full_name: userName,
+            email: userEmail,
+            role: currentRole // Use preserved role
+        };
 
         const { error: usuariosError } = await supabaseAdmin
             .from('usuarios')
-            .upsert(usuariosData)
-            .select();
+            .upsert(usuariosData, { onConflict: 'id' });
 
         if (usuariosError) console.error('Error syncing usuarios:', usuariosError);
 
-        return NextResponse.json({ success: true });
+        return NextResponse.json({ success: true, role: currentRole });
 
     } catch (error: any) {
         console.error('Sync error:', error);

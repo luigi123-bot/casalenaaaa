@@ -58,6 +58,7 @@ export default function CashierPage() {
 
     // Filter UI State
     const [selectedCategory, setSelectedCategory] = useState<string | number>('all');
+    const [printPreviewUrl, setPrintPreviewUrl] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
     // Customization UI State (The Modal)
@@ -492,7 +493,7 @@ export default function CashierPage() {
     };
 
     const handleGeneratePDF = async (orderData: any, items: CartItem[]) => {
-        console.log('🚀 [Caja-PDF] Iniciando generación para orden folios/ID:', orderData.id);
+        console.log('🚀 [Caja-PDF] Solicitando ticket para orden:', orderData.id);
         try {
             const payload = {
                 order: {
@@ -507,7 +508,6 @@ export default function CashierPage() {
                     direccion: "Blvd. Juan N Alvarez, CP 41706"
                 }
             };
-            console.log('📤 [Caja-PDF] Payload enviado:', payload);
 
             const response = await fetch('/api/print/ticket', {
                 method: 'POST',
@@ -515,54 +515,65 @@ export default function CashierPage() {
                 body: JSON.stringify(payload)
             });
 
-            console.log('📥 [Caja-PDF] Estado de respuesta:', response.status);
             const data = await response.json();
 
-            if (data.url) {
-                console.log('✅ [Caja-PDF] URL recibida:', data.url);
+            if (data.success && data.url) {
+                console.log('✅ [Caja-PDF] PDF Generado. Abriendo vista previa.');
 
-                if (data.printed) {
-                    console.log('Factura impresa automáticamente por el servidor.');
-                } else {
-                    // Print automatically using a hidden iframe to stay on the same page
-                    const iframe = document.createElement('iframe');
-                    // Hide it visually but keep it in layout so browsers allow printing
-                    iframe.style.position = 'fixed';
-                    iframe.style.width = '0px';
-                    iframe.style.height = '0px';
-                    iframe.style.left = '-9999px';
-                    iframe.style.top = '0px';
-                    iframe.src = data.url;
-
-                    iframe.onload = () => {
-                        // Small delay to ensure rendering matches
-                        setTimeout(() => {
-                            try {
-                                iframe.contentWindow?.print();
-                            } catch (e) {
-                                console.error('Error al invocar impresión automática:', e);
-                                // Fallback if iframe print fails
-                                window.open(data.url, '_blank');
-                            }
-                        }, 500);
-                    };
-
-                    document.body.appendChild(iframe);
-
-                    // Cleanup after 5 minutes (users might cancel print dialog slowly)
-                    setTimeout(() => {
-                        if (document.body.contains(iframe)) {
-                            document.body.removeChild(iframe);
+                // Convert Data URI to Blob URL to avoid cross-origin issues
+                try {
+                    // Check if it's a data URI
+                    if (data.url.startsWith('data:application/pdf;base64,')) {
+                        const base64Data = data.url.split(',')[1];
+                        const binaryString = window.atob(base64Data);
+                        const len = binaryString.length;
+                        const bytes = new Uint8Array(len);
+                        for (let i = 0; i < len; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
                         }
-                    }, 300000);
+                        const blob = new Blob([bytes], { type: 'application/pdf' });
+                        const blobUrl = URL.createObjectURL(blob);
+
+                        // AUTO PRINT via hidden iframe
+                        const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
+                        if (iframe) {
+                            iframe.src = blobUrl;
+                            // Wait for load, then print
+                            iframe.onload = () => {
+                                iframe.contentWindow?.focus();
+                                iframe.contentWindow?.print();
+                            };
+                        }
+                    } else {
+                        // Fallback for non-base64 (though server returns base64)
+                        const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
+                        if (iframe) {
+                            iframe.src = data.url;
+                            iframe.onload = () => {
+                                iframe.contentWindow?.focus();
+                                iframe.contentWindow?.print();
+                            };
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error creating Blob URL:', e);
+                    // Fallback
+                    const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
+                    if (iframe) {
+                        iframe.src = data.url;
+                        iframe.onload = () => {
+                            iframe.contentWindow?.focus();
+                            iframe.contentWindow?.print();
+                        };
+                    }
                 }
             } else {
-                console.error('❌ [Caja-PDF] Error en respuesta del servidor:', data);
-                alert('La orden se guardó pero falló la generación del ticket PDF profesional.');
+                console.error('❌ [Caja-PDF] Error:', data);
+                alert('No se pudo generar el ticket PDF. Intente nuevamente.');
             }
         } catch (err) {
-            console.error('💥 [Caja-PDF] Error fatal:', err);
-            alert('Error de conexión al generar factura PDF.');
+            console.error('💥 [Caja-PDF] Error de red:', err);
+            alert('Error de conexión al generar el ticket.');
         }
     };
 
@@ -658,25 +669,13 @@ export default function CashierPage() {
                 console.error('⚠️ [Cashier] Error de impresión PDF:', printErr);
             }
 
-            // Reset UI after delay
-            setTimeout(() => {
-                clearCart();
-                setAmountPaid('');
-                setCustomerInfo({ name: '', phone: '', address: '' });
-                setTableNumber('');
-                setShowSuccessModal(false);
-                setShowPaymentModal(false);
-                setLoading(false);
-                console.log('✨ [Cashier] Flujo completado.');
-            }, 3000);
+            // Stop loading - user will manually start new order via modal button
+            setLoading(false);
 
         } catch (error: any) {
             console.error('🛑 [Cashier] ERROR EN PROCESO:', error);
             alert(error.message || 'Ocurrió un error inesperado al procesar la orden');
             setLoading(false);
-        } finally {
-            // Un-set loading if we caught early
-            // Only if we haven't set the success timeout
         }
     };
 
@@ -1216,8 +1215,17 @@ export default function CashierPage() {
                         <div className="flex flex-col gap-3">
                             <button
                                 onClick={() => {
-                                    // The ID is not easily available here without more state, but we can store it after handlePlaceOrder
-                                    window.location.reload();
+                                    // Reset all state for new order without page reload
+                                    clearCart();
+                                    setAmountPaid('');
+                                    setCustomerInfo({ name: '', phone: '', address: '' });
+                                    setTableNumber('');
+                                    setShowSuccessModal(false);
+                                    setShowPaymentModal(false);
+                                    setLoading(false);
+                                    setPaymentMethod('efectivo');
+                                    setOrderType('dine-in');
+                                    console.log('✨ [Cashier] Listo para nueva orden.');
                                 }}
                                 className="w-full bg-[#181511] text-white py-4 rounded-2xl font-black"
                             >
@@ -1228,9 +1236,28 @@ export default function CashierPage() {
                 </div>
             )}
 
+
+
             {/* Modals */}
             {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
             {showChat && <CashierSupportChat onClose={() => setShowChat(false)} />}
+
+            {/* Hidden Iframe for Auto-Printing 
+                NOTE: We cannot use display:none (className="hidden") because some browsers won't print it.
+                We use absolute positioning off-screen instead.
+            */}
+            <iframe
+                id="hidden-print-frame"
+                style={{
+                    position: 'fixed',
+                    top: '-9999px',
+                    left: '-9999px',
+                    width: '1px',
+                    height: '1px',
+                    overflow: 'hidden',
+                    border: 'none'
+                }}
+            />
         </div>
     );
 }

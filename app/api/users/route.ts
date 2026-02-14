@@ -108,7 +108,10 @@ export async function PUT(request: Request) {
 
         // 2. Update Auth User (email, password, metadata)
         const authUpdates: any = {
-            user_metadata: { full_name: fullName },
+            user_metadata: {
+                full_name: fullName,
+                role: role // <--- CRITICAL: Sync role to metadata for Middleware
+            },
         };
 
         // Update email if provided
@@ -116,7 +119,7 @@ export async function PUT(request: Request) {
             authUpdates.email = email;
         }
 
-        // Update password if provided (optional)
+        // Update password if provided
         if (password && password.length >= 6) {
             authUpdates.password = password;
         }
@@ -136,7 +139,7 @@ export async function PUT(request: Request) {
             throw new Error(authError.message);
         }
 
-        return NextResponse.json({ success: true });
+        return NextResponse.json({ success: true, message: 'User updated successfully (DB + Auth Metadata)' });
 
     } catch (error: any) {
         console.error('Update user error:', error);

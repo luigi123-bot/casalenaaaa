@@ -17,195 +17,97 @@ export async function middleware(request: NextRequest) {
                     return request.cookies.get(name)?.value;
                 },
                 set(name: string, value: string, options: CookieOptions) {
-                    request.cookies.set({
-                        name,
-                        value,
-                        ...options,
-                    });
-                    response = NextResponse.next({
-                        request: {
-                            headers: request.headers,
-                        },
-                    });
-                    response.cookies.set({
-                        name,
-                        value,
-                        ...options,
-                    });
+                    request.cookies.set({ name, value, ...options });
+                    response = NextResponse.next({ request: { headers: request.headers } });
+                    response.cookies.set({ name, value, ...options });
                 },
                 remove(name: string, options: CookieOptions) {
-                    request.cookies.set({
-                        name,
-                        value: '',
-                        ...options,
-                    });
-                    response = NextResponse.next({
-                        request: {
-                            headers: request.headers,
-                        },
-                    });
-                    response.cookies.set({
-                        name,
-                        value: '',
-                        ...options,
-                    });
+                    request.cookies.set({ name, value: '', ...options });
+                    response = NextResponse.next({ request: { headers: request.headers } });
+                    response.cookies.set({ name, value: '', ...options });
                 },
             },
         }
     );
 
-    // Get user session securely
+    // 1. Get user session securely
     const { data: { user } } = await supabase.auth.getUser();
     const { pathname } = request.nextUrl;
 
-    console.log('🚧 [Middleware] Request:', request.method, pathname);
-
-    // SKIP MIDDLEWARE FOR API ROUTES
-    if (pathname.startsWith('/api/')) {
-        console.log('⏩ [Middleware] Skipping API route:', pathname);
+    // 2. SKIP ASSETS AND APIs
+    if (pathname.startsWith('/api/') || pathname.startsWith('/_next/') || pathname.includes('.')) {
         return response;
     }
 
-    // EXPLICIT BYPASS FOR PASSWORD UPDATE
-    if (pathname === '/update-password') {
-        console.log('🔓 [Middleware] Explicitly allowing /update-password');
-        return response;
+    // 3. GET ROLE FROM METADATA (FASTEST & SAFEST)
+    // We trust the JWT token metadata. If it's stale, the user must re-login.
+    const role = (user?.user_metadata?.role || 'cliente').toLowerCase();
+
+    if (user) {
+        console.log(`👤 [Middleware] User: ${user.email} | Role: ${role} | Path: ${pathname}`);
     }
 
-    // PUBLIC ROUTES
+    // 4. PUBLIC ROUTES
     const publicRoutes = ['/login', '/register', '/tienda', '/forgot-password', '/update-password'];
+    const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route)) || pathname === '/';
 
-    // Handle public routes
-    if (publicRoutes.includes(pathname) || pathname.startsWith('/tienda')) {
-        console.log('✅ [Middleware] Public route - allowing access to:', pathname);
+    if (isPublicRoute) {
+        // If logged in and trying to access auth pages, redirect to dashboard
+        if (user && (pathname === '/login' || pathname === '/register' || pathname === '/')) {
+            const dashboard = getDashboardLink(role);
+            console.log(`🔄 [Middleware] Redirecting logged in user to: ${dashboard}`);
+            return NextResponse.redirect(new URL(dashboard, request.url));
+        }
 
-        // If user is authenticated
-        if (user) {
-            const role = await getUserRole(supabase, user.id);
-
-            // If user is authenticated and trying to access login/register, redirect to their dashboard
-            if (pathname === '/login' || pathname === '/register') {
-                const redirectUrl = getRoleBasedRedirect(role);
-                console.log('🔄 [Middleware] Authenticated user on login/register, redirecting to:', redirectUrl);
-                return NextResponse.redirect(new URL(redirectUrl, request.url));
-            }
-
-            // Redirect cashier to cashier dashboard if they try to access the store
-            if (role === 'cajero' && pathname.startsWith('/tienda')) {
-                console.log('🔄 [Middleware] Cashier user on /tienda, redirecting to /cashier');
-                return NextResponse.redirect(new URL('/cashier', request.url));
-            }
+        // Prevent Cashier/Admin from browsing store as client (optional)
+        if (user && role !== 'cliente' && pathname.startsWith('/tienda')) {
+            const dashboard = getDashboardLink(role);
+            return NextResponse.redirect(new URL(dashboard, request.url));
         }
 
         return response;
     }
 
-    // PROTECTED ROUTES - Require authentication
+    // 5. PROTECTED ROUTES - Require Login
     if (!user) {
-        console.log('🔒 [Middleware] No user session, redirecting to login');
+        console.log('🔒 [Middleware] No session, redirecting to login');
         const loginUrl = new URL('/login', request.url);
         loginUrl.searchParams.set('redirect', pathname);
         return NextResponse.redirect(loginUrl);
     }
 
-    // Get user role
-    const role = await getUserRole(supabase, user.id);
-    console.log('👤 [Middleware] User role:', role, 'accessing:', pathname);
-
-    // ROOT PATH - Redirect to role-based dashboard
-    if (pathname === '/') {
-        const redirectUrl = getRoleBasedRedirect(role);
-        console.log('🏠 [Middleware] Root path, redirecting to:', redirectUrl);
-        return NextResponse.redirect(new URL(redirectUrl, request.url));
-    }
-
-    // ROLE-BASED ACCESS CONTROL
-    // Admin routes - accessible by admin and cajero
+    // 6. ROLE ACCESS CONTROL
+    // Admin
     if (pathname.startsWith('/admin')) {
-        if (role !== 'administrador' && role !== 'cajero') {
-            console.log('⛔ [Middleware] Unauthorized access to /admin, redirecting');
-            return NextResponse.redirect(new URL(getRoleBasedRedirect(role), request.url));
+        if (role !== 'administrador' && role !== 'cajero') { // Admin and Cashier (for some parts)
+            return NextResponse.redirect(new URL(getDashboardLink(role), request.url));
         }
     }
 
-    // Cashier routes - accessible by cajero and admin
+    // Cashier
     if (pathname.startsWith('/cashier')) {
         if (role !== 'cajero' && role !== 'administrador') {
-            console.log('⛔ [Middleware] Unauthorized access to /cashier, redirecting');
-            return NextResponse.redirect(new URL(getRoleBasedRedirect(role), request.url));
+            return NextResponse.redirect(new URL(getDashboardLink(role), request.url));
         }
     }
 
-    // Kitchen routes - only for cocina role
+    // Kitchen
     if (pathname.startsWith('/cocina')) {
-        if (role !== 'cocina') {
-            console.log('⛔ [Middleware] Unauthorized access to /cocina, redirecting');
-            return NextResponse.redirect(new URL(getRoleBasedRedirect(role), request.url));
+        if (role !== 'cocina' && role !== 'administrador') {
+            return NextResponse.redirect(new URL(getDashboardLink(role), request.url));
         }
     }
-
-    console.log('✅ [Middleware] Access granted to:', pathname);
-
-    // Add cache control headers - revalidate every 5 minutes
-    response.headers.set('Cache-Control', 'private, max-age=300, must-revalidate');
 
     return response;
 }
 
-// Helper function to get user role
-async function getUserRole(supabase: any, userId: string): Promise<string | undefined> {
-    // Try profiles table first
-    try {
-        const { data: profile, error } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', userId)
-            .single();
-
-        if (profile) {
-            // If profile exists, use its role. If role is missing/null, default to 'cliente'
-            // This prevents falling back to legacy/incorrect data in 'usuarios' if profile exists
-            const finalRole = profile.role || 'cliente';
-            console.log('👤 [getUserRole] Found in profiles:', finalRole);
-            return finalRole;
-        }
-
-        if (error && error.code !== 'PGRST116') { // PGRST116 is "The result contains 0 rows"
-            console.error('❌ [getUserRole] Error fetching profile:', error);
-        }
-    } catch (err) {
-        console.error('❌ [getUserRole] Exception fetching profile:', err);
-    }
-
-    console.log('⚠️ [getUserRole] Profile not found, falling back to usuarios table');
-
-    // Fallback to usuarios table
-    const { data: usuario } = await supabase
-        .from('usuarios')
-        .select('role')
-        .eq('id', userId)
-        .single();
-
-    const fallbackRole = usuario?.role;
-    console.log('👤 [getUserRole] Found in usuarios:', fallbackRole);
-    return fallbackRole;
-}
-
-function getRoleBasedRedirect(role: string | undefined): string {
-    console.log('🎯 [getRoleBasedRedirect] Role:', role);
-
+// Simple helper for dashboard links
+function getDashboardLink(role: string): string {
     switch (role) {
-        case 'administrador':
-            return '/admin';
-        case 'cajero':
-            return '/cashier/dashboard';
-        case 'cocina':
-            return '/cocina';
-        case 'cliente':
-            return '/tienda';
-        default:
-            console.log('⚠️ [getRoleBasedRedirect] Unknown role, defaulting to /login');
-            return '/login';
+        case 'administrador': return '/admin';
+        case 'cajero': return '/cashier/dashboard';
+        case 'cocina': return '/cocina';
+        default: return '/tienda';
     }
 }
 
