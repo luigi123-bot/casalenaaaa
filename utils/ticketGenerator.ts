@@ -49,77 +49,41 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
     const usableWidth = width - (margin * 2);
 
     // Font and spacing constants
-    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'casalena-font.ttf');
     const fontSizeNormal = 12;
     const fontSizeHeader = 16;
     const lineHeight = 22; // Increased for better spacing
 
-    console.log(`[TicketGen] Looking for font at: ${fontPath}`);
-
-    // Read font buffer
-    let fontBuffer: Buffer;
-    try {
-        if (fs.existsSync(fontPath)) {
-            fontBuffer = fs.readFileSync(fontPath);
-            console.log(`[TicketGen] Font loaded. Size: ${fontBuffer.length} bytes`);
-        } else {
-            console.error(`[TicketGen] Font NOT FOUND at ${fontPath}`);
-            throw new Error(`Font file missing: ${fontPath}`);
-        }
-    } catch (e) {
-        console.error('[TicketGen] Error reading font file:', e);
-        throw e;
-    }
+    console.log('[TicketGen] Using built-in Helvetica font for serverless compatibility');
 
     // Calculate height with extra padding
     const estimatedLines = 40 + (productos.length * 4) + (pedido.cliente ? 10 : 0);
     const height = (estimatedLines * lineHeight) + 100;
 
-    // Create PDF
+    // Create PDF with built-in font (works in serverless)
     const doc = new PDFDocument({
         size: [width, height],
         margins: { top: margin, bottom: margin, left: margin, right: margin },
-        autoFirstPage: false,
-        font: fontBuffer as any
+        autoFirstPage: false
     });
 
     const stream = fs.createWriteStream(outputPath);
     doc.pipe(stream);
-    doc.font(fontBuffer);
+
+    // Use built-in Helvetica font (always available)
+    doc.font('Helvetica');
+
     doc.addPage({
         size: [width, height],
         margins: { top: margin, bottom: margin, left: margin, right: margin }
     });
-    doc.font(fontBuffer);
 
-    // Add logo watermark covering the entire background
-    try {
-        const logoPath = path.join(process.cwd(), 'public', 'logo-main.jpg');
-        if (fs.existsSync(logoPath)) {
-            // Make logo cover most of the ticket width
-            const logoWidth = width - (margin * 4); // Leave small margins
-            const logoHeight = logoWidth; // Keep aspect ratio square
-            const logoX = (width - logoWidth) / 2;
-            const logoY = margin * 3; // Start near the top
-
-            doc.save();
-            doc.opacity(0.08); // Very light watermark so text is readable
-            doc.image(logoPath, logoX, logoY, {
-                width: logoWidth,
-                height: logoHeight,
-                align: 'center'
-            });
-            doc.restore(); // Restore opacity for text
-        }
-    } catch (e) {
-        console.warn('[TicketGen] Could not add logo watermark:', e);
-    }
+    doc.font('Helvetica');
 
     let currentY = margin;
 
     const textLine = (text: string, options: { align?: 'left' | 'center' | 'right', bold?: boolean, size?: number } = {}) => {
         const { align = 'left', size = fontSizeNormal } = options;
-        doc.font(fontBuffer).fontSize(size);
+        doc.font('Helvetica').fontSize(size);
 
         if (align === 'center') {
             doc.text(text, margin, currentY, { width: usableWidth, align: 'center' });
@@ -142,7 +106,7 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
 
     // --- HEADER ---
     // Title with character spacing for better readability
-    doc.font(fontBuffer).fontSize(16);
+    doc.font('Helvetica').fontSize(16);
     doc.text("CASALEÑA", margin, currentY, {
         width: usableWidth,
         align: 'center',
@@ -174,11 +138,11 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
     // BIG TABLE NUMBER - Very visible for kitchen
     if (pedido.mesa) {
         currentY += 5;
-        doc.font(fontBuffer).fontSize(10);
+        doc.font('Helvetica').fontSize(10);
         doc.text("MESA:", margin, currentY, { width: usableWidth, align: 'center' });
         currentY += lineHeight;
 
-        doc.font(fontBuffer).fontSize(28);
+        doc.font('Helvetica').fontSize(28);
         doc.text(pedido.mesa, margin, currentY, {
             width: usableWidth,
             align: 'center',
@@ -218,14 +182,14 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
     const xQty = margin;
     const xName = margin + 15;
 
-    doc.font(fontBuffer).fontSize(10);
+    doc.font('Helvetica').fontSize(10);
     doc.text('Ct', xQty, currentY);
     doc.text('Producto', xName, currentY);
     doc.text('Total', margin, currentY, { width: usableWidth, align: 'right' });
     currentY += lineHeight;
     currentY += 3;
 
-    doc.font(fontBuffer).fontSize(12);
+    doc.font('Helvetica').fontSize(12);
     productos.forEach(p => {
         const cleanName = (p.nombre || 'Producto').substring(0, 10);
 
@@ -247,7 +211,7 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
     currentY += 8;
 
     // --- TOTALS ---
-    doc.font(fontBuffer).fontSize(12);
+    doc.font('Helvetica').fontSize(12);
 
     const totalLine = (label: string, value: string) => {
         doc.text(label, margin, currentY);
@@ -286,7 +250,7 @@ export async function generateTicketPDF(data: TicketData, outputPath: string): P
     currentY += 20; // More space before footer
 
     // Thank you message with character spacing
-    doc.font(fontBuffer).fontSize(12);
+    doc.font('Helvetica').fontSize(12);
     doc.text("¡GRACIAS POR SU COMPRA!", margin, currentY, {
         width: usableWidth,
         align: 'center',
