@@ -4,9 +4,6 @@ import fs from 'fs';
 import { generateTicketPDF } from '@/utils/ticketGenerator';
 
 export async function POST(req: NextRequest) {
-    let tempFilePath: string | null = null;
-    let tempDir: string | null = null;
-
     try {
         const body = await req.json();
         const { order, items, commerce } = body;
@@ -41,24 +38,19 @@ export async function POST(req: NextRequest) {
             }))
         };
 
-        // 2. Generate PDF
-        tempDir = path.join(process.cwd(), 'temp');
-        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+        // 2. Generate PDF (uses /tmp which is available in Netlify Functions)
+        const tempPath = `/tmp/ticket_${order.id || 'temp'}_${Date.now()}.pdf`;
+        await generateTicketPDF(ticketData, tempPath);
 
-        const fileName = `ticket_${order.id || 'temp'}_${Date.now()}.pdf`;
-        tempFilePath = path.join(tempDir, fileName);
-
-        await generateTicketPDF(ticketData, tempFilePath);
-
-        // 3. Return Data URL (Instant)
-        const pdfBuffer = fs.readFileSync(tempFilePath);
+        // 3. Read and convert to base64
+        const pdfBuffer = fs.readFileSync(tempPath);
         const pdfBase64 = pdfBuffer.toString('base64');
         const dataUrl = `data:application/pdf;base64,${pdfBase64}`;
 
-        // Cleanup immediately since we sent the data buffer
-        try { fs.unlinkSync(tempFilePath); } catch (e) { }
+        // Cleanup
+        try { fs.unlinkSync(tempPath); } catch (e) { console.warn('Cleanup warning:', e); }
 
-        console.log('✅ [Server] PDF generado correctamente (Modo Rápido)');
+        console.log('✅ [Server] PDF generado correctamente');
 
         return NextResponse.json({
             success: true,
