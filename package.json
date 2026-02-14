@@ -15,7 +15,9 @@
     "@supabase/realtime-js": "^2.93.3",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.93.2",
+    "jspdf": "^4.1.0",
     "next": "16.1.5",
+    "pdf-parse": "^2.4.5",
     "pdfkit": "^0.17.2",
     "react": "19.2.3",
     "react-dom": "19.2.3"

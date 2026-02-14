@@ -494,102 +494,79 @@ export default function CashierPage() {
     };
 
     const handleGeneratePDF = async (orderData: any, items: CartItem[]) => {
-        console.log('🚀 [Caja-PDF] Solicitando ticket para orden:', orderData.id);
+        console.log('🚀 [Caja-PDF] Generando ticket en el cliente para orden:', orderData.id);
         try {
-            const payload = {
-                order: {
-                    ...orderData,
-                    pago_con: parseFloat(amountPaid) || 0,
-                    cambio: Math.max(0, (parseFloat(amountPaid) || 0) - orderData.total_amount)
-                },
-                items: items,
-                commerce: {
+            // Import client-side generator
+            const { generateTicketPDFClient } = await import('@/utils/ticketGeneratorClient');
+
+            // Prepare ticket data
+            const ticketData = {
+                comercio: {
                     nombre: "Casalena Pizza & Grill",
                     telefono: "741-101-1595",
                     direccion: "Blvd. Juan N Alvarez, CP 41706"
-                }
+                },
+                pedido: {
+                    id: orderData.id ? orderData.id.toString() : 'NO-ID',
+                    tipo: orderData.order_type || 'Comedor',
+                    mesa: orderData.table_number || '',
+                    subtotal: orderData.subtotal || orderData.total_amount,
+                    total: orderData.total_amount,
+                    metodo_pago: orderData.payment_method || 'Efectivo',
+                    pago_con: parseFloat(amountPaid) || 0,
+                    cambio: Math.max(0, (parseFloat(amountPaid) || 0) - orderData.total_amount),
+                    cliente: orderData.order_type === 'delivery' ? {
+                        nombre: orderData.customer_name || 'Desconocido',
+                        telefono: orderData.phone_number || '',
+                        direccion: orderData.delivery_address || ''
+                    } : null
+                },
+                productos: items.map(it => ({
+                    cantidad: it.quantity,
+                    nombre: it.name,
+                    precio: it.price,
+                    detalle: it.selectedSize || ''
+                }))
             };
 
-            const response = await fetch('/api/print/ticket', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+            // Generate PDF in browser
+            const pdfDataUrl = generateTicketPDFClient(ticketData);
+            console.log('✅ [Caja-PDF] PDF generado en el cliente.');
 
-            const data = await response.json();
-
-            if (data.success && data.url) {
-                console.log('✅ [Caja-PDF] PDF Generado. Abriendo para imprimir.');
-
-                // Convert Data URI to Blob URL to avoid cross-origin issues
-                try {
-                    // Check if it's a data URI
-                    if (data.url.startsWith('data:application/pdf;base64,')) {
-                        const base64Data = data.url.split(',')[1];
-                        const binaryString = window.atob(base64Data);
-                        const len = binaryString.length;
-                        const bytes = new Uint8Array(len);
-                        for (let i = 0; i < len; i++) {
-                            bytes[i] = binaryString.charCodeAt(i);
-                        }
-                        const blob = new Blob([bytes], { type: 'application/pdf' });
-                        const blobUrl = URL.createObjectURL(blob);
-
-                        // AUTO PRINT via hidden iframe (WORKING METHOD)
-                        console.log('🖨️ [Caja-PDF] Cargando PDF en iframe oculto...');
-                        const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
-                        if (iframe) {
-                            iframe.src = blobUrl;
-                            // Wait for load, then print
-                            iframe.onload = () => {
-                                console.log('📄 [Caja-PDF] PDF cargado. Iniciando impresión...');
-                                setTimeout(() => {
-                                    try {
-                                        iframe.contentWindow?.focus();
-                                        iframe.contentWindow?.print();
-                                        console.log('✅ [Caja-PDF] Comando de impresión enviado.');
-                                    } catch (e) {
-                                        console.error('❌ Error al imprimir:', e);
-                                    }
-                                }, 100);
-                            };
-                        } else {
-                            console.error('❌ [Caja-PDF] No se encontró el iframe de impresión.');
-                        }
-                    } else {
-                        // Fallback for non-base64
-                        const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
-                        if (iframe) {
-                            iframe.src = data.url;
-                            iframe.onload = () => {
-                                setTimeout(() => {
-                                    iframe.contentWindow?.focus();
-                                    iframe.contentWindow?.print();
-                                }, 100);
-                            };
-                        }
-                    }
-                } catch (e) {
-                    console.error('Error creating Blob URL:', e);
-                    // Fallback
-                    const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
-                    if (iframe) {
-                        iframe.src = data.url;
-                        iframe.onload = () => {
-                            setTimeout(() => {
-                                iframe.contentWindow?.focus();
-                                iframe.contentWindow?.print();
-                            }, 100);
-                        };
-                    }
-                }
-            } else {
-                console.error('❌ [Caja-PDF] Error:', data);
-                alert('No se pudo generar el ticket PDF. Intente nuevamente.');
+            // Convert Data URL to Blob URL to avoid cross-origin issues
+            const base64Data = pdfDataUrl.split(',')[1];
+            const binaryString = window.atob(base64Data);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
             }
+            const blob = new Blob([bytes], { type: 'application/pdf' });
+            const blobUrl = URL.createObjectURL(blob);
+
+            // Load into hidden iframe and print
+            const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
+            if (iframe) {
+                iframe.src = blobUrl;
+                iframe.onload = () => {
+                    console.log('📄 [Caja-PDF] PDF cargado. Iniciando impresión...');
+                    setTimeout(() => {
+                        try {
+                            iframe.contentWindow?.focus();
+                            iframe.contentWindow?.print();
+                            console.log('✅ [Caja-PDF] Comando de impresión enviado.');
+                        } catch (e) {
+                            console.error('❌ Error al imprimir:', e);
+                        }
+                    }, 100);
+                };
+            } else {
+                console.error('❌ [Caja-PDF] No se encontró el iframe de impresión.');
+            }
+
         } catch (err) {
-            console.error('💥 [Caja-PDF] Error de red:', err);
-            alert('Error de conexión al generar el ticket.');
+            console.error('💥 [Caja-PDF] Error generando PDF:', err);
+            alert('Error al generar el ticket.');
         }
     };
 
@@ -1238,19 +1215,9 @@ export default function CashierPage() {
                         <div className="flex flex-col gap-3">
                             <button
                                 onClick={() => {
-                                    // Reset all state for new order without page reload
-                                    clearCart();
-                                    setAmountPaid('');
-                                    setCustomerInfo({ name: '', phone: '', address: '' });
-                                    setTableNumber('');
-                                    setShowSuccessModal(false);
-                                    successModalRef.current = false; // Clear ref too
-                                    setShowPaymentModal(false);
-                                    setLoading(false);
-                                    setPaymentMethod('efectivo');
-                                    setOrderType('dine-in');
-
-                                    console.log('✨ [Cashier] Listo para nueva orden.');
+                                    console.log('🔄 [Cashier] Recargando página para nueva orden...');
+                                    // Hard reload to clear cache and ensure latest code
+                                    window.location.reload();
                                 }}
                                 className="w-full bg-[#181511] text-white py-4 rounded-2xl font-black"
                             >
