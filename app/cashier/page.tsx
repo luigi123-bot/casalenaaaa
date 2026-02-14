@@ -1249,6 +1249,7 @@ export default function CashierPage() {
                                     setLoading(false);
                                     setPaymentMethod('efectivo');
                                     setOrderType('dine-in');
+
                                     console.log('✨ [Cashier] Listo para nueva orden.');
                                 }}
                                 className="w-full bg-[#181511] text-white py-4 rounded-2xl font-black"
