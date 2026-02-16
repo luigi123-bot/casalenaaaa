@@ -749,44 +749,43 @@ export default function CashierPage() {
                         <div className="flex items-center justify-center h-full"><div className="w-8 h-8 border-2 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div></div>
                     ) : (
                         <div className="h-full overflow-y-auto custom-scrollbar pr-1">
-                            <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
                                 {filteredGroupedProducts.map((group) => (
                                     <div
                                         key={group.name}
                                         onClick={() => openProductCustomizer(group)}
-                                        className="bg-white p-1.5 rounded-xl shadow-[0_1px_4px_rgba(0,0,0,0.04)] border border-gray-100 flex flex-col group hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 duration-200 relative overflow-hidden h-auto"
+                                        className="bg-white p-2.5 rounded-xl shadow-[0_1px_4px_rgba(0,0,0,0.04)] border border-gray-100 flex flex-col group hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 duration-200 relative overflow-hidden h-auto"
                                     >
-                                        {/* Ultra Compact Image */}
-                                        <div className="relative w-full aspect-[4/3] bg-[#F2F2F7] rounded-lg mb-1.5 overflow-hidden shrink-0">
+                                        {/* Image Container */}
+                                        <div className="relative w-full aspect-[3/2] bg-[#F2F2F7] rounded-lg mb-2 overflow-hidden shrink-0">
                                             {group.imagen_url ? (
                                                 <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                                                    <span className="material-icons-round text-xl opacity-50">restaurant</span>
+                                                    <span className="material-icons-round text-2xl opacity-50">restaurant</span>
                                                 </div>
                                             )}
 
-                                            {/* Price Tag - Miniature */}
-                                            <div className="absolute bottom-1 right-1 bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded text-[9px] font-black shadow-sm text-[#181511] border border-gray-100 group-hover:bg-[#181511] group-hover:text-white transition-colors">
+                                            {/* Price Tag */}
+                                            <div className="absolute bottom-1 right-1 bg-white/95 backdrop-blur-sm px-2 py-0.5 rounded-md text-[11px] font-black shadow-sm text-[#181511] border border-gray-100 group-hover:bg-[#181511] group-hover:text-white transition-colors">
                                                 ${group.basePrice}
                                             </div>
                                         </div>
 
-                                        {/* Content - Compressed */}
-                                        <div className="flex flex-col gap-0.5 px-0.5 mb-1">
-                                            <h3 className="font-bold text-[10px] sm:text-[11px] text-[#1D1D1F] leading-tight line-clamp-1 w-full group-hover:text-[#F7941D] transition-colors truncate">
+                                        {/* Content */}
+                                        <div className="flex flex-col gap-0.5 px-0.5 mb-2 min-h-[2.5rem]">
+                                            <h3 className="font-bold text-xs text-[#1D1D1F] leading-tight line-clamp-2 w-full group-hover:text-[#F7941D] transition-colors">
                                                 {group.name}
                                             </h3>
-                                            {/* Description often skipped in ultra-compact, or keep 1 line */}
-                                            <p className="text-gray-400 text-[9px] line-clamp-1 leading-tight font-medium">
+                                            <p className="text-gray-400 text-[10px] line-clamp-2 leading-tight font-medium">
                                                 {group.description || 'Sin descripción'}
                                             </p>
                                         </div>
 
-                                        {/* Action Button - Minimalist */}
-                                        <button className="mt-auto w-full bg-[#FAFAFA] text-[#1D1D1F] border border-gray-200 py-1 rounded-lg text-[9px] font-bold transition-all flex items-center justify-center gap-1 shrink-0 group-hover:bg-[#1D1D1F] group-hover:text-white group-hover:border-[#1D1D1F] shadow-sm hover:shadow">
-                                            <span className="material-icons-round text-[10px] transition-transform group-hover:rotate-90">add</span>
-                                            <span className="uppercase tracking-wider">Add</span>
+                                        {/* Action Button */}
+                                        <button className="mt-auto w-full bg-[#FAFAFA] text-[#1D1D1F] border border-gray-200 py-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 group-hover:bg-[#1D1D1F] group-hover:text-white group-hover:border-[#1D1D1F] shadow-sm hover:shadow">
+                                            <span className="material-icons-round text-xs transition-transform group-hover:rotate-90">add</span>
+                                            <span className="uppercase tracking-wider">Agregar</span>
                                         </button>
                                     </div>
                                 ))}

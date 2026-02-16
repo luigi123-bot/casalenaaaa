@@ -65,7 +65,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
     if (!mounted) return null;
 
     return (
-        <div className="w-full bg-white text-black font-sans text-[10px] leading-tight mx-auto p-1 flex flex-col shadow-sm">
+        <div className="w-full bg-white text-black font-sans text-[9px] leading-tight mx-auto px-4 py-2 flex flex-col shadow-sm">
             {/* Global style removed - handled by TicketPrintModal */}
 
             {/* 1. ENCABEZADO */}
@@ -110,22 +110,22 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
             {/* 7. Separador punteado */}
             <div className="border-t-[1px] border-black border-dashed my-1 w-full"></div>
 
-            {/* 8. ENCABEZADO DE PRODUCTOS */}
-            <div className="grid grid-cols-[20px_1fr_45px] gap-1 font-bold mb-1 text-[9px]">
+            /* 8. ENCABEZADO DE PRODUCTOS - Tighten columns for 48mm width */
+            <div className="grid grid-cols-[15px_1fr_35px] gap-0.5 font-bold mb-1 text-[8px]">
                 <div className="text-left">Ct</div>
                 <div className="text-left">Producto</div>
                 <div className="text-right">Total</div>
             </div>
 
             {/* 9. LISTA DE PRODUCTOS */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-0.5">
                 {data.productos.map((prod, idx) => (
-                    <div key={idx} className="grid grid-cols-[20px_1fr_45px] gap-1 items-start text-[10px]">
+                    <div key={idx} className="grid grid-cols-[15px_1fr_35px] gap-0.5 items-start text-[9px]">
                         <div className="text-left">{prod.cantidad}</div>
                         <div className="text-left flex flex-col leading-tight">
                             <span className="uppercase">{prod.nombre}</span>
                             {prod.detalle && (
-                                <span className="text-[9px] text-gray-500 font-normal">
+                                <span className="text-[8px] text-gray-500 font-normal">
                                     ({prod.detalle})
                                 </span>
                             )}
