@@ -281,7 +281,13 @@ export default function TiendaPage() {
 
         // Ensure variants are sorted by price order often helps (Chica < Grande)
         Object.values(groups).forEach(g => {
-            const sizeOrder = { 'Chica': 1, 'Mediana': 2, 'Grande': 3, 'Familiar': 4, 'Estándar': 0 };
+            const sizeOrder = {
+                'Chica': 1, 'Chica 12"': 1,
+                'Mediana': 2,
+                'Grande': 3, 'Grande 14"': 3,
+                'Familiar': 4, 'Familiar 16"': 4,
+                'Estándar': 0
+            };
             g.variants.sort((a, b) => {
                 const orderA = sizeOrder[a.size as keyof typeof sizeOrder] || 99;
                 const orderB = sizeOrder[b.size as keyof typeof sizeOrder] || 99;

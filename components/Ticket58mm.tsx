@@ -18,11 +18,17 @@ export interface TicketData {
         pago_con?: number;
         cambio?: number;
     };
+    cliente?: {
+        nombre: string;
+        telefono: string;
+        direccion: string;
+    };
     productos: Array<{
         cantidad: number;
         nombre: string;
         precio: number;
         detalle?: string;
+        extras?: string[]; // Array of extra names like ["Extra Queso", "Orilla Rellena"]
     }>;
 }
 
@@ -103,6 +109,28 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                     </div>
                 )}
 
+                {/* 5.1 DATOS DEL CLIENTE (PARA DOMICILIO) */}
+                {data.cliente && (
+                    <div className="flex flex-col gap-1 my-3 p-2 border-2 border-black bg-gray-50">
+                        <div className="flex items-center gap-1 border-b border-black pb-1 mb-1">
+                            <span className="material-icons-round text-xs">person</span>
+                            <span className="font-black uppercase text-xs">CLIENTE:</span>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                            <p className="font-black text-sm uppercase">{data.cliente.nombre}</p>
+                            <p className="font-bold text-[10px] break-words">
+                                <span className="font-black uppercase">TEL: </span>{data.cliente.telefono}
+                            </p>
+                            <div className="mt-1 pb-1">
+                                <p className="font-black uppercase text-[10px]">DIRECCIÓN:</p>
+                                <p className="font-bold text-[11px] break-words uppercase leading-tight bg-white p-1 border border-black/20">
+                                    {data.cliente.direccion}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* 6. NÚMERO DE PEDIDO */}
                 <div className="text-center font-black text-3xl my-2">
                     #{data.pedido.id.toString().slice(-4).padStart(4, '0')}
@@ -128,6 +156,13 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                                     <span className="text-[9px] font-medium italic mt-0.5">
                                         ({prod.detalle})
                                     </span>
+                                )}
+                                {prod.extras && prod.extras.length > 0 && (
+                                    <div className="text-[8px] font-medium italic mt-1 text-gray-700">
+                                        {prod.extras.map((extra, i) => (
+                                            <div key={i}>+ {extra}</div>
+                                        ))}
+                                    </div>
                                 )}
                             </div>
                             <div className="text-right whitespace-nowrap">
