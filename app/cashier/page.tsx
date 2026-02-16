@@ -645,7 +645,7 @@ export default function CashierPage() {
             {/* MAIN CONTENT */}
             <main className="flex-1 flex flex-col h-screen overflow-hidden">
                 {/* Responsive Header */}
-                <header className="min-h-[80px] lg:h-20 bg-white border-b border-[#e8e5e1] flex flex-col lg:flex-row items-stretch lg:items-center px-4 sm:px-6 lg:px-8 gap-3 lg:gap-8 py-3 lg:py-0 shrink-0">
+                <header className="min-h-[60px] lg:h-16 bg-white border-b border-[#e8e5e1] flex flex-col lg:flex-row items-stretch lg:items-center px-4 sm:px-6 lg:px-8 gap-3 lg:gap-8 py-2 lg:py-0 shrink-0">
                     {/* Search Bar - Full width on mobile */}
                     <div className="flex-1 relative w-full lg:max-w-md">
                         <span className="material-icons-round absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xl">search</span>
@@ -720,85 +720,77 @@ export default function CashierPage() {
                     </button>
                 </header>
 
-                {/* Products Grid - Responsive */}
-                <section className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar">
-                    {/* Active Banner for Cashier */}
+                {/* Products Grid - Optimized for No-Scroll on Laptops */}
+                <section className="flex-1 p-2 sm:p-4 overflow-hidden flex flex-col">
+                    {/* Active Banner - HIDDEN on typical laptop screens to save space, visible only on large vertical screens */}
                     {activeBanner && (
                         <div
                             onClick={handleBannerClick}
-                            className={`mb-6 rounded-2xl overflow-hidden relative h-32 sm:h-40 bg-[#1D1D1F] text-white shadow-lg group shrink-0 select-none transition-all ${activeBanner.product_id ? 'cursor-pointer hover:ring-4 ring-[#f7951d]/50 active:scale-[0.98]' : ''}`}
+                            className="hidden 2xl:flex mb-4 rounded-xl overflow-hidden relative h-28 shrink-0 bg-[#1D1D1F] text-white shadow-md group select-none transition-all cursor-pointer"
                         >
                             <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/40 to-transparent z-10 pointer-events-none"></div>
                             <img
                                 src={activeBanner.image_url}
-                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                 alt={activeBanner.title}
                             />
-                            <div className="relative z-20 h-full flex flex-col justify-center px-6 sm:px-8 max-w-xl pointer-events-none">
-                                <span className="inline-block px-2 py-1 rounded-full bg-[#f7951d] text-[10px] font-bold w-fit mb-2 shadow-sm">
-                                    {activeBanner.description ? 'PROMOCIÓN ACTIVA' : 'ANUNCIO'}
+                            <div className="relative z-20 h-full flex flex-col justify-center px-6 pointer-events-none">
+                                <span className="inline-block px-1.5 py-0.5 rounded-full bg-[#f7951d] text-[9px] font-bold w-fit mb-1 shadow-sm">
+                                    {activeBanner.description ? 'PROMO' : 'INFO'}
                                 </span>
-                                <h2 className="text-xl sm:text-2xl font-black mb-1 text-white leading-tight drop-shadow-md">
+                                <h2 className="text-lg font-black mb-0.5 text-white leading-tight drop-shadow-md">
                                     {activeBanner.title}
                                 </h2>
-                                {activeBanner.description && (
-                                    <p className="text-sm text-gray-200 font-medium line-clamp-1 drop-shadow-sm opacity-90">
-                                        {activeBanner.description}
-                                    </p>
-                                )}
-                                {activeBanner.product_id && (
-                                    <div className="mt-2 text-[10px] font-bold text-[#f7951d] uppercase tracking-wide flex items-center gap-1 animate-pulse">
-                                        <span className="material-icons-round text-sm">touch_app</span>
-                                        Toca para ordenar
-                                    </div>
-                                )}
                             </div>
                         </div>
                     )}
 
                     {loading && !products.length ? (
-                        <div className="flex items-center justify-center h-64"><div className="w-10 h-10 border-4 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div></div>
+                        <div className="flex items-center justify-center h-full"><div className="w-8 h-8 border-2 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div></div>
                     ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 sm:gap-3 lg:gap-4 pb-16 lg:pb-6">
-                            {filteredGroupedProducts.map((group) => (
-                                <div
-                                    key={group.name}
-                                    onClick={() => openProductCustomizer(group)}
-                                    className="bg-white p-2 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] border border-gray-100 flex flex-col group hover:shadow-[0_8px_16px_rgba(0,0,0,0.08)] transition-all cursor-pointer hover:-translate-y-0.5 duration-200 h-full relative overflow-hidden"
-                                >
-                                    {/* Image Container - More Compact */}
-                                    <div className="relative w-full aspect-[3/2] bg-[#F2F2F7] rounded-lg mb-2 overflow-hidden shrink-0 group-hover:shadow-inner transition-shadow">
-                                        {group.imagen_url ? (
-                                            <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
-                                                <span className="material-icons-round text-2xl opacity-50">restaurant</span>
+                        <div className="h-full overflow-y-auto custom-scrollbar pr-1">
+                            <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2">
+                                {filteredGroupedProducts.map((group) => (
+                                    <div
+                                        key={group.name}
+                                        onClick={() => openProductCustomizer(group)}
+                                        className="bg-white p-1.5 rounded-xl shadow-[0_1px_4px_rgba(0,0,0,0.04)] border border-gray-100 flex flex-col group hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 duration-200 relative overflow-hidden h-auto"
+                                    >
+                                        {/* Ultra Compact Image */}
+                                        <div className="relative w-full aspect-[4/3] bg-[#F2F2F7] rounded-lg mb-1.5 overflow-hidden shrink-0">
+                                            {group.imagen_url ? (
+                                                <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+                                                    <span className="material-icons-round text-xl opacity-50">restaurant</span>
+                                                </div>
+                                            )}
+
+                                            {/* Price Tag - Miniature */}
+                                            <div className="absolute bottom-1 right-1 bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded text-[9px] font-black shadow-sm text-[#181511] border border-gray-100 group-hover:bg-[#181511] group-hover:text-white transition-colors">
+                                                ${group.basePrice}
                                             </div>
-                                        )}
-
-                                        {/* Price Tag - Compact */}
-                                        <div className="absolute bottom-1 right-1 bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-black shadow-sm text-[#181511] border border-gray-100 group-hover:bg-[#181511] group-hover:text-white transition-colors">
-                                            ${group.basePrice}
                                         </div>
-                                    </div>
 
-                                    {/* Content - Compact */}
-                                    <div className="flex flex-col flex-1 gap-0.5 min-h-0 px-0.5">
-                                        <h3 className="font-bold text-xs text-[#1D1D1F] leading-tight line-clamp-1 w-full group-hover:text-[#F7941D] transition-colors">
-                                            {group.name}
-                                        </h3>
-                                        <p className="text-gray-400 text-[9px] line-clamp-2 leading-tight font-medium">
-                                            {group.description || 'Sin descripción'}
-                                        </p>
-                                    </div>
+                                        {/* Content - Compressed */}
+                                        <div className="flex flex-col gap-0.5 px-0.5 mb-1">
+                                            <h3 className="font-bold text-[10px] sm:text-[11px] text-[#1D1D1F] leading-tight line-clamp-1 w-full group-hover:text-[#F7941D] transition-colors truncate">
+                                                {group.name}
+                                            </h3>
+                                            {/* Description often skipped in ultra-compact, or keep 1 line */}
+                                            <p className="text-gray-400 text-[9px] line-clamp-1 leading-tight font-medium">
+                                                {group.description || 'Sin descripción'}
+                                            </p>
+                                        </div>
 
-                                    {/* Action Button - Compact */}
-                                    <button className="mt-2 w-full bg-[#FAFAFA] text-[#1D1D1F] border border-gray-200 py-1.5 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1 shrink-0 group-hover:bg-[#1D1D1F] group-hover:text-white group-hover:border-[#1D1D1F] shadow-sm">
-                                        <span className="material-icons-round text-xs transition-transform group-hover:rotate-90">add</span>
-                                        <span className="tracking-wide uppercase text-[9px]">Agregar</span>
-                                    </button>
-                                </div>
-                            ))}
+                                        {/* Action Button - Minimalist */}
+                                        <button className="mt-auto w-full bg-[#FAFAFA] text-[#1D1D1F] border border-gray-200 py-1 rounded-lg text-[9px] font-bold transition-all flex items-center justify-center gap-1 shrink-0 group-hover:bg-[#1D1D1F] group-hover:text-white group-hover:border-[#1D1D1F] shadow-sm hover:shadow">
+                                            <span className="material-icons-round text-[10px] transition-transform group-hover:rotate-90">add</span>
+                                            <span className="uppercase tracking-wider">Add</span>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </section>

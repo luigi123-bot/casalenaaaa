@@ -65,7 +65,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
     if (!mounted) return null;
 
     return (
-        <div className="w-[58mm] bg-white text-black font-sans text-[10px] leading-tight mx-auto p-1 flex flex-col shadow-sm">
+        <div className="w-full bg-white text-black font-sans text-[10px] leading-tight mx-auto p-1 flex flex-col shadow-sm">
             {/* Global style removed - handled by TicketPrintModal */}
 
             {/* 1. ENCABEZADO */}

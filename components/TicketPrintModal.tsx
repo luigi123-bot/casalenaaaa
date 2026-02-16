@@ -117,6 +117,8 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
             left: 0 !important;
             top: 0 !important;
             width: 58mm !important;
+            max-width: 58mm !important;
+            overflow: hidden !important;
             visibility: visible !important;
             display: block !important;
             z-index: 2147483647; /* Max z-index */
