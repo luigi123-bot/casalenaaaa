@@ -13,6 +13,7 @@ function createWindow() {
             contextIsolation: true,
         },
         title: 'Casalena POS',
+        icon: path.join(__dirname, '../public/logo-main.jpg')
     });
 
     // Load content based on environment

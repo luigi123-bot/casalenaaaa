@@ -759,34 +759,43 @@ export default function CashierPage() {
                     {loading && !products.length ? (
                         <div className="flex items-center justify-center h-64"><div className="w-10 h-10 border-4 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div></div>
                     ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5 pb-16 lg:pb-6">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2 sm:gap-3 lg:gap-4 pb-16 lg:pb-6">
                             {filteredGroupedProducts.map((group) => (
                                 <div
                                     key={group.name}
                                     onClick={() => openProductCustomizer(group)}
-                                    className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-[#e8e5e1] flex flex-col group hover:shadow-xl transition-all cursor-pointer hover:border-[#f7951d]/30 hover:-translate-y-1 duration-300"
+                                    className="bg-white p-2 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] border border-gray-100 flex flex-col group hover:shadow-[0_8px_16px_rgba(0,0,0,0.08)] transition-all cursor-pointer hover:-translate-y-0.5 duration-200 h-full relative overflow-hidden"
                                 >
-                                    <div className="relative w-full aspect-[4/3] bg-gray-50 rounded-xl mb-3 overflow-hidden">
+                                    {/* Image Container - More Compact */}
+                                    <div className="relative w-full aspect-[3/2] bg-[#F2F2F7] rounded-lg mb-2 overflow-hidden shrink-0 group-hover:shadow-inner transition-shadow">
                                         {group.imagen_url ? (
-                                            <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt="" />
+                                            <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
                                         ) : (
-                                            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-100">
-                                                <span className="material-icons-round text-3xl sm:text-4xl">restaurant</span>
+                                            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+                                                <span className="material-icons-round text-2xl opacity-50">restaurant</span>
                                             </div>
                                         )}
-                                        <div className="absolute top-2 right-2 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs sm:text-sm font-black shadow-sm text-[#181511]">
+
+                                        {/* Price Tag - Compact */}
+                                        <div className="absolute bottom-1 right-1 bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-black shadow-sm text-[#181511] border border-gray-100 group-hover:bg-[#181511] group-hover:text-white transition-colors">
                                             ${group.basePrice}
                                         </div>
                                     </div>
 
-                                    <div className="flex flex-col flex-1 gap-1">
-                                        <h3 className="font-bold text-sm sm:text-base text-[#181511] leading-tight line-clamp-1 group-hover:text-[#f7951d] transition-colors">{group.name}</h3>
-                                        <p className="text-[#8c785f] text-xs sm:text-sm line-clamp-2 leading-relaxed flex-1">{group.description || 'Sin descripción disponible'}</p>
+                                    {/* Content - Compact */}
+                                    <div className="flex flex-col flex-1 gap-0.5 min-h-0 px-0.5">
+                                        <h3 className="font-bold text-xs text-[#1D1D1F] leading-tight line-clamp-1 w-full group-hover:text-[#F7941D] transition-colors">
+                                            {group.name}
+                                        </h3>
+                                        <p className="text-gray-400 text-[9px] line-clamp-2 leading-tight font-medium">
+                                            {group.description || 'Sin descripción'}
+                                        </p>
                                     </div>
 
-                                    <button className="mt-3 w-full bg-[#181511] text-white py-2.5 rounded-xl text-xs sm:text-sm font-bold active:scale-[0.98] transition-all hover:bg-[#f7951d] shadow-sm hover:shadow-md flex items-center justify-center gap-2">
-                                        <span className="material-icons-round text-base">add_circle</span>
-                                        Agregar
+                                    {/* Action Button - Compact */}
+                                    <button className="mt-2 w-full bg-[#FAFAFA] text-[#1D1D1F] border border-gray-200 py-1.5 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1 shrink-0 group-hover:bg-[#1D1D1F] group-hover:text-white group-hover:border-[#1D1D1F] shadow-sm">
+                                        <span className="material-icons-round text-xs transition-transform group-hover:rotate-90">add</span>
+                                        <span className="tracking-wide uppercase text-[9px]">Agregar</span>
                                     </button>
                                 </div>
                             ))}
