@@ -45,6 +45,12 @@ interface CartItem extends Product {
     quantity: number;
     selectedSize?: string;
     extras?: string[]; // Array of extra IDs
+    isHalfAndHalf?: boolean;
+    secondHalfVariant?: {
+        id: number;
+        name: string;
+        price: number;
+    };
 }
 
 type OrderType = 'dine-in' | 'takeout' | 'delivery';
@@ -66,6 +72,8 @@ export default function CashierPage() {
     const [selectedGroupedProduct, setSelectedGroupedProduct] = useState<GroupedProduct | null>(null);
     const [currentSize, setCurrentSize] = useState<string>('');
     const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
+    const [isHalfAndHalf, setIsHalfAndHalf] = useState(false);
+    const [secondHalf, setSecondHalf] = useState<GroupedProduct | null>(null);
 
     // Cart State
     const [cart, setCart] = useState<CartItem[]>([]);
@@ -444,6 +452,8 @@ export default function CashierPage() {
     // Cart Logic
     const openProductCustomizer = (group: GroupedProduct) => {
         setSelectedGroupedProduct(group);
+        setIsHalfAndHalf(false);
+        setSecondHalf(null);
         // Default to first variant size
         if (group.variants.length > 0) {
             setCurrentSize(group.variants[0].size);
@@ -461,13 +471,39 @@ export default function CashierPage() {
             return sum + (extra ? extra.price : 0);
         }, 0);
 
+        let finalPrice = variant.price;
+        let finalName = variant.fullProduct.name;
+        let secondHalfData = undefined;
+
+        // Handle Half & Half
+        if (isHalfAndHalf && secondHalf) {
+            const variant2 = secondHalf.variants.find(v => v.size === currentSize);
+            if (!variant2) {
+                // Should be prevented by UI but just in case
+                console.warn('La segunda mitad no tiene el mismo tamaño disponible');
+                return;
+            }
+            // Logic: Average price
+            finalPrice = (variant.price + variant2.price) / 2;
+            finalName = `½ ${selectedGroupedProduct.name} / ½ ${secondHalf.name} (${currentSize})`;
+
+            secondHalfData = {
+                id: variant2.id, // Store ID of second variant
+                name: secondHalf.name,
+                price: variant2.price
+            };
+        }
+
         const newItem: CartItem = {
             ...variant.fullProduct,
+            name: finalName, // Override Name
+            price: finalPrice + extrasCost, // Override Price
             cartItemId: crypto.randomUUID(),
             quantity: 1,
             selectedSize: currentSize,
             extras: [...selectedExtras],
-            price: variant.price + extrasCost
+            isHalfAndHalf: isHalfAndHalf,
+            secondHalfVariant: secondHalfData
         };
 
         setCart(prev => [...prev, newItem]);
@@ -476,6 +512,8 @@ export default function CashierPage() {
         setSelectedGroupedProduct(null);
         setCurrentSize('');
         setSelectedExtras([]);
+        setIsHalfAndHalf(false);
+        setSecondHalf(null);
     };
 
     const removeFromCart = (cartItemId: string) => {
@@ -585,16 +623,30 @@ export default function CashierPage() {
             console.log('✅ [Cashier] Orden creada ID:', createdOrder.id);
 
             // 2. Insert Items
-            const orderItems = cart.map(item => ({
-                order_id: createdOrder.id,
-                product_id: item.id,
-                product_name: item.name,
-                quantity: item.quantity,
-                unit_price: item.price,
-                total_price: item.price * item.quantity,
-                selected_size: item.selectedSize,
-                extras: item.extras || null // Supabase handles objects directly for jsonb
-            }));
+            // 2. Insert Items
+            const orderItems = cart.map(item => {
+                const extrasData: any[] = [...(item.extras || [])];
+
+                if (item.isHalfAndHalf && item.secondHalfVariant) {
+                    extrasData.push({
+                        type: 'half_and_half',
+                        second_half_id: item.secondHalfVariant.id,
+                        second_half_name: item.secondHalfVariant.name,
+                        second_half_price: item.secondHalfVariant.price
+                    });
+                }
+
+                return {
+                    order_id: createdOrder.id,
+                    product_id: item.id,
+                    product_name: item.name, // "½ Name1 / ½ Name2"
+                    quantity: item.quantity,
+                    unit_price: item.price,
+                    total_price: item.price * item.quantity,
+                    selected_size: item.selectedSize,
+                    extras: extrasData.length > 0 ? extrasData : null
+                };
+            });
 
             console.log('🛒 [Cashier] Items a insertar:', orderItems);
 
@@ -884,10 +936,38 @@ export default function CashierPage() {
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl sm:rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[95vh] sm:max-h-[90vh]">
                         {/* Left Image - Hidden on mobile, shown on md+ */}
-                        <div className="hidden md:block md:w-5/12 bg-gray-50 p-6 flex-col">
-                            <img src={selectedGroupedProduct.imagen_url} className="w-full aspect-square object-cover rounded-2xl shadow-lg mb-4" alt="" />
-                            <h3 className="text-2xl font-black mb-2">{selectedGroupedProduct.name}</h3>
-                            <p className="text-sm text-[#8c785f] leading-relaxed flex-1">{selectedGroupedProduct.description}</p>
+                        <div className="hidden md:block md:w-5/12 bg-gray-50 p-6 flex-col relative">
+                            {isHalfAndHalf && secondHalf ? (
+                                <div className="absolute inset-0 flex">
+                                    <div className="w-1/2 h-full overflow-hidden relative">
+                                        <img src={selectedGroupedProduct.imagen_url} className="w-full h-full object-cover" alt="" />
+                                        <div className="absolute inset-0 bg-black/10"></div>
+                                    </div>
+                                    <div className="w-1/2 h-full overflow-hidden relative">
+                                        <img src={secondHalf.imagen_url} className="w-full h-full object-cover" alt="" />
+                                    </div>
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        <div className="bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-xs font-black shadow-lg border border-gray-100">½ & ½</div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <img src={selectedGroupedProduct.imagen_url} className="w-full aspect-square object-cover rounded-2xl shadow-lg mb-4" alt="" />
+                            )}
+                            <div className="relative z-10 mt-auto">
+                                <h3 className="text-2xl font-black mb-2 leading-tight">
+                                    {isHalfAndHalf && secondHalf ? (
+                                        <span>
+                                            <span className="text-gray-400">½</span> {selectedGroupedProduct.name} <br />
+                                            <span className="text-gray-400">½</span> {secondHalf.name}
+                                        </span>
+                                    ) : selectedGroupedProduct.name}
+                                </h3>
+                                <p className="text-sm text-[#8c785f] leading-relaxed line-clamp-3">
+                                    {isHalfAndHalf && secondHalf
+                                        ? 'Combinación de dos especialidades.'
+                                        : selectedGroupedProduct.description}
+                                </p>
+                            </div>
                         </div>
 
                         {/* Right Content */}
@@ -896,40 +976,102 @@ export default function CashierPage() {
                             <div className="md:hidden mb-4">
                                 <div className="flex justify-between items-start mb-3">
                                     <div className="flex-1">
-                                        <h3 className="text-xl font-black mb-1">{selectedGroupedProduct.name}</h3>
-                                        <p className="text-xs text-[#8c785f]">{selectedGroupedProduct.description}</p>
+                                        <h3 className="text-xl font-black mb-1">
+                                            {isHalfAndHalf && secondHalf ? `½ ${selectedGroupedProduct.name} / ½ ${secondHalf.name}` : selectedGroupedProduct.name}
+                                        </h3>
+                                        <p className="text-xs text-[#8c785f] line-clamp-2">{selectedGroupedProduct.description}</p>
                                     </div>
-                                    <button onClick={() => setSelectedGroupedProduct(null)} className="ml-2 size-8 flex items-center justify-center bg-gray-100 rounded-full shrink-0">
+                                    <button onClick={() => { setSelectedGroupedProduct(null); setIsHalfAndHalf(false); setSecondHalf(null); }} className="ml-2 size-8 flex items-center justify-center bg-gray-100 rounded-full shrink-0">
                                         <span className="material-icons-round text-lg">close</span>
                                     </button>
                                 </div>
-                                <img src={selectedGroupedProduct.imagen_url} className="w-full aspect-video object-cover rounded-xl mb-3" alt="" />
                             </div>
 
                             {/* Desktop Close Button */}
-                            <button onClick={() => setSelectedGroupedProduct(null)} className="hidden md:block absolute top-4 right-4 size-8 flex items-center justify-center bg-gray-100 rounded-full">
+                            <button onClick={() => { setSelectedGroupedProduct(null); setIsHalfAndHalf(false); setSecondHalf(null); }} className="hidden md:block absolute top-4 right-4 size-8 flex items-center justify-center bg-gray-100 rounded-full z-20 hover:bg-red-50 hover:text-red-500 transition-colors">
                                 <span className="material-icons-round text-lg">close</span>
                             </button>
 
                             {/* Scrollable Content */}
                             <div className="flex-1 overflow-y-auto space-y-6 sm:space-y-8 pr-1 sm:pr-2 custom-scrollbar">
+
+                                {/* Half & Half Toggle */}
+                                {(() => {
+                                    // Helper to check if Pizza
+                                    const isPizza = products.find(p => p.category_id === selectedGroupedProduct.category_id)?.categories?.name?.toLowerCase().includes('pizza');
+
+                                    if (isPizza) {
+                                        return (
+                                            <div className="bg-[#f8f7f5] p-3 rounded-xl border border-[#e8e5e1]">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="font-black text-sm text-[#181511]">🍕 ¿Armar Mitad y Mitad?</span>
+                                                    <label className="relative inline-flex items-center cursor-pointer">
+                                                        <input type="checkbox" className="sr-only peer" checked={isHalfAndHalf} onChange={(e) => {
+                                                            setIsHalfAndHalf(e.target.checked);
+                                                            if (!e.target.checked) setSecondHalf(null);
+                                                        }} />
+                                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#f7951d]"></div>
+                                                    </label>
+                                                </div>
+
+                                                {isHalfAndHalf && (
+                                                    <div className="animate-in fade-in slide-in-from-top-1 mt-2">
+                                                        <label className="block text-xs font-bold text-gray-500 mb-1">Selecciona la segunda mitad:</label>
+                                                        <select
+                                                            className="w-full bg-white border border-gray-200 rounded-lg p-2 text-sm font-bold outline-none focus:border-[#f7951d]"
+                                                            onChange={(e) => {
+                                                                const group = groupedProducts.find(g => g.name === e.target.value);
+                                                                setSecondHalf(group || null);
+                                                            }}
+                                                            value={secondHalf?.name || ''}
+                                                        >
+                                                            <option value="" disabled>-- Elegir Sabor --</option>
+                                                            {groupedProducts
+                                                                .filter(g => g.category_id === selectedGroupedProduct.category_id && g.name !== selectedGroupedProduct.name)
+                                                                .map(g => (
+                                                                    <option key={g.name} value={g.name}>{g.name}</option>
+                                                                ))
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })()}
+
                                 {/* Size Selection */}
                                 <div>
                                     <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-3 sm:mb-4 flex items-center gap-2">
                                         <span className="size-2 bg-[#f7951d] rounded-full"></span> Tamaño
                                     </h4>
                                     <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                                        {selectedGroupedProduct.variants.map(variant => (
-                                            <button
-                                                key={variant.id}
-                                                onClick={() => setCurrentSize(variant.size)}
-                                                className={`p-3 sm:p-4 rounded-xl border-2 text-left transition-all ${currentSize === variant.size ? 'border-[#f7951d] bg-orange-50' : 'border-gray-100 hover:border-gray-200'}`}
-                                            >
-                                                <p className="font-bold text-sm">{variant.size}</p>
-                                                <p className="text-[#f7951d] font-black text-sm sm:text-base">${variant.price}</p>
-                                            </button>
-                                        ))}
+                                        {selectedGroupedProduct.variants.map(variant => {
+                                            // Calculate price for display
+                                            let displayPrice = variant.price;
+                                            if (isHalfAndHalf && secondHalf) {
+                                                const secondVariant = secondHalf.variants.find(v => v.size === variant.size);
+                                                if (secondVariant) {
+                                                    displayPrice = (variant.price + secondVariant.price) / 2;
+                                                }
+                                            }
+
+                                            return (
+                                                <button
+                                                    key={variant.id}
+                                                    onClick={() => setCurrentSize(variant.size)}
+                                                    className={`p-3 sm:p-4 rounded-xl border-2 text-left transition-all ${currentSize === variant.size ? 'border-[#f7951d] bg-orange-50' : 'border-gray-100 hover:border-gray-200'}`}
+                                                >
+                                                    <p className="font-bold text-sm">{variant.size}</p>
+                                                    <p className="text-[#f7951d] font-black text-sm sm:text-base">${displayPrice.toFixed(2)}</p>
+                                                </button>
+                                            );
+                                        })}
                                     </div>
+                                    {isHalfAndHalf && secondHalf && !secondHalf.variants.find(v => v.size === currentSize) && (
+                                        <p className="text-[10px] text-red-500 font-bold mt-2">⚠️ {secondHalf.name} no está disponible en tamaño {currentSize}.</p>
+                                    )}
                                 </div>
 
                                 {/* Extras Selection */}
@@ -959,11 +1101,12 @@ export default function CashierPage() {
                             <div className="pt-4 sm:pt-6 border-t border-gray-100 mt-4 sm:mt-6 flex flex-col gap-3 sm:gap-4">
                                 <button
                                     onClick={confirmAddToCart}
-                                    className="w-full bg-[#181511] text-white py-3 sm:py-4 rounded-xl font-black shadow-lg shadow-black/20 text-sm sm:text-base"
+                                    disabled={isHalfAndHalf && (!secondHalf || (secondHalf && !secondHalf.variants.find(v => v.size === currentSize)))}
+                                    className="w-full bg-[#181511] text-white py-3 sm:py-4 rounded-xl font-black shadow-lg shadow-black/20 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    Añadir a la comanda
+                                    {isHalfAndHalf ? (secondHalf ? 'Añadir Combinación' : 'Selecciona 2da Mitad') : 'Añadir a la comanda'}
                                 </button>
-                                <button onClick={() => setSelectedGroupedProduct(null)} className="text-xs font-bold text-gray-400 hover:text-red-500 transition-colors uppercase tracking-widest">Cancelar</button>
+                                <button onClick={() => { setSelectedGroupedProduct(null); setIsHalfAndHalf(false); setSecondHalf(null); }} className="text-xs font-bold text-gray-400 hover:text-red-500 transition-colors uppercase tracking-widest">Cancelar</button>
                             </div>
                         </div>
                     </div>
