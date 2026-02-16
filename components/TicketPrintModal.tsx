@@ -70,39 +70,31 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
 
       {/* Global Style for Printing */}
       <style jsx global>{`
-        /* 
-           @page must be global and top-level. 
-           'size' property controls the target paper size.
-        */
         @page {
-          size: 56mm auto;
+          size: 58mm auto;
           margin: 0mm;
         }
 
         @media print {
-          /* Enforce the width on the root elements */
           html, body {
-            width: 56mm !important;
-            min-width: 56mm !important;
-            max-width: 56mm !important;
+            width: 58mm !important;
             margin: 0 !important;
             padding: 0 !important;
             background-color: white !important;
-            overflow: visible !important;
           }
 
-          /* Reset visibility strategy */
           body * {
             visibility: hidden;
           }
 
-          /* The Print Area: Absolute centering on the 56mm page */
+          /* The Print Area: Center the 48mm content on the 58mm paper */
           #print-area {
             position: absolute !important; 
-            left: 0 !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
             top: 0 !important;
-            width: 56mm !important;
-            max-width: 56mm !important;
+            width: 48mm !important; /* Safety width for 58mm rollers */
+            max-width: 48mm !important;
             visibility: visible !important;
             display: block !important;
             background-color: white !important;
@@ -110,19 +102,16 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
             padding: 0 !important;
           }
 
-          /* Make contents visible */
           #print-area * {
             visibility: visible !important;
           }
           
-          /* Adjust colors */
           #print-area {
              color: black !important;
              -webkit-print-color-adjust: exact;
              print-color-adjust: exact;
           }
 
-          /* Hide UI elements */
           .no-print, header, nav, footer {
             display: none !important;
           }

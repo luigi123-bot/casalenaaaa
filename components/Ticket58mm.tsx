@@ -81,11 +81,11 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
 
                 {/* 1. ENCABEZADO */}
                 <div className="flex flex-col items-center mb-3 w-full">
-                    <h1 className="font-black text-sm uppercase tracking-wider text-center break-words w-full mb-1">
+                    <h1 className="font-black text-[13px] uppercase tracking-wider text-center break-words w-full mb-1">
                         {data.comercio.nombre}
                     </h1>
-                    <p className="text-center font-bold text-[10px] w-full break-words">{data.comercio.direccion}</p>
-                    <p className="text-center font-bold text-[10px]">{data.comercio.telefono}</p>
+                    <p className="text-center font-bold text-[9px] w-full break-words">{data.comercio.direccion}</p>
+                    <p className="text-center font-bold text-[9px]">{data.comercio.telefono}</p>
                 </div>
 
                 {/* Separador Sólido */}
@@ -112,18 +112,17 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 {/* 5.1 DATOS DEL CLIENTE (PARA DOMICILIO) */}
                 {data.cliente && (
                     <div className="flex flex-col gap-1 my-3 p-2 border-2 border-black bg-gray-50 w-full">
-                        <div className="flex items-center gap-1 border-b border-black pb-1 mb-1">
-                            <span className="material-icons-round text-xs">person</span>
-                            <span className="font-black uppercase text-xs">CLIENTE:</span>
+                        <div className="flex items-center justify-center gap-1 border-b border-black pb-1 mb-1">
+                            <span className="font-black uppercase text-[10px]">DATOS DEL CLIENTE</span>
                         </div>
                         <div className="text-center flex flex-col gap-0.5">
-                            <p className="font-black text-sm uppercase">{data.cliente.nombre}</p>
+                            <p className="font-black text-sm uppercase leading-none">{data.cliente.nombre}</p>
                             <p className="font-bold text-[10px] break-words">
                                 <span className="font-black uppercase">TEL: </span>{data.cliente.telefono}
                             </p>
                             <div className="mt-1 pb-1">
-                                <p className="font-black uppercase text-[10px]">DIRECCIÓN:</p>
-                                <p className="font-bold text-[11px] break-words uppercase leading-tight bg-white p-1 border border-black/20">
+                                <p className="font-black uppercase text-[9px]">DIRECCIÓN:</p>
+                                <p className="font-bold text-[10px] break-words uppercase leading-tight bg-white p-1 border border-black/20">
                                     {data.cliente.direccion}
                                 </p>
                             </div>
@@ -139,10 +138,10 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 <div className="border-t-[2px] border-black my-2 w-full"></div>
 
                 {/* 8. ENCABEZADO DE PRODUCTOS */}
-                <div className="grid grid-cols-[1.2rem_1fr_2.5rem] gap-1 font-black mb-2 text-[10px] border-b border-black pb-1 w-full text-left">
-                    <div className="text-left uppercase">Cant</div>
+                <div className="grid grid-cols-[1rem_1fr_2.5rem] gap-1 font-black mb-2 text-[9px] border-b border-black pb-1 w-full text-left">
+                    <div className="text-left uppercase">C.</div>
                     <div className="text-left uppercase">Producto</div>
-                    <div className="text-right uppercase">Total</div>
+                    <div className="text-right uppercase">TOT</div>
                 </div>
 
                 {/* 9. LISTA DE PRODUCTOS */}
