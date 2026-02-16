@@ -65,67 +65,61 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
     if (!mounted) return null;
 
     return (
-        <div className="w-full bg-white text-black font-sans text-[9px] leading-tight mx-auto px-4 py-2 flex flex-col shadow-sm">
-            {/* Global style removed - handled by TicketPrintModal */}
+        <div className="w-full bg-white text-black font-sans text-[10px] leading-tight mx-auto px-2 py-4 flex flex-col shadow-none">
 
             {/* 1. ENCABEZADO */}
-            <div className="flex flex-col items-center mb-2">
-                <h1 className="font-bold text-sm uppercase tracking-wider text-center break-words w-full">
+            <div className="flex flex-col items-center mb-3">
+                <h1 className="font-black text-base uppercase tracking-wider text-center break-words w-full mb-1">
                     {data.comercio.nombre}
                 </h1>
-                <p className="text-center mt-1 text-[9px] w-full break-words">{data.comercio.direccion}</p>
-                <p className="text-center text-[9px]">{data.comercio.telefono}</p>
+                <p className="text-center font-bold text-[10px] w-full break-words">{data.comercio.direccion}</p>
+                <p className="text-center font-bold text-[10px]">{data.comercio.telefono}</p>
             </div>
 
-            {/* 2. Separador */}
-            <div className="border-t-[1px] border-black border-dashed my-1 w-full"></div>
+            {/* Separador Sólido */}
+            <div className="border-t-[2px] border-black my-2 w-full"></div>
 
             {/* 3. FECHA Y HORA */}
-            <div className="flex justify-between w-full text-[9px]">
-                <span>Fecha: {dateStr}</span>
+            <div className="flex justify-between w-full text-[10px] font-bold">
+                <span>{dateStr}</span>
                 <span>{timeStr}</span>
             </div>
 
             {/* 4. TIPO DE PEDIDO */}
-            <div className="text-center font-bold text-xs uppercase my-2">
+            <div className="text-center font-black text-sm uppercase my-3 border-y-2 border-black py-1">
                 {data.pedido.tipo}
             </div>
 
-            {/* 5. MESA (si existe) */}
+            {/* 5. MESA */}
             {data.pedido.mesa && (
-                <>
-                    <div className="border-t-[1px] border-black border-dashed my-1 w-full"></div>
-                    <div className="text-center font-bold text-xl my-1 uppercase">
-                        MESA: {data.pedido.mesa}
-                    </div>
-                    <div className="border-t-[1px] border-black border-dashed my-1 w-full"></div>
-                </>
+                <div className="text-center font-black text-2xl my-2 uppercase">
+                    MESA: {data.pedido.mesa}
+                </div>
             )}
 
             {/* 6. NÚMERO DE PEDIDO */}
-            <div className="text-center font-bold text-2xl my-2">
-                #{data.pedido.id.padStart(5, '0')}
+            <div className="text-center font-black text-3xl my-2">
+                #{data.pedido.id.toString().slice(-4).padStart(4, '0')}
             </div>
 
-            {/* 7. Separador punteado */}
-            <div className="border-t-[1px] border-black border-dashed my-1 w-full"></div>
+            <div className="border-t-[2px] border-black my-2 w-full"></div>
 
-            /* 8. ENCABEZADO DE PRODUCTOS - Tighten columns for 48mm width */
-            <div className="grid grid-cols-[15px_1fr_35px] gap-0.5 font-bold mb-1 text-[8px]">
-                <div className="text-left">Ct</div>
-                <div className="text-left">Producto</div>
-                <div className="text-right">Total</div>
+            {/* 8. ENCABEZADO DE PRODUCTOS */}
+            <div className="grid grid-cols-[1.5rem_1fr_3rem] gap-1 font-black mb-2 text-[10px] border-b border-black pb-1">
+                <div className="text-left">CANT</div>
+                <div className="text-left">PRODUCTO</div>
+                <div className="text-right">TOTAL</div>
             </div>
 
             {/* 9. LISTA DE PRODUCTOS */}
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col gap-2">
                 {data.productos.map((prod, idx) => (
-                    <div key={idx} className="grid grid-cols-[15px_1fr_35px] gap-0.5 items-start text-[9px]">
+                    <div key={idx} className="grid grid-cols-[1.5rem_1fr_3rem] gap-1 items-start text-[10px] font-bold">
                         <div className="text-left">{prod.cantidad}</div>
                         <div className="text-left flex flex-col leading-tight">
                             <span className="uppercase">{prod.nombre}</span>
                             {prod.detalle && (
-                                <span className="text-[8px] text-gray-500 font-normal">
+                                <span className="text-[9px] font-medium italic mt-0.5">
                                     ({prod.detalle})
                                 </span>
                             )}
@@ -137,28 +131,31 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 ))}
             </div>
 
-            {/* 10. Separador punteado */}
-            <div className="border-t-[1px] border-black border-dashed my-2 w-full"></div>
+            <div className="border-t-[2px] border-black my-3 w-full"></div>
 
             {/* 11. TOTALES */}
-            <div className="flex flex-col gap-1 text-[10px]">
+            <div className="flex flex-col gap-1 text-[11px] font-bold">
+                <div className="flex justify-between">
+                    <span>TOTAL ARTÍCULOS</span>
+                    <span>{data.productos.reduce((acc, item) => acc + item.cantidad, 0)}</span>
+                </div>
                 <div className="flex justify-between">
                     <span>SUBTOTAL</span>
                     <span>{formatCurrency(data.pedido.subtotal)}</span>
                 </div>
-                <div className="flex justify-between font-bold text-xs mt-1">
+                <div className="flex justify-between text-base font-black mt-1">
                     <span>TOTAL</span>
                     <span>{formatCurrency(data.pedido.total)}</span>
                 </div>
             </div>
 
             {/* 12. MÉTODO DE PAGO */}
-            <div className="mt-3 mb-1 text-center uppercase font-bold text-[10px]">
+            <div className="mt-4 mb-2 text-center uppercase font-black text-[11px] border border-black py-1">
                 PAGO: {data.pedido.metodo_pago}
             </div>
 
             {data.pedido.metodo_pago.toUpperCase() === 'EFECTIVO' && (
-                <div className="flex flex-col gap-1 text-[10px]">
+                <div className="flex flex-col gap-1 text-[10px] font-bold mt-2">
                     <div className="flex justify-between">
                         <span>RECIBIDO:</span>
                         <span>{formatCurrency(data.pedido.pago_con || 0)}</span>
@@ -170,22 +167,18 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 </div>
             )}
 
-            {/* 13. Separador punteado */}
-            <div className="border-t-[1px] border-black border-dashed my-2 w-full"></div>
-
-            {/* 14. NOTAS */}
-            <div className="flex flex-col my-1">
-                <span className="mb-1 font-bold text-[10px]">NOTAS:</span>
-                <div className="w-full h-12 border border-black"></div>
+            {/* NOTAS */}
+            <div className="flex flex-col mt-4 mb-2">
+                <span className="mb-1 font-black text-[10px] uppercase">NOTAS:</span>
+                <div className="w-full h-12 border-2 border-black"></div>
             </div>
 
-            {/* 15. Separador punteado */}
-            <div className="border-t-[1px] border-black border-dashed my-2 w-full"></div>
-
-            {/* 16. PIE */}
-            <div className="text-center pb-4">
-                <p className="font-bold text-sm">¡GRACIAS POR SU COMPRA!</p>
-                <p className="mt-1 text-[10px]">Vuelva pronto</p>
+            {/* PIE */}
+            <div className="text-center mt-4 mb-4">
+                <p className="font-black text-xs uppercase">¡GRACIAS POR SU COMPRA!</p>
+                <div className="flex justify-center mt-2">
+                    <span className="text-[9px] font-bold">casalena.netlify.app</span>
+                </div>
             </div>
         </div>
     );
