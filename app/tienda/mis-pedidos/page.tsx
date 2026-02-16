@@ -73,7 +73,7 @@ export default function MisPedidosPage() {
 
             // 2. Notify Restaurant via WhatsApp
             const message = `Hola, he cancelado mi pedido #${orderId}. Por favor no lo preparen.`;
-            const whatsappUrl = `https://wa.me/527411075056?text=${encodeURIComponent(message)}`;
+            const whatsappUrl = `https://wa.me/527411011595?text=${encodeURIComponent(message)}`;
             window.open(whatsappUrl, '_blank');
 
             fetchMyOrders(); // Refresh list immediately
@@ -86,7 +86,7 @@ export default function MisPedidosPage() {
 
     const getWhatsAppLink = (order: any) => {
         const message = `Hola Casa Leña, tengo una duda con mi pedido #${order.id}.`;
-        return `https://wa.me/527411075056?text=${encodeURIComponent(message)}`;
+        return `https://wa.me/527411011595?text=${encodeURIComponent(message)}`;
     };
 
     const getStatusBadge = (status: string) => {

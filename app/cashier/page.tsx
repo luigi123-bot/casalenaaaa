@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import NotificationPanel from '@/components/NotificationPanel';
 import CashierSupportChat from '@/components/CashierSupportChat';
+import TicketPrintModal from '@/components/TicketPrintModal';
 
 // Types
 interface Category {
@@ -90,6 +91,8 @@ export default function CashierPage() {
     const [foundCustomers, setFoundCustomers] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [showCustomerModal, setShowCustomerModal] = useState(false);
+    const [showTicketModal, setShowTicketModal] = useState(false);
+    const [ticketData, setTicketData] = useState<any>(null);
 
     // Dropdown State
     const [availableClients, setAvailableClients] = useState<any[]>([]);
@@ -493,81 +496,35 @@ export default function CashierPage() {
         setCart([]);
     };
 
-    const handleGeneratePDF = async (orderData: any, items: CartItem[]) => {
-        console.log('🚀 [Caja-PDF] Generando ticket en el cliente para orden:', orderData.id);
-        try {
-            // Import client-side generator
-            const { generateTicketPDFClient } = await import('@/utils/ticketGeneratorClient');
+    const handleOpenTicketModal = (orderData: any, items: CartItem[]) => {
+        console.log('🚀 [Caja] Abriendo modal de ticket para orden:', orderData.id);
 
-            // Prepare ticket data
-            const ticketData = {
-                comercio: {
-                    nombre: "Casalena Pizza & Grill",
-                    telefono: "741-101-1595",
-                    direccion: "Blvd. Juan N Alvarez, CP 41706"
-                },
-                pedido: {
-                    id: orderData.id ? orderData.id.toString() : 'NO-ID',
-                    tipo: orderData.order_type || 'Comedor',
-                    mesa: orderData.table_number || '',
-                    subtotal: orderData.subtotal || orderData.total_amount,
-                    total: orderData.total_amount,
-                    metodo_pago: orderData.payment_method || 'Efectivo',
-                    pago_con: parseFloat(amountPaid) || 0,
-                    cambio: Math.max(0, (parseFloat(amountPaid) || 0) - orderData.total_amount),
-                    cliente: orderData.order_type === 'delivery' ? {
-                        nombre: orderData.customer_name || 'Desconocido',
-                        telefono: orderData.phone_number || '',
-                        direccion: orderData.delivery_address || ''
-                    } : null
-                },
-                productos: items.map(it => ({
-                    cantidad: it.quantity,
-                    nombre: it.name,
-                    precio: it.price,
-                    detalle: it.selectedSize || ''
-                }))
-            };
+        const data = {
+            comercio: {
+                nombre: "Casalena Pizza & Grill",
+                telefono: "741-101-1595",
+                direccion: "Blvd. Juan N Alvarez, CP 41706"
+            },
+            pedido: {
+                id: orderData.id ? orderData.id.toString() : 'NO-ID',
+                tipo: orderData.order_type || 'Comedor',
+                mesa: orderData.table_number || '',
+                subtotal: orderData.subtotal || orderData.total_amount,
+                total: orderData.total_amount,
+                metodo_pago: orderData.payment_method || 'Efectivo',
+                pago_con: parseFloat(amountPaid) || 0,
+                cambio: Math.max(0, (parseFloat(amountPaid) || 0) - orderData.total_amount),
+            },
+            productos: items.map(it => ({
+                cantidad: it.quantity,
+                nombre: it.name,
+                precio: it.price,
+                detalle: it.selectedSize || ''
+            }))
+        };
 
-            // Generate PDF in browser
-            const pdfDataUrl = generateTicketPDFClient(ticketData);
-            console.log('✅ [Caja-PDF] PDF generado en el cliente.');
-
-            // Convert Data URL to Blob URL to avoid cross-origin issues
-            const base64Data = pdfDataUrl.split(',')[1];
-            const binaryString = window.atob(base64Data);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            const blob = new Blob([bytes], { type: 'application/pdf' });
-            const blobUrl = URL.createObjectURL(blob);
-
-            // Load into hidden iframe and print
-            const iframe = document.getElementById('hidden-print-frame') as HTMLIFrameElement;
-            if (iframe) {
-                iframe.src = blobUrl;
-                iframe.onload = () => {
-                    console.log('📄 [Caja-PDF] PDF cargado. Iniciando impresión...');
-                    setTimeout(() => {
-                        try {
-                            iframe.contentWindow?.focus();
-                            iframe.contentWindow?.print();
-                            console.log('✅ [Caja-PDF] Comando de impresión enviado.');
-                        } catch (e) {
-                            console.error('❌ Error al imprimir:', e);
-                        }
-                    }, 100);
-                };
-            } else {
-                console.error('❌ [Caja-PDF] No se encontró el iframe de impresión.');
-            }
-
-        } catch (err) {
-            console.error('💥 [Caja-PDF] Error generando PDF:', err);
-            alert('Error al generar el ticket.');
-        }
+        setTicketData(data);
+        setShowTicketModal(true);
     };
 
 
@@ -656,11 +613,11 @@ export default function CashierPage() {
             setShowSuccessModal(true);
             successModalRef.current = true; // Persist in ref too
 
-            // Print Ticket (PDF)
+            // Print Ticket (Modal)
             try {
-                handleGeneratePDF(createdOrder, cart);
+                handleOpenTicketModal(createdOrder, cart);
             } catch (printErr) {
-                console.error('⚠️ [Cashier] Error de impresión PDF:', printErr);
+                console.error('⚠️ [Cashier] Error abriendo modal de ticket:', printErr);
             }
 
             // Stop loading - user will manually start new order via modal button
@@ -802,20 +759,35 @@ export default function CashierPage() {
                     {loading && !products.length ? (
                         <div className="flex items-center justify-center h-64"><div className="w-10 h-10 border-4 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div></div>
                     ) : (
-                        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-1.5 sm:gap-2 lg:gap-2.5 pb-16 lg:pb-6">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5 pb-16 lg:pb-6">
                             {filteredGroupedProducts.map((group) => (
                                 <div
                                     key={group.name}
                                     onClick={() => openProductCustomizer(group)}
-                                    className="bg-white p-1.5 sm:p-2 rounded-lg shadow-sm border border-[#e8e5e1] flex flex-col group hover:shadow-lg transition-all cursor-pointer"
+                                    className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-[#e8e5e1] flex flex-col group hover:shadow-xl transition-all cursor-pointer hover:border-[#f7951d]/30 hover:-translate-y-1 duration-300"
                                 >
-                                    <div className="relative w-full aspect-[3/2] bg-gray-50 rounded-md mb-1.5 overflow-hidden">
-                                        {group.imagen_url ? <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><span className="material-icons-round text-xl sm:text-2xl">restaurant</span></div>}
-                                        <div className="absolute top-1 right-1 bg-white/90 backdrop-blur px-1.5 py-0.5 rounded text-[9px] font-black shadow-sm">$${group.basePrice}</div>
+                                    <div className="relative w-full aspect-[4/3] bg-gray-50 rounded-xl mb-3 overflow-hidden">
+                                        {group.imagen_url ? (
+                                            <img src={group.imagen_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt="" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-100">
+                                                <span className="material-icons-round text-3xl sm:text-4xl">restaurant</span>
+                                            </div>
+                                        )}
+                                        <div className="absolute top-2 right-2 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs sm:text-sm font-black shadow-sm text-[#181511]">
+                                            ${group.basePrice}
+                                        </div>
                                     </div>
-                                    <h3 className="font-bold text-[9px] sm:text-[10px] mb-0.5 line-clamp-1 leading-tight">{group.name}</h3>
-                                    <p className="text-[#8c785f] text-[8px] line-clamp-1 mb-1.5 flex-1">{group.description}</p>
-                                    <button className="w-full bg-[#181511] text-white py-1 rounded text-[8px] sm:text-[9px] font-bold active:scale-95 transition-all">Agregar</button>
+
+                                    <div className="flex flex-col flex-1 gap-1">
+                                        <h3 className="font-bold text-sm sm:text-base text-[#181511] leading-tight line-clamp-1 group-hover:text-[#f7951d] transition-colors">{group.name}</h3>
+                                        <p className="text-[#8c785f] text-xs sm:text-sm line-clamp-2 leading-relaxed flex-1">{group.description || 'Sin descripción disponible'}</p>
+                                    </div>
+
+                                    <button className="mt-3 w-full bg-[#181511] text-white py-2.5 rounded-xl text-xs sm:text-sm font-bold active:scale-[0.98] transition-all hover:bg-[#f7951d] shadow-sm hover:shadow-md flex items-center justify-center gap-2">
+                                        <span className="material-icons-round text-base">add_circle</span>
+                                        Agregar
+                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -1235,19 +1207,13 @@ export default function CashierPage() {
             {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
             {showChat && <CashierSupportChat onClose={() => setShowChat(false)} />}
 
-            {/* Hidden Iframe for Auto-Printing */}
-            <iframe
-                id="hidden-print-frame"
-                style={{
-                    position: 'fixed',
-                    top: '-9999px',
-                    left: '-9999px',
-                    width: '1px',
-                    height: '1px',
-                    overflow: 'hidden',
-                    border: 'none'
-                }}
+            {/* Ticket Print Modal */}
+            <TicketPrintModal
+                isOpen={showTicketModal}
+                onClose={() => setShowTicketModal(false)}
+                data={ticketData}
             />
+
         </div>
     );
 }

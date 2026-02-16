@@ -469,7 +469,7 @@ export default function TiendaPage() {
             await new Promise(resolve => setTimeout(resolve, 800));
 
             // 4. Build WhatsApp Message
-            const whatsappNumber = '527411502721'; // Mexico format: 52 + number
+            const whatsappNumber = '527411011595'; // Mexico format: 52 + number (Factura: 741-101-1595)
 
             let message = `🍕 *NUEVO PEDIDO #${orderData.id} - DOMICILIO*\n\n`;
             message += `👤 *Cliente:* ${userName}\n`;
