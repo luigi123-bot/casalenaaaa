@@ -71,17 +71,17 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
     if (!mounted) return null;
 
     return (
-        <div className="w-full bg-white text-black font-sans text-[10px] leading-tight mx-auto px-2 py-4 flex flex-col shadow-none relative overflow-hidden">
+        <div className="w-full bg-white text-black font-sans text-[10px] leading-tight mx-auto px-1 py-4 flex flex-col shadow-none relative overflow-hidden text-center items-center">
             {/* Watermark Background */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-15">
                 <img src="/icon.png" alt="" className="w-3/4 grayscale" />
             </div>
 
-            <div className="relative z-10 w-full">
+            <div className="relative z-10 w-full flex flex-col items-center">
 
                 {/* 1. ENCABEZADO */}
-                <div className="flex flex-col items-center mb-3">
-                    <h1 className="font-black text-base uppercase tracking-wider text-center break-words w-full mb-1">
+                <div className="flex flex-col items-center mb-3 w-full">
+                    <h1 className="font-black text-sm uppercase tracking-wider text-center break-words w-full mb-1">
                         {data.comercio.nombre}
                     </h1>
                     <p className="text-center font-bold text-[10px] w-full break-words">{data.comercio.direccion}</p>
@@ -111,12 +111,12 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
 
                 {/* 5.1 DATOS DEL CLIENTE (PARA DOMICILIO) */}
                 {data.cliente && (
-                    <div className="flex flex-col gap-1 my-3 p-2 border-2 border-black bg-gray-50">
+                    <div className="flex flex-col gap-1 my-3 p-2 border-2 border-black bg-gray-50 w-full">
                         <div className="flex items-center gap-1 border-b border-black pb-1 mb-1">
                             <span className="material-icons-round text-xs">person</span>
                             <span className="font-black uppercase text-xs">CLIENTE:</span>
                         </div>
-                        <div className="flex flex-col gap-0.5">
+                        <div className="text-center flex flex-col gap-0.5">
                             <p className="font-black text-sm uppercase">{data.cliente.nombre}</p>
                             <p className="font-bold text-[10px] break-words">
                                 <span className="font-black uppercase">TEL: </span>{data.cliente.telefono}
@@ -139,19 +139,19 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 <div className="border-t-[2px] border-black my-2 w-full"></div>
 
                 {/* 8. ENCABEZADO DE PRODUCTOS */}
-                <div className="grid grid-cols-[1.5rem_1fr_3rem] gap-1 font-black mb-2 text-[10px] border-b border-black pb-1">
-                    <div className="text-left">CANT</div>
-                    <div className="text-left">PRODUCTO</div>
-                    <div className="text-right">TOTAL</div>
+                <div className="grid grid-cols-[1.2rem_1fr_2.5rem] gap-1 font-black mb-2 text-[10px] border-b border-black pb-1 w-full text-left">
+                    <div className="text-left uppercase">Cant</div>
+                    <div className="text-left uppercase">Producto</div>
+                    <div className="text-right uppercase">Total</div>
                 </div>
 
                 {/* 9. LISTA DE PRODUCTOS */}
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2 w-full">
                     {data.productos.map((prod, idx) => (
-                        <div key={idx} className="grid grid-cols-[1.5rem_1fr_3rem] gap-1 items-start text-[10px] font-bold">
+                        <div key={idx} className="grid grid-cols-[1.2rem_1fr_2.5rem] gap-1 items-start text-[10px] font-bold w-full">
                             <div className="text-left">{prod.cantidad}</div>
-                            <div className="text-left flex flex-col leading-tight">
-                                <span className="uppercase">{prod.nombre}</span>
+                            <div className="text-left flex flex-col leading-tight overflow-hidden">
+                                <span className="uppercase break-words">{prod.nombre}</span>
                                 {prod.detalle && (
                                     <span className="text-[9px] font-medium italic mt-0.5">
                                         ({prod.detalle})
@@ -175,7 +175,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 <div className="border-t-[2px] border-black my-3 w-full"></div>
 
                 {/* 11. TOTALES */}
-                <div className="flex flex-col gap-1 text-[11px] font-bold">
+                <div className="flex flex-col gap-1 text-[11px] font-bold w-full">
                     <div className="flex justify-between">
                         <span>TOTAL ARTÍCULOS</span>
                         <span>{data.productos.reduce((acc, item) => acc + item.cantidad, 0)}</span>
@@ -196,7 +196,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 </div>
 
                 {data.pedido.metodo_pago.toUpperCase() === 'EFECTIVO' && (
-                    <div className="flex flex-col gap-1 text-[10px] font-bold mt-2">
+                    <div className="flex flex-col gap-1 text-[10px] font-bold mt-2 w-full">
                         <div className="flex justify-between">
                             <span>RECIBIDO:</span>
                             <span>{formatCurrency(data.pedido.pago_con || 0)}</span>
@@ -209,8 +209,8 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 )}
 
                 {/* NOTAS */}
-                <div className="flex flex-col mt-4 mb-2">
-                    <span className="mb-1 font-black text-[10px] uppercase">NOTAS:</span>
+                <div className="flex flex-col mt-4 mb-2 w-full">
+                    <span className="mb-1 font-black text-[10px] uppercase text-left">NOTAS:</span>
                     <div className="w-full h-12 border-2 border-black"></div>
                 </div>
 

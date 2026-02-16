@@ -69,60 +69,45 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
       </div>
 
       {/* Global Style for Printing */}
-      {/* Global Style for Printing */}
       <style jsx global>{`
         /* 
            @page must be global and top-level. 
            'size' property controls the target paper size.
-           'auto' height allows continuous printing for thermal rolls.
         */
         @page {
-          size: 58mm auto;
+          size: 56mm auto;
           margin: 0mm;
         }
 
         @media print {
           /* Enforce the width on the root elements */
           html, body {
-            width: 58mm !important;
-            min-width: 58mm !important;
-            max-width: 58mm !important;
+            width: 56mm !important;
+            min-width: 56mm !important;
+            max-width: 56mm !important;
             margin: 0 !important;
             padding: 0 !important;
             background-color: white !important;
-            overflow: visible !important; /* Ensure content is not clipped */
+            overflow: visible !important;
           }
 
-          /* Hide everything else */
-          body > *:not(#next-route-announcer) { 
-             /* We can't use display:none on body direct children because TicketPrintModal 
-                might be deeply nested. We rely on visibility. */
-             visibility: hidden; 
-             height: 0; 
-             overflow: hidden;
-          }
-
-          /* But wait, TicketPrintModal is likely inside one of those children. 
-             If we set height:0 overflow:hidden on parents, the absolute child might be clipped 
-             if position is not 'fixed'. 'fixed' is relative to viewport/page. */
-             
-          /* RESET visibility strategy */
+          /* Reset visibility strategy */
           body * {
             visibility: hidden;
           }
 
-          /* The Print Area: Fixed positioning places it relative to the page box */
+          /* The Print Area: Absolute centering on the 56mm page */
           #print-area {
-            position: fixed !important; 
+            position: absolute !important; 
             left: 0 !important;
             top: 0 !important;
-            width: 58mm !important;
-            max-width: 58mm !important;
-            overflow: hidden !important;
+            width: 56mm !important;
+            max-width: 56mm !important;
             visibility: visible !important;
             display: block !important;
-            z-index: 2147483647; /* Max z-index */
-            background-color: white;
+            background-color: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
 
           /* Make contents visible */
@@ -135,6 +120,11 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
              color: black !important;
              -webkit-print-color-adjust: exact;
              print-color-adjust: exact;
+          }
+
+          /* Hide UI elements */
+          .no-print, header, nav, footer {
+            display: none !important;
           }
         }
       `}</style>
