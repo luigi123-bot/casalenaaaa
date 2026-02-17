@@ -40,9 +40,7 @@ export default function OrdersView() {
                 .select(`
                     *,
                     order_items (
-                        id,
-                        quantity,
-                        unit_price,
+                        *,
                         products (
                             name,
                             description

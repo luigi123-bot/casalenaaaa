@@ -33,111 +33,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Get initial session
-        const getUser = async () => {
-            try {
-                const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        let isInstanceMounted = true;
 
-                if (sessionError) {
-                    console.error('Session error:', sessionError);
-                    setLoading(false);
-                    return;
-                }
-
-                if (session?.user) {
-                    // Try fetching from 'profiles' table first
-                    let { data: profile, error } = await supabase
-                        .from('profiles')
-                        .select('*')
-                        .eq('id', session.user.id)
-                        .single();
-
-                    if (error) {
-                        console.warn('Error fetching from profiles, trying usuarios fallback:', error.message);
-                        const result = await supabase
-                            .from('usuarios')
-                            .select('*')
-                            .eq('id', session.user.id)
-                            .single();
-                        profile = result.data;
-                    }
-
-                    if (profile) {
-                        setUser({
-                            id: profile.id,
-                            email: profile.email,
-                            full_name: profile.full_name || 'Usuario',
-                            role: profile.role ? profile.role.toLowerCase() : 'cliente', // Normalize role
-                            avatar_url: profile.avatar_url,
-                        });
-                    } else {
-                        // Fallback using session data if DB fetch completely fails
-                        console.warn('Profile not found in DB, using session fallback');
-                        setUser({
-                            id: session.user.id,
-                            email: session.user.email || '',
-                            full_name: session.user.user_metadata?.full_name || 'Usuario',
-                            role: (session.user.user_metadata?.role || 'cliente').toLowerCase(),
-                            avatar_url: '',
-                        });
-                    }
-                } else {
+        const handleUserData = async (session: any) => {
+            if (!session?.user) {
+                if (isInstanceMounted) {
                     setUser(null);
+                    setLoading(false);
                 }
-            } catch (error) {
-                console.error('Error in getUser:', error);
-                setUser(null);
-            } finally {
+                return;
+            }
+
+            // 1. Initial Quick Sync from Metadata (Avoids stuck loading)
+            const metadata = session.user.user_metadata || {};
+            if (isInstanceMounted) {
+                setUser({
+                    id: session.user.id,
+                    email: session.user.email || '',
+                    full_name: metadata.full_name || 'Usuario',
+                    role: (metadata.role || 'cliente').toLowerCase() as any,
+                    avatar_url: metadata.avatar_url || '',
+                });
+                // We can set loading to false here to unblock UI if we have enough metadata
                 setLoading(false);
+            }
+
+            // 2. Background Sync from Database (Profiles/Usuarios)
+            try {
+                const { data: profile, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', session.user.id)
+                    .single();
+
+                if (profile && isInstanceMounted) {
+                    setUser({
+                        id: profile.id,
+                        email: profile.email,
+                        full_name: profile.full_name || metadata.full_name || 'Usuario',
+                        role: (profile.role || metadata.role || 'cliente').toLowerCase() as any,
+                        avatar_url: profile.avatar_url,
+                    });
+                }
+            } catch (err) {
+                console.warn('Profile sync failed, kept metadata version:', err);
             }
         };
 
-        getUser();
+        // Suppress redundant getUser call on mount, let onAuthStateChange handle INITIAL_SESSION
+        // which triggers automatically in newer Supabase versions. 
+        // If not, we manually trigger one check.
+        const checkInitial = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) await handleUserData(session);
+            else if (isInstanceMounted) setLoading(false);
+        };
 
-        // Listen for auth changes
+        checkInitial();
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            try {
-                if (session?.user) {
-                    // Try fetching from 'profiles' table first
-                    let { data: profile, error } = await supabase
-                        .from('profiles')
-                        .select('*')
-                        .eq('id', session.user.id)
-                        .single();
+            console.log(`🔑 [Auth] Event: ${event} | User: ${session?.user?.email}`);
 
-                    if (error) {
-                        const result = await supabase
-                            .from('usuarios')
-                            .select('*')
-                            .eq('id', session.user.id)
-                            .single();
-                        profile = result.data;
-                    }
-
-                    if (profile) {
-                        setUser({
-                            id: profile.id,
-                            email: profile.email,
-                            full_name: profile.full_name || 'Usuario',
-                            role: profile.role ? profile.role.toLowerCase() : 'cliente',
-                            avatar_url: profile.avatar_url,
-                        });
-                    } else {
-                        setUser({
-                            id: session.user.id,
-                            email: session.user.email || '',
-                            full_name: session.user.user_metadata?.full_name || 'Usuario',
-                            role: (session.user.user_metadata?.role || 'cliente').toLowerCase(),
-                            avatar_url: '',
-                        });
-                    }
-                } else {
+            if (event === 'SIGNED_OUT') {
+                if (isInstanceMounted) {
                     setUser(null);
+                    setLoading(false);
                 }
-            } catch (error) {
-                console.error('Error in onAuthStateChange:', error);
-            } finally {
-                setLoading(false);
+            } else if (session) {
+                await handleUserData(session);
             }
         });
 
@@ -153,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }, 8000);
 
         return () => {
+            isInstanceMounted = false;
             subscription.unsubscribe();
             clearTimeout(safetyTimeout);
         };

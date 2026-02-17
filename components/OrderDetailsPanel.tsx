@@ -1,6 +1,8 @@
 import { useRef, useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { addPointsForOrder } from '@/utils/gamification';
+import TicketPrintModal from './TicketPrintModal';
+import { TicketData } from './Ticket58mm';
 
 interface OrderItem {
     id: number;
@@ -41,73 +43,67 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [updating, setUpdating] = useState(false);
     const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [showTicketModal, setShowTicketModal] = useState(false);
+    const [ticketData, setTicketData] = useState<TicketData | null>(null);
 
-    const handleGeneratePDF = async () => {
-        if (!order) {
-            console.error('❌ [Admin-PDF] No hay orden seleccionada');
-            return;
-        }
-        setUpdating(true);
-        console.log('🚀 [Admin-PDF] Iniciando generación para orden:', order.id);
+    const handlePrintTicket = () => {
+        if (!order) return;
 
-        try {
-            const payload = {
-                order: order,
-                items: order.order_items,
-                commerce: {
-                    nombre: "Casalena Pizza & Grill",
-                    telefono: "741-101-1595",
-                    direccion: "Blvd. Juan N Alvarez, CP 41706"
+        const data: TicketData = {
+            atendido_por: localStorage.getItem('cached_cashier_name') || 'CAJERO',
+            comercio: {
+                nombre: "Casalena Pizza & Grill",
+                telefono: "741-101-1595",
+                direccion: "Blvd. Juan N Alvarez, CP 41706"
+            },
+            pedido: {
+                id: order.id.toString(),
+                tipo: order.order_type || 'Comedor',
+                mesa: order.table_number || '',
+                subtotal: order.total_amount,
+                total: order.total_amount,
+                metodo_pago: order.payment_method || 'Efectivo',
+                pago_con: order.total_amount,
+                cambio: 0,
+            },
+            productos: order.order_items.map(it => {
+                let extrasNames: string[] = [];
+                if (Array.isArray(it.extras)) {
+                    extrasNames = it.extras.map((ex: any) => {
+                        if (typeof ex === 'string') return ex;
+                        if (ex && typeof ex === 'object') return ex.name || ex.id || ex.type || '';
+                        return '';
+                    }).filter(Boolean);
                 }
-            };
-            console.log('📤 [Admin-PDF] Payload enviado:', payload);
 
-            const response = await fetch('/api/print/ticket', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+                return {
+                    cantidad: it.quantity,
+                    nombre: (it as any).product_name || it.products?.name || 'Producto',
+                    precio: it.unit_price,
+                    detalle: it.selected_size || '',
+                    extras: extrasNames.length > 0 ? extrasNames : undefined
+                };
+            }),
+            cliente: order.order_type === 'delivery' ? {
+                nombre: order.customer_name || 'Cliente',
+                telefono: order.phone_number || '',
+                direccion: order.delivery_address || ''
+            } : undefined
+        };
 
-            console.log('📥 [Admin-PDF] Estado de respuesta:', response.status);
-            const data = await response.json();
-
-            if (data.url) {
-                console.log('✅ [Admin-PDF] URL recibida:', data.url);
-                window.open(data.url, '_blank');
-            } else {
-                console.error('❌ [Admin-PDF] El servidor no devolvió URL:', data);
-                alert('No se pudo generar el PDF profesional. Revisa la consola para más detalles.');
-            }
-        } catch (err) {
-            console.error('💥 [Admin-PDF] Error crítico:', err);
-            alert('Error al conectar con el servidor de impresión profesional.');
-        } finally {
-            setUpdating(false);
-        }
+        setTicketData(data);
+        setShowTicketModal(true);
     };
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
-                if (!showSuccessModal) onClose();
+                onClose();
             }
         }
         if (order) document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [order, onClose, showSuccessModal]);
-
-    useEffect(() => {
-        if (showSuccessModal) {
-            const timer = setTimeout(() => {
-                handleGeneratePDF();
-                setTimeout(() => {
-                    setShowSuccessModal(false);
-                    if (onStatusChange) onStatusChange();
-                }, 3000);
-            }, 1000);
-            return () => clearTimeout(timer);
-        }
-    }, [showSuccessModal]);
+    }, [order, onClose]);
 
     if (!order) return null;
 
@@ -136,13 +132,9 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
 
             console.log('[OrderAction] Update successful:', data[0]);
 
-            if (newStatus === 'confirmado') {
-                setShowSuccessModal(true);
-            } else if (newStatus === 'entregado') {
-                if (onStatusChange) onStatusChange();
-            } else {
-                if (onStatusChange) onStatusChange();
-            }
+            if (onStatusChange) onStatusChange();
+            onClose();
+
         } catch (error: any) {
             console.error('[OrderAction] Exception:', error);
             alert(`No se pudo actualizar el pedido: ${error.message || 'Error de conexión'}`);
@@ -216,20 +208,6 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
         <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-sm animate-in fade-in duration-200">
             <iframe ref={iframeRef} className="absolute w-0 h-0 border-none" title="Receipt" />
 
-            {showSuccessModal && (
-                <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-md">
-                    <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-sm w-full text-center">
-                        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <span className="material-symbols-outlined text-4xl text-green-600 animate-bounce">print</span>
-                        </div>
-                        <h3 className="text-2xl font-black text-[#181511] mb-2">¡Pedido Confirmado!</h3>
-                        <p className="text-gray-500 mb-6 font-medium">Generando ticket y enviando a impresión...</p>
-                        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                            <div className="bg-[#F27405] h-full rounded-full animate-pulse w-full"></div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             <div ref={panelRef} className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
                 <div className="p-6 border-b border-[#e6e1db] flex items-center justify-between">
@@ -254,7 +232,7 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
                             <div key={item.id} className="flex justify-between items-start">
                                 <div className="flex gap-3">
                                     <span className="font-black text-primary">{item.quantity}x</span>
-                                    <span className="font-bold text-[#181511] text-sm">{item.products?.name}</span>
+                                    <span className="font-bold text-[#181511] text-sm">{(item as any).product_name || item.products?.name}</span>
                                 </div>
                                 <span className="font-bold text-[#181511] text-sm">${item.unit_price.toFixed(2)}</span>
                             </div>
@@ -289,19 +267,29 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
                         )}
 
                         <button
-                            onClick={handleDeleteOrder}
+                            onClick={handlePrintTicket}
                             disabled={updating}
-                            className="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-2"
+                            className="w-full bg-[#181511] text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-lg hover:bg-black transition-all disabled:opacity-50"
                         >
-                            <span className="material-symbols-outlined">delete_forever</span> Cancelar y Eliminar
+                            <span className="material-symbols-outlined text-2xl">print</span>
+                            Imprimir Ticket
                         </button>
 
-                        <button onClick={handleGeneratePDF} disabled={updating} className="w-full bg-[#181511] text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-lg hover:bg-black transition-all disabled:opacity-50">
-                            <span className="material-symbols-outlined text-2xl">picture_as_pdf</span>
-                            Imprimir Ticket (PDF 58mm)
+                        <button
+                            onClick={handleDeleteOrder}
+                            disabled={updating}
+                            className="w-full text-red-500 font-bold py-2 hover:bg-red-50 rounded-xl transition-all flex items-center justify-center gap-2 text-xs"
+                        >
+                            <span className="material-symbols-outlined text-sm">delete</span> Eliminar Orden
                         </button>
                     </div>
                 </div>
+
+                <TicketPrintModal
+                    isOpen={showTicketModal}
+                    onClose={() => setShowTicketModal(false)}
+                    data={ticketData}
+                />
             </div>
         </div>
     );
