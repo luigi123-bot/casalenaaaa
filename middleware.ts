@@ -30,13 +30,40 @@ export async function middleware(request: NextRequest) {
         }
     );
 
-    // 1. Get user session securely
-    const { data: { user } } = await supabase.auth.getUser();
     const { pathname } = request.nextUrl;
 
-    // 2. SKIP ASSETS AND APIs
-    if (pathname.startsWith('/api/') || pathname.startsWith('/_next/') || pathname.includes('.')) {
+    // 1. SKIP ASSETS AND APIs (Very fast, no network)
+    if (
+        pathname.startsWith('/api/') ||
+        pathname.startsWith('/_next/') ||
+        pathname.includes('.') ||
+        pathname === '/favicon.ico'
+    ) {
         return response;
+    }
+
+    // 2. Get user session securely with error handling for offline mode
+    let user = null;
+
+    try {
+        const { data, error } = await supabase.auth.getUser();
+        if (error) throw error;
+        user = data?.user;
+    } catch (err: any) {
+        const isNetworkError =
+            err.message?.toLowerCase().includes('fetch failed') ||
+            err.message?.toLowerCase().includes('failed to fetch') ||
+            err.message?.toLowerCase().includes('network error');
+
+        if (isNetworkError) {
+            console.log(`🌐 [Middleware] Network error on ${pathname}. Checking cookies...`);
+            const hasSessionCookie = request.cookies.getAll().some(c => c.name.startsWith('sb-'));
+            if (hasSessionCookie) {
+                console.log('✅ [Middleware] Session cookie found, bypass offline auth');
+                return response;
+            }
+        }
+        console.warn(`⚠️ [Middleware] Auth check failed on ${pathname}:`, err.message);
     }
 
     // 3. GET ROLE FROM METADATA (FASTEST & SAFEST)

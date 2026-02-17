@@ -30,15 +30,26 @@ export function useStoreStatus() {
                     .single();
 
                 if (error || !data) {
-                    console.error("Error fetching store status", error);
+                    console.warn("⚠️ [StoreStatus] Error fetching, checking cache...");
+                    const cached = localStorage.getItem('cached_store_settings');
+                    if (cached) {
+                        updateStatusFromData(JSON.parse(cached));
+                    }
                     setStatus(prev => ({ ...prev, isLoading: false }));
                     return;
                 }
 
+                // Cache the successful result
+                localStorage.setItem('cached_store_settings', JSON.stringify(data));
                 updateStatusFromData(data);
 
             } catch (err) {
-                console.error(err);
+                console.warn("⚠️ [StoreStatus] Network error, checking cache...");
+                const cached = localStorage.getItem('cached_store_settings');
+                if (cached) {
+                    const data = JSON.parse(cached);
+                    updateStatusFromData(data);
+                }
                 setStatus(prev => ({ ...prev, isLoading: false }));
             }
         };

@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
 import NotificationPanel from '@/components/NotificationPanel';
 import CashierSupportChat from '@/components/CashierSupportChat';
 import TicketPrintModal from '@/components/TicketPrintModal';
@@ -57,6 +58,7 @@ type OrderType = 'dine-in' | 'takeout' | 'delivery';
 
 export default function CashierPage() {
     const router = useRouter();
+    const { isOnline, isSyncing, pendingCount, saveOrderOffline } = useOfflineSync();
     // Data State
     const [products, setProducts] = useState<Product[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
@@ -373,47 +375,90 @@ export default function CashierPage() {
 
     useEffect(() => {
         const getCashierName = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('full_name')
-                    .eq('id', user.id)
-                    .single();
-                if (profile?.full_name) setCashierName(profile.full_name.toUpperCase());
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('full_name')
+                        .eq('id', user.id)
+                        .single();
+
+                    if (profile?.full_name) {
+                        const name = profile.full_name.toUpperCase();
+                        setCashierName(name);
+                        localStorage.setItem('cached_cashier_name', name);
+                    }
+                } else {
+                    const cachedName = localStorage.getItem('cached_cashier_name');
+                    if (cachedName) setCashierName(cachedName);
+                }
+            } catch (err) {
+                const cachedName = localStorage.getItem('cached_cashier_name');
+                if (cachedName) setCashierName(cachedName);
             }
         };
+
         getCashierName();
         fetchCategories();
         fetchProducts();
     }, []);
 
-    const fetchCategories = async () => {
-        // Fetch only categories that actually HAVE products to avoid "empty" buttons
-        const { data: prods } = await supabase
-            .from('products')
-            .select('category_id')
-            .eq('available', true);
+    async function fetchCategories() {
+        try {
+            // Fetch only categories that actually HAVE products to avoid "empty" buttons
+            const { data: prods, error: pError } = await supabase
+                .from('products')
+                .select('category_id')
+                .eq('available', true);
 
-        const activeCategoryIds = Array.from(new Set(prods?.map(p => p.category_id) || []));
+            if (pError) throw pError;
 
-        const { data } = await supabase
-            .from('categories')
-            .select('*')
-            .in('id', activeCategoryIds)
-            .order('name');
-        setCategories(data || []);
+            const activeCategoryIds = Array.from(new Set(prods?.map(p => p.category_id) || []));
+
+            const { data, error: cError } = await supabase
+                .from('categories')
+                .select('*')
+                .in('id', activeCategoryIds)
+                .order('name');
+
+            if (cError) throw cError;
+
+            if (data) {
+                setCategories(data);
+                // Cache locally
+                localStorage.setItem('cached_categories', JSON.stringify(data));
+            }
+        } catch (err) {
+            console.warn('⚠️ [Cashier] Error fetching categories, using cache:', err);
+            const cached = localStorage.getItem('cached_categories');
+            if (cached) setCategories(JSON.parse(cached));
+        }
     };
 
-    const fetchProducts = async () => {
+    async function fetchProducts() {
         setLoading(true);
-        const { data } = await supabase
-            .from('products')
-            .select('*, categories(name)')
-            .eq('available', true)
-            .order('name');
-        setProducts(data || []);
-        setLoading(false);
+        try {
+            const { data, error } = await supabase
+                .from('products')
+                .select('*, categories(name)')
+                .eq('available', true)
+                .order('name');
+
+            if (error) throw error;
+
+            if (data) {
+                setProducts(data);
+                // Cache locally
+                localStorage.setItem('cached_products', JSON.stringify(data));
+            }
+        } catch (err) {
+            console.warn('⚠️ [Cashier] Error fetching products, using cache:', err);
+            const cached = localStorage.getItem('cached_products');
+            if (cached) setProducts(JSON.parse(cached));
+        } finally {
+            setLoading(false);
+        }
     };
 
     // Derived State: Group Products (Logic from Tienda)
@@ -673,22 +718,13 @@ export default function CashierPage() {
 
         console.log('🚀 [Cashier] Iniciar proceso de confirmación de pedido...');
         setLoading(true);
+
         try {
-            const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-            if (authError || !user) {
-                throw new Error('Sesión expirada o inválida. Por favor reinicie sesión.');
-            }
-
-            // Ensure profile exists (Sync)
-            try {
-                await fetch('/api/sync-profile', { method: 'POST' });
-            } catch (syncErr) {
-                console.warn('⚠️ [Cashier] Error syncing profile (non-fatal):', syncErr);
-            }
+            const { data: { user } } = await supabase.auth.getUser();
+            const userId = user?.id || 'offline-placeholder'; // Fallback if totally offline
 
             const orderPayload = {
-                user_id: user.id,
+                user_id: userId,
                 status: 'confirmado',
                 total_amount: cartTotals.total,
                 tax_amount: cartTotals.tax,
@@ -698,34 +734,11 @@ export default function CashierPage() {
                 phone_number: orderType === 'delivery' ? customerInfo.phone : null,
                 delivery_address: orderType === 'delivery' ? customerInfo.address : null,
                 table_number: orderType === 'dine-in' ? tableNumber : null,
+                created_at: new Date().toISOString()
             };
 
-            console.log('📦 [Cashier] Payload de Orden:', orderPayload);
-
-            // 1. Insert Order
-            const { data: orderData, error: orderError } = await supabase
-                .from('orders')
-                .insert(orderPayload)
-                .select();
-
-            if (orderError) {
-                console.error('❌ [Cashier] Error INSERT orders:', orderError);
-                throw new Error(`Error BD: ${orderError.message}`);
-            }
-
-            const createdOrder = orderData?.[0];
-            if (!createdOrder) {
-                console.error('❌ [Cashier] No se recibió orderData');
-                throw new Error('La orden se guardó pero no pudimos confirmarla. Revisa el historial.');
-            }
-
-            console.log('✅ [Cashier] Orden creada ID:', createdOrder.id);
-
-            // 2. Insert Items
-            // 2. Insert Items
-            const orderItems = cart.map(item => {
+            const orderItemsPayload = cart.map(item => {
                 const extrasData: any[] = [...(item.extras || [])];
-
                 if (item.isHalfAndHalf && item.secondHalfVariant) {
                     extrasData.push({
                         type: 'half_and_half',
@@ -736,9 +749,8 @@ export default function CashierPage() {
                 }
 
                 return {
-                    order_id: createdOrder.id,
                     product_id: item.id,
-                    product_name: item.name, // "½ Name1 / ½ Name2"
+                    product_name: item.name,
                     quantity: item.quantity,
                     unit_price: item.price,
                     total_price: item.price * item.quantity,
@@ -747,32 +759,51 @@ export default function CashierPage() {
                 };
             });
 
-            console.log('🛒 [Cashier] Items a insertar:', orderItems);
+            // --- LÓGICA DE PERSISTENCIA (ONLINE vs OFFLINE) ---
+            let createdOrder = null;
 
-            const { error: itemsError } = await supabase
-                .from('order_items')
-                .insert(orderItems);
+            if (isOnline) {
+                try {
+                    // Try real-time save
+                    const { data: orderData, error: orderError } = await supabase
+                        .from('orders')
+                        .insert(orderPayload)
+                        .select()
+                        .single();
 
-            if (itemsError) {
-                console.error('❌ [Cashier] Error INSERT order_items:', itemsError);
-                throw new Error(`Error en productos: ${itemsError.message}`);
+                    if (orderError) throw orderError;
+
+                    const itemsWithOrderId = orderItemsPayload.map(it => ({ ...it, order_id: orderData.id }));
+                    const { error: itemsError } = await supabase.from('order_items').insert(itemsWithOrderId);
+
+                    if (itemsError) throw itemsError;
+
+                    createdOrder = orderData;
+                } catch (netErr) {
+                    console.error('⚠️ [Cashier] Falló guardado en la nube, guardando localmente...', netErr);
+                    const localId = saveOrderOffline(orderPayload, orderItemsPayload);
+                    createdOrder = { ...orderPayload, id: localId, is_offline: true };
+                }
+            } else {
+                // Device is recognized as offline
+                const localId = saveOrderOffline(orderPayload, orderItemsPayload);
+                createdOrder = { ...orderPayload, id: localId, is_offline: true };
             }
 
-            console.log('🖨️ [Cashier] Orden completa. Iniciando UI de éxito...');
+            // --- UI SUCCESS FLOW ---
+            if (createdOrder) {
+                setLastOrderId(createdOrder.id);
+                setShowSuccessModal(true);
+                successModalRef.current = true;
 
-            // Success!
-            setLastOrderId(createdOrder.id);
-            setShowSuccessModal(true);
-            successModalRef.current = true; // Persist in ref too
-
-            // Print Ticket (Modal)
-            try {
-                handleOpenTicketModal(createdOrder, cart);
-            } catch (printErr) {
-                console.error('⚠️ [Cashier] Error abriendo modal de ticket:', printErr);
+                // Open Ticket Modal
+                try {
+                    handleOpenTicketModal(createdOrder, cart);
+                } catch (printErr) {
+                    console.error('⚠️ [Cashier] Error abriendo modal de ticket:', printErr);
+                }
             }
 
-            // Stop loading - user will manually start new order via modal button
             setLoading(false);
 
         } catch (error: any) {
@@ -1035,7 +1066,33 @@ export default function CashierPage() {
             {/* RIGHT SIDEBAR - Hidden on mobile, shown on lg+ */}
             <aside className="hidden lg:flex w-[380px] xl:w-[400px] bg-white border-l border-[#e8e5e1] flex-col h-screen shrink-0 shadow-xl overflow-hidden">
                 <div className="p-6 border-b border-[#e8e5e1]">
-                    <h2 className="text-[#181511] text-2xl font-black mb-4 tracking-tight">Comanda Actual</h2>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-[#181511] text-2xl font-black tracking-tight">Comanda Actual</h2>
+
+                        {/* Offline / Sync Indicators */}
+                        <div className="flex items-center gap-2">
+                            {isSyncing && (
+                                <div className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-1 rounded-full animate-pulse">
+                                    <span className="material-icons-round text-sm animate-spin">sync</span>
+                                    <span className="text-[10px] font-black uppercase">Sincronizando...</span>
+                                </div>
+                            )}
+
+                            {!isOnline && (
+                                <div className="flex items-center gap-1 bg-red-50 text-red-600 px-2 py-1 rounded-full border border-red-100">
+                                    <span className="material-icons-round text-sm">cloud_off</span>
+                                    <span className="text-[10px] font-black uppercase">Offline</span>
+                                </div>
+                            )}
+
+                            {pendingCount > 0 && !isSyncing && (
+                                <div className="flex items-center gap-1 bg-orange-50 text-[#f7951d] px-2 py-1 rounded-full border border-orange-100">
+                                    <span className="material-icons-round text-sm">schedule</span>
+                                    <span className="text-[10px] font-black uppercase">{pendingCount} Pendientes</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                     <div className="flex bg-[#f8f7f5] p-1 rounded-xl mb-4">
                         {(['dine-in', 'takeout', 'delivery'] as const).map((type) => (
                             <button key={type} onClick={() => setOrderType(type)} className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${orderType === type ? 'bg-white shadow-sm text-[#f7951d]' : 'text-[#8c785f]'}`}>
