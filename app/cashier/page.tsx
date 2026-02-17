@@ -114,6 +114,7 @@ export default function CashierPage() {
     const [availableClients, setAvailableClients] = useState<any[]>([]);
     const [loadingClients, setLoadingClients] = useState(false);
     const [editingCartItemId, setEditingCartItemId] = useState<string | null>(null);
+    const [cashierName, setCashierName] = useState('CAJERO');
 
     useEffect(() => {
         if (showCustomerModal) {
@@ -371,6 +372,18 @@ export default function CashierPage() {
     const isSufficientPayment = paidAmount >= cartTotals.total;
 
     useEffect(() => {
+        const getCashierName = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('full_name')
+                    .eq('id', user.id)
+                    .single();
+                if (profile?.full_name) setCashierName(profile.full_name.toUpperCase());
+            }
+        };
+        getCashierName();
         fetchCategories();
         fetchProducts();
     }, []);
@@ -609,6 +622,7 @@ export default function CashierPage() {
         console.log('🚀 [Caja] Abriendo modal de ticket para orden:', orderData.id);
 
         const data = {
+            atendido_por: cashierName,
             comercio: {
                 nombre: "Casalena Pizza & Grill",
                 telefono: "741-101-1595",

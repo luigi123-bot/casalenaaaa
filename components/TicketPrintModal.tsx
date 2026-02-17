@@ -81,25 +81,26 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
             margin: 0 !important;
             padding: 0 !important;
             background-color: white !important;
+            height: auto !important;
+            overflow: visible !important;
           }
 
           body * {
             visibility: hidden;
           }
 
-          /* The Print Area: Center the 48mm content on the 58mm paper */
+          /* The Print Area: Using margins instead of absolute positioning for better break handling */
           #print-area {
-            position: absolute !important; 
-            left: 50% !important;
-            transform: translateX(-50%) !important;
-            top: 0 !important;
-            width: 48mm !important; /* Safety width for 58mm rollers */
-            max-width: 48mm !important;
             visibility: visible !important;
             display: block !important;
-            background-color: white !important;
-            margin: 0 !important;
+            width: 48mm !important; 
+            max-width: 48mm !important;
+            margin: 0 auto !important; /* Centering */
+            margin-left: 2mm !important; /* Move slightly left from the right edge */
             padding: 0 !important;
+            background-color: white !important;
+            position: relative !important;
+            break-inside: avoid !important;
           }
 
           #print-area * {
@@ -114,6 +115,11 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
 
           .no-print, header, nav, footer {
             display: none !important;
+          }
+
+          /* Avoid page breaks inside items */
+          div, p, span {
+            break-inside: avoid !important;
           }
         }
       `}</style>
