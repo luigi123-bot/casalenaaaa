@@ -1093,7 +1093,10 @@ export default function CashierPage() {
                                     {/* Half & Half Toggle */}
                                     {(() => {
                                         // Helper to check if Pizza
-                                        const isPizza = products.find(p => p.category_id === selectedGroupedProduct.category_id)?.categories?.name?.toLowerCase().includes('pizza');
+                                        const catName = products.find(p => p.category_id === selectedGroupedProduct.category_id)?.categories?.name;
+                                        const isPizza = catName?.toLowerCase().includes('pizza') ||
+                                            catName?.toLowerCase().includes('especialidades') ||
+                                            catName?.toLowerCase().includes('gourmet');
 
                                         if (isPizza) {
                                             return (
@@ -1122,16 +1125,21 @@ export default function CashierPage() {
                                                             >
                                                                 <option value="" disabled>-- Elegir Sabor --</option>
                                                                 {groupedProducts
-                                                                    .filter(g =>
-                                                                        g.category_id === selectedGroupedProduct.category_id &&
-                                                                        g.name !== selectedGroupedProduct.name &&
-                                                                        g.variants.some(v => v.size === currentSize)
-                                                                    )
+                                                                    .filter(g => {
+                                                                        const gCat = g.variants[0]?.fullProduct?.categories?.name?.toLowerCase() || '';
+                                                                        const isGPizza = gCat.includes('pizza') || gCat.includes('especialidades') || gCat.includes('gourmet');
+                                                                        return isGPizza &&
+                                                                            g.name !== selectedGroupedProduct.name &&
+                                                                            g.variants.some(v => v.size === currentSize);
+                                                                    })
                                                                     .map(g => (
                                                                         <option key={g.name} value={g.name}>{g.name}</option>
                                                                     ))
                                                                 }
                                                             </select>
+                                                            <p className="text-[9px] font-bold text-[#f7951d] mt-1.5 uppercase">
+                                                                * Se cobra la mitad más cara
+                                                            </p>
                                                         </div>
                                                     )}
                                                 </div>
