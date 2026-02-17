@@ -44,17 +44,14 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
     useEffect(() => {
         setMounted(true);
         const now = new Date();
-
-        // Format Date
         const day = String(now.getDate()).padStart(2, '0');
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const year = now.getFullYear();
         setDateStr(`${day}/${month}/${year}`);
 
-        // Format Time
         let hours = now.getHours();
         const minutes = String(now.getMinutes()).padStart(2, '0');
-        const ampm = hours >= 12 ? 'p. m.' : 'a. m.';
+        const ampm = hours >= 12 ? 'pm' : 'am';
         hours = hours % 12;
         hours = hours ? hours : 12;
         setTimeStr(`${String(hours).padStart(2, '0')}:${minutes} ${ampm}`);
@@ -70,157 +67,138 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
 
     if (!mounted) return null;
 
+    const isDelivery = data.pedido.tipo.toLowerCase().includes('domicilio') || data.pedido.tipo.toLowerCase().includes('delivery');
+
     return (
-        <div className="w-full bg-white text-black font-sans text-[10px] leading-tight mx-auto px-1 py-4 flex flex-col shadow-none relative overflow-hidden text-center items-center">
-            {/* Watermark Background */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-15">
-                <img src="/icon.png" alt="" className="w-3/4 grayscale" />
+        <div className="w-full bg-white text-black font-mono text-[9px] leading-tight mx-auto px-0 py-2 flex flex-col items-center">
+
+            {/* 1. LOGO Y DATOS FISCALES / CONTACTO */}
+            <div className="flex flex-col items-center w-full mb-1">
+                <img src="/icon.png" alt="Logo" className="w-16 grayscale mb-1" />
+                <h1 className="font-black text-lg tracking-tighter uppercase mb-1">CASALEÑA</h1>
+                <p className="text-center font-bold text-[8px] uppercase leading-none">
+                    Boulevard Juan N Alvarez<br />
+                    Col. Sentimientos de la Nación<br />
+                    Ometepec Guerrero CP 41706
+                </p>
+                <div className="mt-1 font-bold text-[9px]">
+                    <p>Tel {data.comercio.telefono}</p>
+                    <p>WhatsApp 741-107-5056</p>
+                    <p className="text-[8px] mt-1 italic">Lun a Dom de 1:00pm a 9:30pm</p>
+                </div>
             </div>
 
-            <div className="relative z-10 w-full flex flex-col items-center">
+            <div className="w-full text-center text-[10px] my-1">
+                - - - - - - - - - - - - - - - - - -
+            </div>
 
-                {/* 1. ENCABEZADO */}
-                <div className="flex flex-col items-center mb-3 w-full">
-                    <h1 className="font-black text-[13px] uppercase tracking-wider text-center break-words w-full mb-1">
-                        {data.comercio.nombre}
-                    </h1>
-                    <p className="text-center font-bold text-[9px] w-full break-words">{data.comercio.direccion}</p>
-                    <p className="text-center font-bold text-[9px]">{data.comercio.telefono}</p>
+            {/* 2. INFO DEL PEDIDO */}
+            <div className="w-full px-1 space-y-0.5 font-bold">
+                <div className="flex justify-between">
+                    <span>Fecha: {dateStr}</span>
+                    <span>Hora: {timeStr}</span>
                 </div>
-
-                {/* Separador Sólido */}
-                <div className="border-t-[2px] border-black my-2 w-full"></div>
-
-                {/* 3. FECHA Y HORA */}
-                <div className="flex justify-between w-full text-[10px] font-bold">
-                    <span>{dateStr}</span>
-                    <span>{timeStr}</span>
-                </div>
-
-                {/* 4. TIPO DE PEDIDO */}
-                <div className="text-center font-black text-sm uppercase my-3 border-y-2 border-black py-1">
-                    {data.pedido.tipo}
-                </div>
-
-                {/* 5. MESA */}
-                {data.pedido.mesa && (
-                    <div className="text-center font-black text-2xl my-2 uppercase">
-                        MESA: {data.pedido.mesa}
+                {isDelivery && (
+                    <div className="text-center bg-black text-white py-1 my-1 text-xs font-black">
+                        DOMI: {data.pedido.id.toString().slice(-4).padStart(4, '0')}
                     </div>
                 )}
-
-                {/* 5.1 DATOS DEL CLIENTE (PARA DOMICILIO) */}
-                {data.cliente && (
-                    <div className="flex flex-col gap-1 my-3 p-2 border-2 border-black bg-gray-50 w-full">
-                        <div className="flex items-center justify-center gap-1 border-b border-black pb-1 mb-1">
-                            <span className="font-black uppercase text-[10px]">DATOS DEL CLIENTE</span>
-                        </div>
-                        <div className="text-center flex flex-col gap-0.5">
-                            <p className="font-black text-sm uppercase leading-none">{data.cliente.nombre}</p>
-                            <p className="font-bold text-[10px] break-words">
-                                <span className="font-black uppercase">TEL: </span>{data.cliente.telefono}
-                            </p>
-                            <div className="mt-1 pb-1">
-                                <p className="font-black uppercase text-[9px]">DIRECCIÓN:</p>
-                                <p className="font-bold text-[10px] break-words uppercase leading-tight bg-white p-1 border border-black/20">
-                                    {data.cliente.direccion}
-                                </p>
-                            </div>
-                        </div>
+                {!isDelivery && (
+                    <div className="text-center border-2 border-black py-1 my-1 text-xs font-black">
+                        {data.pedido.tipo === 'dine-in' ? `MESA: ${data.pedido.mesa || 'S/N'}` : 'PARA LLEVAR'}
                     </div>
                 )}
+            </div>
 
-                {/* 6. NÚMERO DE PEDIDO */}
-                <div className="text-center font-black text-3xl my-2">
-                    #{data.pedido.id.toString().slice(-4).padStart(4, '0')}
+            {/* 3. RECUADRO DE REFERENCIA / DIRECCIÓN CORTA */}
+            {isDelivery && data.cliente && (
+                <div className="w-full px-1 my-2">
+                    <div className="border-2 border-black p-1 text-[9px] font-black text-center min-h-[40px] flex flex-col justify-center">
+                        <span className="uppercase">{data.cliente.direccion}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* 4. DETALLES OPERATIVOS */}
+            <div className="w-full px-1 text-[8px] font-bold space-y-0.5 mt-1 border-b border-dashed border-black pb-2">
+                <p>ATENDIDO POR: BELEM</p>
+                <div className="flex justify-between">
+                    <span>NOTAS DE PEDIDO</span>
+                    <span>00000{data.pedido.id.toString().slice(-1)}</span>
+                </div>
+            </div>
+
+            {/* 5. TABLA DE PRODUCTOS */}
+            <div className="w-full mt-2">
+                <div className="grid grid-cols-[1.5rem_1fr_2.5rem] gap-1 font-black text-[9px] border-b border-black pb-1 mb-1 px-1">
+                    <div className="text-left">Cant</div>
+                    <div className="text-left">Descripción/Observ.</div>
+                    <div className="text-right">Importe</div>
                 </div>
 
-                <div className="border-t-[2px] border-black my-2 w-full"></div>
-
-                {/* 8. ENCABEZADO DE PRODUCTOS */}
-                <div className="grid grid-cols-[1rem_1fr_2.5rem] gap-1 font-black mb-2 text-[9px] border-b border-black pb-1 w-full text-left">
-                    <div className="text-left uppercase">C.</div>
-                    <div className="text-left uppercase">Producto</div>
-                    <div className="text-right uppercase">TOT</div>
-                </div>
-
-                {/* 9. LISTA DE PRODUCTOS */}
-                <div className="flex flex-col gap-2 w-full">
+                <div className="flex flex-col gap-2 w-full px-1">
                     {data.productos.map((prod, idx) => (
-                        <div key={idx} className="grid grid-cols-[1.2rem_1fr_2.5rem] gap-1 items-start text-[10px] font-bold w-full">
+                        <div key={idx} className="grid grid-cols-[1.5rem_1fr_2.5rem] gap-1 items-start text-[9px] font-bold">
                             <div className="text-left">{prod.cantidad}</div>
-                            <div className="text-left flex flex-col leading-tight overflow-hidden">
-                                <span className="uppercase break-words">{prod.nombre}</span>
-                                {prod.detalle && (
-                                    <span className="text-[9px] font-medium italic mt-0.5">
-                                        ({prod.detalle})
-                                    </span>
-                                )}
-                                {prod.extras && prod.extras.length > 0 && (
-                                    <div className="text-[8px] font-medium italic mt-1 text-gray-700">
-                                        {prod.extras.map((extra, i) => (
-                                            <div key={i}>+ {extra}</div>
-                                        ))}
-                                    </div>
-                                )}
+                            <div className="text-left flex flex-col leading-tight">
+                                <span className="uppercase">{prod.nombre}</span>
+                                {prod.detalle && <span className="text-[8px] italic">{prod.detalle}</span>}
+                                {prod.extras && prod.extras.map((ex, i) => (
+                                    <span key={i} className="text-[7px] text-gray-600">+ {ex}</span>
+                                ))}
                             </div>
-                            <div className="text-right whitespace-nowrap">
-                                {formatCurrency(prod.precio * prod.cantidad)}
+                            <div className="text-right">
+                                {(prod.precio * prod.cantidad).toFixed(2)}
                             </div>
                         </div>
                     ))}
                 </div>
+            </div>
 
-                <div className="border-t-[2px] border-black my-3 w-full"></div>
-
-                {/* 11. TOTALES */}
-                <div className="flex flex-col gap-1 text-[11px] font-bold w-full">
-                    <div className="flex justify-between">
-                        <span>TOTAL ARTÍCULOS</span>
-                        <span>{data.productos.reduce((acc, item) => acc + item.cantidad, 0)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span>SUBTOTAL</span>
-                        <span>{formatCurrency(data.pedido.subtotal)}</span>
-                    </div>
-                    <div className="flex justify-between text-base font-black mt-1">
-                        <span>TOTAL</span>
-                        <span>{formatCurrency(data.pedido.total)}</span>
-                    </div>
+            {/* 6. TOTALES */}
+            <div className="w-full mt-2 pt-1 border-t-2 border-double border-black px-1 space-y-1">
+                <div className="flex justify-between font-black text-[11px]">
+                    <span>TOTAL:</span>
+                    <span>{formatCurrency(data.pedido.total)}</span>
                 </div>
-
-                {/* 12. MÉTODO DE PAGO */}
-                <div className="mt-4 mb-2 text-center uppercase font-black text-[11px] border border-black py-1">
-                    PAGO: {data.pedido.metodo_pago}
+                <div className="flex justify-between font-bold text-[9px]">
+                    <span>PAGO EN {data.pedido.metodo_pago.toUpperCase()}</span>
+                    <span>{formatCurrency(data.pedido.pago_con || data.pedido.total)}</span>
                 </div>
-
-                {data.pedido.metodo_pago.toUpperCase() === 'EFECTIVO' && (
-                    <div className="flex flex-col gap-1 text-[10px] font-bold mt-2 w-full">
-                        <div className="flex justify-between">
-                            <span>RECIBIDO:</span>
-                            <span>{formatCurrency(data.pedido.pago_con || 0)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span>CAMBIO:</span>
-                            <span>{formatCurrency(data.pedido.cambio || 0)}</span>
-                        </div>
+                {data.pedido.cambio && data.pedido.cambio > 0 && (
+                    <div className="flex justify-between font-bold text-[9px]">
+                        <span>SU CAMBIO:</span>
+                        <span>{formatCurrency(data.pedido.cambio)}</span>
                     </div>
                 )}
+            </div>
 
-                {/* NOTAS */}
-                <div className="flex flex-col mt-4 mb-2 w-full">
-                    <span className="mb-1 font-black text-[10px] uppercase text-left">NOTAS:</span>
-                    <div className="w-full h-12 border-2 border-black"></div>
-                </div>
-
-                {/* PIE */}
-                <div className="text-center mt-4 mb-4">
-                    <p className="font-black text-xs uppercase">¡GRACIAS POR SU COMPRA!</p>
-                    <div className="flex justify-center mt-2">
-                        <span className="text-[9px] font-bold">casalena.netlify.app</span>
-                    </div>
+            {/* 7. RECUADRO INFERIOR DE TIPO */}
+            <div className="w-full px-4 my-4">
+                <div className="border border-black py-1 text-center font-black text-[10px] uppercase">
+                    {data.pedido.tipo === 'delivery' ? 'ENTREGA A DOMICILIO' :
+                        data.pedido.tipo === 'takeout' ? 'PEDIDO PARA LLEVAR' : 'CONSUMO EN COMEDOR'}
                 </div>
             </div>
+
+            {/* 8. DATOS DEL CLIENTE ABAJO (COPIA PARA REPARTIDOR) */}
+            {isDelivery && data.cliente && (
+                <div className="w-full px-2 text-[9px] font-bold space-y-1 mb-4">
+                    <p>DOMICILIO: <span className="font-normal uppercase">{data.cliente.direccion}</span></p>
+                    <p>TELÉFONO: <span className="font-black">{data.cliente.telefono}</span></p>
+                    <p>CLIENTE: <span className="font-normal uppercase">{data.cliente.nombre}</span></p>
+                </div>
+            )}
+
+            {/* 9. PIE DE PÁGINA */}
+            <div className="text-center w-full space-y-1 mt-2">
+                <p className="font-black text-[9px] uppercase">¡Agradecemos su preferencia!</p>
+                <p className="text-xl font-black">:)</p>
+                <div className="w-full border-t border-dashed border-black pt-1">
+                    <p className="text-[7px] italic text-gray-500">(Comprobante no válido para efectos fiscales)</p>
+                </div>
+            </div>
+
         </div>
     );
 };
