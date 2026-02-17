@@ -88,6 +88,7 @@ export default function CashierPage() {
     // Printing State
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const successModalRef = useRef(false); // Persist modal state across re-renders
+    const [lastOrderId, setLastOrderId] = useState<string | null>(null);
 
     // Customer State (for Delivery)
     const [customerInfo, setCustomerInfo] = useState({
@@ -112,6 +113,7 @@ export default function CashierPage() {
     // Dropdown State
     const [availableClients, setAvailableClients] = useState<any[]>([]);
     const [loadingClients, setLoadingClients] = useState(false);
+    const [editingCartItemId, setEditingCartItemId] = useState<string | null>(null);
 
     useEffect(() => {
         if (showCustomerModal) {
@@ -478,13 +480,30 @@ export default function CashierPage() {
     };
 
     // Cart Logic
-    const openProductCustomizer = (group: GroupedProduct) => {
+    const openProductCustomizer = (group: GroupedProduct, editItem?: CartItem) => {
         setSelectedGroupedProduct(group);
-        setIsHalfAndHalf(false);
-        setSecondHalf(null);
-        // Default to first variant size
-        if (group.variants.length > 0) {
-            setCurrentSize(group.variants[0].size);
+
+        if (editItem) {
+            setEditingCartItemId(editItem.cartItemId);
+            setCurrentSize(editItem.selectedSize || (group.variants.length > 0 ? group.variants[0].size : ''));
+            setSelectedExtras(editItem.extras || []);
+            setIsHalfAndHalf(editItem.isHalfAndHalf || false);
+
+            if (editItem.isHalfAndHalf && editItem.secondHalfVariant) {
+                const secondHalfGroup = groupedProducts.find(g => g.name === editItem.secondHalfVariant?.name);
+                setSecondHalf(secondHalfGroup || null);
+            } else {
+                setSecondHalf(null);
+            }
+        } else {
+            setEditingCartItemId(null);
+            setIsHalfAndHalf(false);
+            setSecondHalf(null);
+            setSelectedExtras([]);
+            // Default to first variant size
+            if (group.variants.length > 0) {
+                setCurrentSize(group.variants[0].size);
+            }
         }
     };
 
@@ -522,22 +541,42 @@ export default function CashierPage() {
             };
         }
 
-        const newItem: CartItem = {
-            ...variant.fullProduct,
-            name: finalName, // Override Name
-            price: finalPrice + extrasCost, // Override Price
-            cartItemId: crypto.randomUUID(),
-            quantity: 1,
-            selectedSize: currentSize,
-            extras: [...selectedExtras],
-            isHalfAndHalf: isHalfAndHalf,
-            secondHalfVariant: secondHalfData
-        };
+        if (editingCartItemId) {
+            // Update existing item
+            setCart(prev => prev.map(item => {
+                if (item.cartItemId === editingCartItemId) {
+                    return {
+                        ...item,
+                        name: finalName,
+                        price: finalPrice + extrasCost,
+                        selectedSize: currentSize,
+                        extras: [...selectedExtras],
+                        isHalfAndHalf: isHalfAndHalf,
+                        secondHalfVariant: secondHalfData
+                    };
+                }
+                return item;
+            }));
+        } else {
+            // Add new item
+            const newItem: CartItem = {
+                ...variant.fullProduct,
+                name: finalName, // Override Name
+                price: finalPrice + extrasCost, // Override Price
+                cartItemId: crypto.randomUUID(),
+                quantity: 1,
+                selectedSize: currentSize,
+                extras: [...selectedExtras],
+                isHalfAndHalf: isHalfAndHalf,
+                secondHalfVariant: secondHalfData
+            };
 
-        setCart(prev => [...prev, newItem]);
+            setCart(prev => [...prev, newItem]);
+        }
 
         // Reset and close
         setSelectedGroupedProduct(null);
+        setEditingCartItemId(null); // Added this
         setCurrentSize('');
         setSelectedExtras([]);
         setIsHalfAndHalf(false);
@@ -549,13 +588,17 @@ export default function CashierPage() {
     };
 
     const updateQuantity = (cartItemId: string, delta: number) => {
-        setCart(prev => prev.map(item => {
-            if (item.cartItemId === cartItemId) {
-                const newQty = Math.max(1, item.quantity + delta);
-                return { ...item, quantity: newQty };
-            }
-            return item;
-        }));
+        setCart(prev => {
+            const updated = prev.map(item => {
+                if (item.cartItemId === cartItemId) {
+                    const newQty = item.quantity + delta;
+                    if (newQty <= 0) return null;
+                    return { ...item, quantity: newQty };
+                }
+                return item;
+            });
+            return updated.filter((item): item is CartItem => item !== null);
+        });
     };
 
     const clearCart = () => {
@@ -704,6 +747,7 @@ export default function CashierPage() {
             console.log('🖨️ [Cashier] Orden completa. Iniciando UI de éxito...');
 
             // Success!
+            setLastOrderId(createdOrder.id);
             setShowSuccessModal(true);
             successModalRef.current = true; // Persist in ref too
 
@@ -720,6 +764,39 @@ export default function CashierPage() {
         } catch (error: any) {
             console.error('🛑 [Cashier] ERROR EN PROCESO:', error);
             alert(error.message || 'Ocurrió un error inesperado al procesar la orden');
+            setLoading(false);
+        }
+    };
+
+    const handleCancelOrder = async () => {
+        if (!lastOrderId) return;
+
+        setLoading(true);
+        try {
+            console.log(`🛑 [Cashier] Cancelando pedido ID: ${lastOrderId}...`);
+
+            // Delete order items first (if no cascade)
+            await supabase.from('order_items').delete().eq('order_id', lastOrderId);
+
+            // Delete the order
+            const { error } = await supabase
+                .from('orders')
+                .delete()
+                .eq('id', lastOrderId);
+
+            if (error) throw error;
+
+            // Success reset
+            setShowSuccessModal(false);
+            successModalRef.current = false;
+            setShowTicketModal(false);
+            setLastOrderId(null);
+
+            console.log('✅ [Cashier] Pedido cancelado correctamente de la BD.');
+        } catch (err: any) {
+            console.error('❌ [Cashier] Error al cancelar:', err);
+            alert('No se pudo cancelar el pedido de la base de datos: ' + err.message);
+        } finally {
             setLoading(false);
         }
     };
@@ -1006,8 +1083,17 @@ export default function CashierPage() {
                                         {item.selectedSize} {item.extras && item.extras.length > 0 ? `+ ${item.extras.length} extras` : ''}
                                     </p>
                                     <div className="flex gap-3 mt-1">
-                                        <button onClick={() => updateQuantity(item.cartItemId, -1)} className="text-[10px] font-black text-gray-400 hover:text-red-500">QUITAR</button>
-                                        <button onClick={() => updateQuantity(item.cartItemId, 1)} className="text-[10px] font-black text-gray-400 hover:text-green-600">AÑADIR</button>
+                                        <button onClick={() => updateQuantity(item.cartItemId, -1)} className="text-[10px] font-black text-red-500 hover:underline">QUITAR</button>
+                                        <button onClick={() => updateQuantity(item.cartItemId, 1)} className="text-[10px] font-black text-green-600 hover:underline">AÑADIR</button>
+                                        <button
+                                            onClick={() => {
+                                                const group = groupedProducts.find(g => g.name === item.name || item.name.includes(g.name));
+                                                if (group) openProductCustomizer(group, item);
+                                            }}
+                                            className="text-[10px] font-black text-blue-500 hover:underline"
+                                        >
+                                            EDITAR
+                                        </button>
                                     </div>
                                 </div>
                                 <p className="font-bold text-sm shrink-0">${(item.price * item.quantity).toFixed(2)}</p>
@@ -1535,12 +1621,19 @@ export default function CashierPage() {
                                 <button
                                     onClick={() => {
                                         console.log('🔄 [Cashier] Recargando página para nueva orden...');
-                                        // Hard reload to clear cache and ensure latest code
                                         window.location.reload();
                                     }}
-                                    className="w-full bg-[#181511] text-white py-4 rounded-2xl font-black"
+                                    className="w-full bg-[#181511] text-white py-4 rounded-2xl font-black active:scale-95 transition-all shadow-xl shadow-black/20"
                                 >
                                     NUEVA ORDEN
+                                </button>
+
+                                <button
+                                    onClick={handleCancelOrder}
+                                    className="w-full bg-white border-2 border-red-500 text-red-500 py-4 rounded-2xl font-black hover:bg-red-50 active:scale-95 transition-all flex items-center justify-center gap-2 group"
+                                >
+                                    <span className="material-icons-round group-hover:rotate-90 transition-transform">cancel</span>
+                                    {loading ? 'ELIMINANDO...' : 'CANCELAR Y ELIMINAR PEDIDO'}
                                 </button>
                             </div>
                         </div>
