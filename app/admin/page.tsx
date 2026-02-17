@@ -117,7 +117,7 @@ export default function AdminPage() {
     return (
         <main className="flex-1 overflow-hidden flex flex-row">
             {/* Central Dashboard */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-12">
 
                 <div className="flex flex-col gap-6 sm:gap-8 max-w-[1200px] mx-auto">
                     {/* Header - Responsive */}
@@ -339,7 +339,7 @@ export default function AdminPage() {
                                             stats.categoryStats.map((cat, index) => {
                                                 const opacity = Math.max(0.3, 1 - (index * 0.2));
                                                 return (
-                                                    <div key={index} className="flex flex-col items-center gap-2 flex-1 group w-full">
+                                                    <div key={index} className="flex flex-col items-center gap-3 flex-1 group w-full min-w-0">
                                                         <div className="w-full bg-[#fcead2] rounded-t-lg relative h-32 sm:h-40 group-hover:bg-[#fcdab0] transition-colors overflow-hidden flex items-end justify-center">
                                                             <div
                                                                 className="w-full rounded-t-lg transition-all duration-1000 ease-out"
@@ -352,7 +352,11 @@ export default function AdminPage() {
                                                                 {cat.count} vendidos
                                                             </div>
                                                         </div>
-                                                        <span className="text-[10px] sm:text-xs font-bold text-[#8c785f] text-center truncate w-full" title={cat.name}>{cat.name}</span>
+                                                        <div className="h-8 flex items-start justify-center w-full">
+                                                            <span className="text-[10px] sm:text-[11px] font-bold text-[#8c785f] text-center leading-tight line-clamp-2 px-1" title={cat.name}>
+                                                                {cat.name}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 );
                                             })

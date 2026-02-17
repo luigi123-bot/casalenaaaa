@@ -99,12 +99,12 @@ export default function Sidebar() {
                 />
             )}
 
-            {/* Sidebar - Hidden on mobile, slides in when open */}
+            {/* Sidebar - Mini rail on desktop, expands on hover */}
             <aside className={`
-                fixed lg:static inset-y-0 left-0 z-50
-                w-64 flex-shrink-0 flex flex-col bg-white border-r border-[#e6e1db] h-full overflow-y-auto
-                transform transition-transform duration-300 ease-in-out
-                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+                fixed inset-y-0 left-0 z-50
+                flex flex-col bg-white border-r border-[#e6e1db] h-full
+                transition-all duration-300 ease-in-out group/sidebar overflow-hidden shadow-2xl
+                ${isMobileMenuOpen ? 'w-64 translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-[72px] lg:hover:w-64'}
             `}>
                 {/* Mobile Close Button */}
                 <button
@@ -114,47 +114,52 @@ export default function Sidebar() {
                     <span className="material-symbols-outlined text-2xl text-[#181511]">close</span>
                 </button>
 
-                <div className="p-6 pb-2">
+                {/* Logo Section - Fixed width container to prevent layout shifts */}
+                <div className="h-20 flex items-center px-[15px] shrink-0">
                     <div className="flex items-center gap-3">
                         <div
-                            className="bg-center bg-no-repeat bg-cover rounded-full size-10 shrink-0"
+                            className="bg-center bg-no-repeat bg-cover rounded-full size-10 shrink-0 shadow-sm border border-gray-100 ring-2 ring-gray-50 transition-transform group-hover/sidebar:scale-105"
                             style={{ backgroundImage: 'url("/logo-main.jpg")' }}
                         ></div>
-                        <div className="flex flex-col">
-                            <h1 className="text-[#181511] text-base font-bold leading-normal">Casa Leña</h1>
-                            <p className="text-[#8c785f] text-xs font-normal leading-normal">Wood-Fired Kitchen</p>
+                        <div className="flex flex-col transition-all duration-300 opacity-0 -translate-x-4 group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0">
+                            <h1 className="text-[#181511] text-base font-black leading-none whitespace-nowrap">Casa Leña</h1>
+                            <p className="text-[#8c785f] text-[10px] font-bold leading-normal whitespace-nowrap uppercase tracking-tighter">Kitchen & Grill</p>
                         </div>
                     </div>
                 </div>
-                <nav className="flex-1 flex flex-col gap-2 p-4">
+
+                {/* Navigation Items */}
+                <nav className="flex-1 flex flex-col gap-2 p-3 mt-4 overflow-y-auto scrollbar-hide">
                     {navItems.map((item) => (
                         <Link
                             key={item.href}
                             href={item.href}
                             onClick={(e) => handleLinkClick(e, item.href)}
-                            className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-colors ${isActive(item.href)
-                                ? 'bg-primary/10 text-primary font-bold'
-                                : 'text-[#8c785f] hover:bg-[#f5f2f0]'
+                            className={`flex items-center lg:justify-center group-hover/sidebar:justify-start rounded-xl transition-all h-11 lg:px-[11px] group-hover/sidebar:px-4 ${isActive(item.href)
+                                ? 'bg-[#f7951d] text-white shadow-md'
+                                : 'text-[#8c785f] hover:bg-[#f8f7f5] hover:text-[#181511]'
                                 }`}
                         >
-                            <span className={`material-symbols-outlined text-2xl ${item.filled && isActive(item.href) ? 'fill-1' : ''}`}>
+                            <span className={`material-symbols-outlined text-2xl shrink-0 transition-transform duration-300 ${isActive(item.href) ? 'scale-110' : 'group-hover/sidebar:scale-105'} ${item.filled && isActive(item.href) ? 'fill-1' : ''}`}>
                                 {item.icon}
                             </span>
-                            <span className={`text-sm ${isActive(item.href) ? 'font-bold' : 'font-medium'}`}>
+                            <span className={`ml-4 text-sm whitespace-nowrap transition-all duration-300 opacity-0 lg:hidden group-hover/sidebar:block group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 -translate-x-4 ${isActive(item.href) ? 'font-black' : 'font-bold'}`}>
                                 {item.label}
                             </span>
                         </Link>
                     ))}
                 </nav>
-                <div className="p-4 mt-auto border-t border-[#e6e1db]">
+
+                {/* Footer Section */}
+                <div className="p-3 border-t border-[#e6e1db] mb-2">
                     {user?.role === 'administrador' && pathname.startsWith('/cashier') ? (
                         <Link
                             href="/admin"
                             onClick={() => setIsMobileMenuOpen(false)}
-                            className="flex w-full items-center gap-3 px-3 py-2 rounded-xl text-primary hover:bg-primary/10 cursor-pointer transition-colors"
+                            className="flex items-center lg:justify-center group-hover/sidebar:justify-start h-11 lg:px-[11px] group-hover/sidebar:px-4 rounded-xl text-[#f7951d] hover:bg-orange-50 cursor-pointer transition-all"
                         >
-                            <span className="material-symbols-outlined text-2xl">arrow_back</span>
-                            <span className="text-sm font-bold">Volver al Admin</span>
+                            <span className="material-symbols-outlined text-2xl shrink-0">arrow_back</span>
+                            <span className="ml-4 text-sm font-black whitespace-nowrap transition-all duration-300 opacity-0 lg:hidden group-hover/sidebar:block group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 -translate-x-4">Volver al Admin</span>
                         </Link>
                     ) : (
                         <button
@@ -164,15 +169,14 @@ export default function Sidebar() {
                                     await signOut();
                                 } catch (error) {
                                     console.error('Error al cerrar sesión:', error);
-                                    // Force redirect anyway
                                     window.location.href = '/login';
                                 }
                                 setIsMobileMenuOpen(false);
                             }}
-                            className="flex w-full items-center gap-3 px-3 py-2 rounded-xl text-[#8c785f] hover:bg-[#f5f2f0] cursor-pointer transition-colors"
+                            className="flex w-full items-center lg:justify-center group-hover/sidebar:justify-start h-11 lg:px-[11px] group-hover/sidebar:px-4 rounded-xl text-[#8c785f] hover:bg-red-50 hover:text-red-500 cursor-pointer transition-all"
                         >
-                            <span className="material-symbols-outlined text-2xl">logout</span>
-                            <span className="text-sm font-medium">Cerrar Sesión</span>
+                            <span className="material-symbols-outlined text-2xl shrink-0 font-bold">logout</span>
+                            <span className="ml-4 text-sm font-bold whitespace-nowrap transition-all duration-300 opacity-0 lg:hidden group-hover/sidebar:block group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 -translate-x-4">Cerrar Sesión</span>
                         </button>
                     )}
                 </div>

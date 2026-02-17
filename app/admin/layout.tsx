@@ -44,7 +44,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     return (
         <div className="flex h-screen w-full bg-[#f8f7f5] text-[#181511] overflow-hidden relative">
             <Sidebar />
-            <div className="flex-1 flex flex-col min-w-0">
+            <div className="flex-1 flex flex-col min-w-0 lg:pl-[72px] transition-all duration-300">
                 <Header role="admin" />
                 {children}
             </div>
