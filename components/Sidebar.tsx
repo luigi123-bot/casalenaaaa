@@ -28,7 +28,7 @@ export default function Sidebar() {
 
     const handleDownloadDesktop = () => {
         const link = document.createElement('a');
-        link.href = '/CasalenaPOS.exe';
+        link.href = 'https://casalena.netlify.app/CasalenaPOS.exe';
         link.download = 'CasalenaPOS.exe';
         document.body.appendChild(link);
         link.click();

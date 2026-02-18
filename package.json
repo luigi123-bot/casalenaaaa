@@ -26,6 +26,7 @@
         "nsis"
       ],
       "icon": "app/icon.png",
+      "artifactName": "CasalenaPOS.exe",
       "forceCodeSigning": false,
       "verifyUpdateCodeSignature": false
     },
