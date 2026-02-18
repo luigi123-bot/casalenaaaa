@@ -7,6 +7,7 @@ export default function InstallPWA() {
     const [showInstallBtn, setShowInstallBtn] = useState(false);
     const [isIOS, setIsIOS] = useState(false);
     const [isStandalone, setIsStandalone] = useState(false);
+    const [isWindows, setIsWindows] = useState(false);
 
     useEffect(() => {
         // Check if already in standalone mode
@@ -17,6 +18,13 @@ export default function InstallPWA() {
         // Check if it is iOS
         const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
         setIsIOS(ios);
+
+        // Check if Windows/Desktop
+        const userAgent = navigator.userAgent.toLowerCase();
+        const isWin = userAgent.includes('win');
+        const isDesktop = !/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+
+        setIsWindows(isWin || isDesktop);
 
         const handleBeforeInstallPrompt = (e: Event) => {
             // Prevent the mini-infobar from appearing on mobile
@@ -35,6 +43,17 @@ export default function InstallPWA() {
     }, []);
 
     const handleInstallClick = async () => {
+        if (isWindows) {
+            // Priority: Download Desktop App on Windows with a real download trigger
+            const link = document.createElement('a');
+            link.href = '/CasalenaPOS.exe';
+            link.download = 'CasalenaPOS.exe';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return;
+        }
+
         if (!deferredPrompt) return;
         // Show the install prompt
         deferredPrompt.prompt();
@@ -46,25 +65,10 @@ export default function InstallPWA() {
         setShowInstallBtn(false);
     };
 
-    if (isStandalone) return null;
-
-    // Don't show anything if not installable (unless it's iOS where we might want to show instructions)
-    if (!showInstallBtn && !isIOS) return null;
-
+    // Force display in development or for desktop
+    // we remove the if (isStandalone) return null; and others
     return (
         <>
-            {showInstallBtn && (
-                <div className="fixed bottom-6 left-6 z-[100] animate-bounce">
-                    <button
-                        onClick={handleInstallClick}
-                        className="flex items-center gap-3 bg-[#F7941D] hover:bg-[#e68a1b] text-white px-6 py-4 rounded-full shadow-2xl hover:shadow-orange-500/50 transition-all font-bold text-base border-2 border-white ring-2 ring-orange-200"
-                    >
-                        <span className="material-icons-round">download</span>
-                        Instalar App
-                    </button>
-                </div>
-            )}
-
             {isIOS && !isStandalone && (
                 <div className="fixed bottom-4 left-4 right-4 z-[9999] bg-[#FAFAFA] dark:bg-[#1D1D1F] p-4 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 flex items-start gap-4">
                     <span className="material-icons-round text-[#F7941D] text-3xl">ios_share</span>

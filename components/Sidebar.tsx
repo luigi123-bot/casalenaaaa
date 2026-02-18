@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 // Define the shape of our navigation items
 interface NavItem {
@@ -17,6 +17,23 @@ export default function Sidebar() {
     const pathname = usePathname();
     const { user, signOut } = useAuth();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isWindows, setIsWindows] = useState(false);
+
+    useEffect(() => {
+        const userAgent = navigator.userAgent.toLowerCase();
+        const isWin = userAgent.includes('win');
+        const isDesktop = !/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+        setIsWindows(isWin || isDesktop);
+    }, []);
+
+    const handleDownloadDesktop = () => {
+        const link = document.createElement('a');
+        link.href = '/CasalenaPOS.exe';
+        link.download = 'CasalenaPOS.exe';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     const isActive = (path: string) => {
         if (path === '#chat') return false;
@@ -162,22 +179,34 @@ export default function Sidebar() {
                             <span className="ml-4 text-sm font-black whitespace-nowrap transition-all duration-300 opacity-0 lg:hidden group-hover/sidebar:block group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 -translate-x-4">Volver al Admin</span>
                         </Link>
                     ) : (
-                        <button
-                            onClick={async () => {
-                                console.log('Iniciando cierre de sesión...');
-                                try {
-                                    await signOut();
-                                } catch (error) {
-                                    console.error('Error al cerrar sesión:', error);
-                                    window.location.href = '/login';
-                                }
-                                setIsMobileMenuOpen(false);
-                            }}
-                            className="flex w-full items-center lg:justify-center group-hover/sidebar:justify-start h-11 lg:px-[11px] group-hover/sidebar:px-4 rounded-xl text-[#8c785f] hover:bg-red-50 hover:text-red-500 cursor-pointer transition-all"
-                        >
-                            <span className="material-symbols-outlined text-2xl shrink-0 font-bold">logout</span>
-                            <span className="ml-4 text-sm font-bold whitespace-nowrap transition-all duration-300 opacity-0 lg:hidden group-hover/sidebar:block group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 -translate-x-4">Cerrar Sesión</span>
-                        </button>
+                        <div className="flex flex-col gap-1">
+                            {isWindows && (
+                                <button
+                                    onClick={handleDownloadDesktop}
+                                    className="flex w-full items-center lg:justify-center group-hover/sidebar:justify-start h-11 lg:px-[11px] group-hover/sidebar:px-4 rounded-xl text-[#F7941D] hover:bg-orange-50 cursor-pointer transition-all border border-orange-100 mb-1"
+                                >
+                                    <span className="material-symbols-outlined text-2xl shrink-0 font-bold">laptop_windows</span>
+                                    <span className="ml-4 text-xs font-black whitespace-nowrap transition-all duration-300 opacity-0 lg:hidden group-hover/sidebar:block group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 -translate-x-4">Descargar APP</span>
+                                </button>
+                            )}
+
+                            <button
+                                onClick={async () => {
+                                    console.log('Iniciando cierre de sesión...');
+                                    try {
+                                        await signOut();
+                                    } catch (error) {
+                                        console.error('Error al cerrar sesión:', error);
+                                        window.location.href = '/login';
+                                    }
+                                    setIsMobileMenuOpen(false);
+                                }}
+                                className="flex w-full items-center lg:justify-center group-hover/sidebar:justify-start h-11 lg:px-[11px] group-hover/sidebar:px-4 rounded-xl text-[#8c785f] hover:bg-red-50 hover:text-red-500 cursor-pointer transition-all"
+                            >
+                                <span className="material-symbols-outlined text-2xl shrink-0 font-bold">logout</span>
+                                <span className="ml-4 text-sm font-bold whitespace-nowrap transition-all duration-300 opacity-0 lg:hidden group-hover/sidebar:block group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 -translate-x-4">Cerrar Sesión</span>
+                            </button>
+                        </div>
                     )}
                 </div>
             </aside>

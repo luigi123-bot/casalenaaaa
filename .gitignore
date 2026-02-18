@@ -49,3 +49,7 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
+
+# Public assets/builds
+public/*.exe
+public/debug.log

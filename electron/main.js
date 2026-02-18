@@ -11,9 +11,11 @@ function createWindow() {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
+            sandbox: false, // Sometimes helpful for startup issues
         },
-        title: 'Casalena POS',
-        icon: path.join(__dirname, '../public/logo-main.jpg')
+        title: 'Casaleña POS',
+        show: false, // Don't show until ready to prevent white flicker
+        icon: path.join(__dirname, '../app/icon.png')
     });
 
     // Load content based on environment
@@ -21,7 +23,20 @@ function createWindow() {
         ? 'https://casalena.netlify.app'
         : (process.env.ELECTRON_START_URL || 'http://localhost:3000');
 
+    console.log('🔗 [Main] Loading URL:', startUrl);
     mainWindow.loadURL(startUrl);
+
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
+        if (!app.isPackaged) {
+            mainWindow.webContents.openDevTools();
+        }
+    });
+
+    // Handle generic crashes or errors
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+        console.error('❌ [Main] Failed to load:', errorCode, errorDescription);
+    });
 
     mainWindow.on('closed', function () {
         mainWindow = null;
