@@ -89,9 +89,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 </div>
             </div>
 
-            <div className="w-full text-center text-[10px] my-1 tracking-tighter">
-                - - - - - - - - - - - - - - - - - -
-            </div>
+            <div className="w-full my-1 border-b border-dashed border-black"></div>
 
             {/* 2. INFO DEL PEDIDO */}
             <div className="w-full px-2 space-y-0.5 font-bold text-[8.5px]">
@@ -151,7 +149,9 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                                     <span className="uppercase font-black text-[9px]">{prod.nombre}</span>
                                     {showDetail && <span className="text-[7.5px] italic text-gray-600">{prod.detalle}</span>}
                                     {prod.extras && prod.extras.map((ex, i) => (
-                                        <span key={i} className="text-[7.5px] font-normal italic text-gray-500 tracking-tight">+ {ex}</span>
+                                        <span key={i} className="text-[7.5px] font-normal italic text-gray-500 tracking-tight">
+                                            + {ex === 'half_and_half' ? 'Mitad y Mitad' : ex}
+                                        </span>
                                     ))}
                                 </div>
                                 <div className="text-right font-black">
@@ -211,9 +211,8 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
 
             {/* 10. NOTAS */}
             <div className="w-full px-2 mt-2 mb-1">
-                <p className="font-bold text-[8.5px] uppercase">Notas:</p>
-                <div className="border-b border-black border-dotted h-4"></div>
-                <div className="border-b border-black border-dotted h-4"></div>
+                <p className="font-bold text-[8.5px] uppercase mb-0.5">Notas:</p>
+                <div className="w-full border border-black h-10"></div>
             </div>
 
             {/* 9. PIE DE PÁGINA */}
