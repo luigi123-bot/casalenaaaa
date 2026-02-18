@@ -18,10 +18,9 @@ function createWindow() {
         icon: path.join(__dirname, '../app/icon.png')
     });
 
-    // Load content based on environment
-    const startUrl = app.isPackaged
-        ? 'https://casalena.netlify.app'
-        : (process.env.ELECTRON_START_URL || 'http://localhost:3000');
+    // Load content: prefer environment variable, default to production URL
+    // The ELECTRON_START_URL environment variable will be set by package.json scripts for development.
+    const startUrl = process.env.ELECTRON_START_URL || 'https://casalena.netlify.app';
 
     console.log('🔗 [Main] Loading URL:', startUrl);
     mainWindow.loadURL(startUrl);
