@@ -209,6 +209,13 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 </div>
             )}
 
+            {/* 10. NOTAS */}
+            <div className="w-full px-2 mt-2 mb-1">
+                <p className="font-bold text-[8.5px] uppercase">Notas:</p>
+                <div className="border-b border-black border-dotted h-4"></div>
+                <div className="border-b border-black border-dotted h-4"></div>
+            </div>
+
             {/* 9. PIE DE PÁGINA */}
             <div className="text-center w-full space-y-1 mt-2">
                 <p className="font-black text-[8.5px] uppercase tracking-tighter">¡Agradecemos su preferencia!</p>
