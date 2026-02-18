@@ -13,7 +13,7 @@
     "test": "vitest",
     "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron .\"",
     "electron:dist": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
-    "electron:build": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && electron-builder"
+    "electron:build": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && electron-builder && copy dist\\*.exe public\\CasalenaPOS.exe /Y"
   },
   "build": {
     "appId": "com.casalena.pos",
@@ -37,10 +37,8 @@
     },
     "files": [
       "electron/**/*",
-      ".next/**/*",
-      "package.json",
-      "node_modules/**/*",
-      "public/**/*"
+      "app/icon.png",
+      "package.json"
     ]
   },
   "dependencies": {
