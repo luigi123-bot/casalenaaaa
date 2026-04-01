@@ -895,7 +895,7 @@ export default function TiendaPage() {
                             </div>
 
                             {/* Modal Right Content */}
-                            <div className="flex-1 flex flex-col h-full bg-white relative">
+                            <div className="flex-1 flex flex-col min-h-0 bg-white relative">
                                 <div className="p-6 sm:p-8 pb-4 flex justify-between items-center border-b border-gray-100">
                                     <h3 className="text-xl font-bold text-[#1D1D1F] md:hidden line-clamp-1">{selectedProduct.name}</h3>
                                     <span className="text-gray-400 text-xs uppercase font-bold tracking-wider hidden md:block">Personaliza tu orden</span>
@@ -974,11 +974,11 @@ export default function TiendaPage() {
                                 </div>
 
                                 {/* Modal Footer */}
-                                <div className="p-6 border-t border-gray-100 bg-gray-50">
+                                <div className="p-5 sm:p-6 border-t border-gray-100 bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.02)]">
                                     <div className="flex items-center justify-between mb-4">
                                         <div>
-                                            <p className="text-sm text-gray-500 font-medium">Total a agregar</p>
-                                            <p className="text-3xl font-black text-[#1D1D1F]">
+                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-none mb-1">Total a agregar</p>
+                                            <p className="text-3xl font-black text-[#1D1D1F] leading-none">
                                                 ${(currentVariantPrice + currentExtrasPrice).toFixed(2)}
                                             </p>
                                         </div>
@@ -986,7 +986,7 @@ export default function TiendaPage() {
                                     <button
                                         onClick={addToCart}
                                         disabled={!currentSize}
-                                        className="w-full py-4 bg-[#1D1D1F] text-white rounded-2xl font-bold text-lg shadow-xl shadow-gray-200 hover:shadow-2xl hover:bg-black hover:scale-[1.01] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-3"
+                                        className="w-full py-4 bg-[#1D1D1F] text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-gray-200 hover:shadow-2xl hover:bg-black hover:scale-[1.02] active:scale-95 transition-all duration-300 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-3"
                                     >
                                         <span>Agregar a la orden</span>
                                         <span className="material-icons-round">add_shopping_cart</span>

@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import InstallPWA from "@/components/InstallPWA";
+import MonitoringSystem from "@/components/MonitoringSystem";
 import Script from "next/script";
 
 const geistSans = Geist({
@@ -145,6 +146,7 @@ export default function RootLayout({
         <InstallPWA />
         <Providers>
           {children}
+          <MonitoringSystem />
         </Providers>
       </body>
     </html>

@@ -117,6 +117,11 @@ export default function CashierPage() {
     const [loadingClients, setLoadingClients] = useState(false);
     const [editingCartItemId, setEditingCartItemId] = useState<string | null>(null);
     const [cashierName, setCashierName] = useState('CAJERO');
+    const [showOrdersView, setShowOrdersView] = useState(false);
+    const [recentOrders, setRecentOrders] = useState<any[]>([]);
+    const [recentOrdersLoading, setRecentOrdersLoading] = useState(false);
+    const [recentOrdersFilter, setRecentOrdersFilter] = useState('Todos');
+    const [unreadNotifications, setUnreadNotifications] = useState(0);
 
     useEffect(() => {
         if (showCustomerModal) {
@@ -725,7 +730,7 @@ export default function CashierPage() {
 
             const orderPayload = {
                 user_id: userId,
-                status: 'confirmado',
+                status: orderType === 'delivery' ? 'confirmado' : 'entregado',
                 total_amount: cartTotals.total,
                 tax_amount: cartTotals.tax,
                 order_type: orderType,
@@ -846,6 +851,45 @@ export default function CashierPage() {
         }
     };
 
+    useEffect(() => {
+        // PERSISTENT BACKGROUND NOTIFICATION LISTENER
+        const ordersChannel = supabase
+            .channel('global_cashier_notifications')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
+                // If its a web order (already handled in POS logic if created here)
+                if (payload.new.order_source === 'web' || payload.new.order_type === 'delivery') {
+                    playNotificationSound();
+                    setUnreadNotifications(prev => prev + 1);
+                }
+            })
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'cashier_notifications' }, (payload) => {
+                playNotificationSound();
+                setUnreadNotifications(prev => prev + 1);
+            })
+            .subscribe();
+
+        // 5s BACKGROUND SYNC / POLLING - Clear local cache by fetching new data from Supabase
+        const syncInterval = setInterval(() => {
+            if (isOnline) { // Using isOnline from useOfflineSync()
+                // Fetch recent orders in background
+                fetchRecentOrders(false); 
+            }
+        }, 5000);
+
+        return () => {
+            supabase.removeChannel(ordersChannel);
+            clearInterval(syncInterval);
+        };
+    }, [isOnline]); // Depend on isOnline to restart/stop if needed
+
+    const playNotificationSound = () => {
+        try {
+            const audio = new Audio('/notification.mp3');
+            audio.volume = 0.5;
+            audio.play().catch(() => { });
+        } catch (e) { }
+    };
+
     const handleLogout = async () => {
         try {
             await supabase.auth.signOut();
@@ -855,6 +899,36 @@ export default function CashierPage() {
             window.location.href = '/login';
         }
     };
+
+    const fetchRecentOrders = async (showLoading = true) => {
+        if (showLoading) setRecentOrdersLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select(`
+                    *,
+                    order_items (
+                        product_name,
+                        quantity,
+                        unit_price
+                    )
+                `)
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+            if (error) throw error;
+            
+            // "Sync without deleting if offline": 
+            // We only update if data is successfully received
+            if (data) setRecentOrders(data);
+        } catch (err) {
+            console.error('Error fetching recent orders:', err);
+        } finally {
+            if (showLoading) setRecentOrdersLoading(false);
+        }
+    };
+
+    // Removed the restricted useEffect for fetching - replaced by global listener
 
     return (
         <div className="flex h-full bg-[#f8f7f5] text-[#181511]">
@@ -877,11 +951,35 @@ export default function CashierPage() {
                     {/* Notification and Chat Buttons */}
                     <div className="hidden lg:flex gap-2">
                         <button
-                            onClick={() => setShowNotifications(true)}
+                            onClick={() => setShowOrdersView(!showOrdersView)}
+                            className={`h-10 px-3 shrink-0 flex items-center justify-center gap-2 rounded-xl border transition-all ${showOrdersView 
+                                ? 'bg-[#f7951d] border-[#f7951d] text-white shadow-lg' 
+                                : 'bg-white border-gray-200 text-[#8c785f] hover:bg-gray-50'}`}
+                            title="Historial de Pedidos"
+                        >
+                            <span className="material-icons-round text-lg">{showOrdersView ? 'shopping_cart' : 'history'}</span>
+                            <span className="text-[10px] font-black uppercase tracking-widest">{showOrdersView ? 'Nueva Orden' : 'Historial'}</span>
+                        </button>
+
+                        <button
+                            onClick={() => {
+                                setShowNotifications(true);
+                                setUnreadNotifications(0);
+                            }}
                             className="h-10 w-10 shrink-0 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-orange-50 hover:text-[#F7941D] text-[#8c785f] transition-colors relative"
                             title="Notificaciones"
                         >
                             <span className="material-icons-round">notifications</span>
+                            {unreadNotifications > 0 && (
+                                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center animate-bounce shadow-sm">
+                                    {unreadNotifications}
+                                </span>
+                            )}
+                            {!isOnline && (
+                                <span className="absolute -bottom-1 -right-1 bg-gray-400 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-sm">
+                                    <span className="material-icons-round text-[10px]">wifi_off</span>
+                                </span>
+                            )}
                         </button>
 
                         <button
@@ -893,13 +991,24 @@ export default function CashierPage() {
                         </button>
                     </div>
 
-                    <button
-                        onClick={handleLogout}
-                        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-red-50 hover:text-red-500 text-[#8c785f] transition-colors"
-                        title="Cerrar Sesión"
-                    >
-                        <span className="material-icons-round">logout</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setShowOrdersView(!showOrdersView)}
+                            className={`lg:hidden h-10 px-3 flex items-center justify-center gap-2 rounded-xl border transition-all ${showOrdersView 
+                                ? 'bg-[#f7951d] border-[#f7951d] text-white shadow-lg' 
+                                : 'bg-white border-gray-200 text-[#8c785f] hover:bg-gray-50'}`}
+                        >
+                            <span className="material-icons-round text-lg">{showOrdersView ? 'shopping_cart' : 'history'}</span>
+                        </button>
+
+                        <button
+                            onClick={handleLogout}
+                            className="h-10 w-10 shrink-0 flex items-center justify-center rounded-xl bg-gray-100 hover:bg-red-50 hover:text-red-500 text-[#8c785f] transition-colors"
+                            title="Cerrar Sesión"
+                        >
+                            <span className="material-icons-round">logout</span>
+                        </button>
+                    </div>
 
                     {/* Mobile Cart Button */}
                     <button
@@ -919,147 +1028,249 @@ export default function CashierPage() {
 
                 {/* Main Content Area */}
                 <div className="flex-1 flex overflow-hidden bg-[#f8f7f5]">
-                    {/* Products Section - No Horizontal Scroll */}
-                    <section className="flex-1 p-3 lg:p-4 overflow-hidden flex flex-col">
-
-                        {/* Categories Selection - Full Width Grid at the top to avoid scroll */}
-                        <div className="mb-3 shrink-0">
-                            <div className="grid grid-cols-5 sm:grid-cols-8 lg:grid-cols-10 gap-1 lg:gap-1.5">
-                                <button
-                                    onClick={() => setSelectedCategory('all')}
-                                    className={`flex flex-col lg:flex-row items-center justify-center gap-1 rounded-lg py-1.5 px-1 transition-all border ${selectedCategory === 'all'
-                                        ? 'bg-[#f7951d] border-[#f7951d] text-white shadow-sm'
-                                        : 'bg-white border-gray-100 text-[#8c785f] hover:bg-gray-50'
-                                        }`}
-                                >
-                                    <span className="material-icons-round text-sm">apps</span>
-                                    <span className="text-[8px] lg:text-[10px] font-black uppercase tracking-tighter text-center">Todas</span>
-                                </button>
-
-                                {categories.map((cat) => (
-                                    <button
-                                        key={cat.id}
-                                        onClick={() => setSelectedCategory(cat.id)}
-                                        className={`flex flex-col lg:flex-row items-center justify-center gap-1 rounded-lg py-1.5 px-0.5 lg:px-2 transition-all border ${selectedCategory === cat.id
-                                            ? 'bg-[#f7951d] border-[#f7951d] text-white shadow-sm'
-                                            : 'bg-white border-gray-100 text-[#8c785f] hover:bg-gray-50'
-                                            }`}
-                                    >
-                                        <span className="material-icons-round text-sm">
-                                            {cat.name.toLowerCase().includes('pizza') ? 'local_pizza' :
-                                                cat.name.toLowerCase().includes('especialidades') ? 'local_pizza' :
-                                                    cat.name.toLowerCase().includes('gourmet') ? 'local_pizza' :
-                                                        cat.name.toLowerCase().includes('combo') ? 'loyalty' :
-                                                            cat.name.toLowerCase().includes('orilla') ? 'add_circle' :
-                                                                cat.name === 'Bebidas' ? 'local_drink' :
-                                                                    cat.name === 'Hamburguesas' ? 'lunch_dining' :
-                                                                        cat.name === 'Postres' ? 'cake' :
-                                                                            cat.name === 'Entradas y snacks' ? 'fastfood' :
-                                                                                'restaurant'}
-                                        </span>
-                                        <span className="text-[8px] lg:text-[9px] xl:text-[10px] font-black uppercase tracking-tighter text-center leading-[1] truncate w-full">
-                                            {cat.name}
-                                        </span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Banner - Extra Compact */}
-                        {activeBanner && (
-                            <div
-                                onClick={handleBannerClick}
-                                className="hidden 2xl:flex mb-3 rounded-xl overflow-hidden relative h-20 shrink-0 bg-[#1D1D1F] text-white shadow-sm group cursor-pointer"
-                            >
-                                <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/20 to-transparent z-10"></div>
-                                <img
-                                    src={activeBanner.image_url}
-                                    alt={activeBanner.title}
-                                    className="absolute inset-0 w-full h-full object-cover"
-                                />
-                                <div className="relative z-20 flex flex-col justify-center px-6">
-                                    <h3 className="text-xl font-black mb-0.5">{activeBanner.title}</h3>
-                                    <p className="text-xs text-white/70 font-medium line-clamp-1">{activeBanner.description}</p>
+                    {showOrdersView ? (
+                        /* ORDERS HISTORY VIEW */
+                        <section className="flex-1 p-6 overflow-y-auto scrollbar-hide animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <div className="flex items-center justify-between mb-8">
+                                <div>
+                                    <h2 className="text-3xl font-black text-[#181511] tracking-tight">Registro de Todos los Pedidos</h2>
+                                    <p className="text-sm text-[#8c785f] font-medium">Visualización de ventas y estados en tiempo real.</p>
+                                </div>
+                                <div className="flex gap-2 bg-white p-1 rounded-xl shadow-sm border border-gray-100">
+                                    {['Todos', 'Pendiente', 'Preparando', 'Entregado'].map(f => (
+                                        <button 
+                                            key={f}
+                                            onClick={() => setRecentOrdersFilter(f)}
+                                            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${recentOrdersFilter === f ? 'bg-[#f7951d] text-white' : 'text-[#8c785f] hover:bg-gray-50'}`}
+                                        >
+                                            {f}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
-                        )}
 
-                        {/* Products Grid - Maximum Density */}
-                        <div className="flex-1 overflow-y-auto scrollbar-hide">
-                            {loading ? (
-                                <div className="flex items-center justify-center h-full">
-                                    <div className="w-8 h-8 border-3 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div>
+                            {recentOrdersLoading ? (
+                                <div className="flex flex-col items-center justify-center h-64">
+                                    <div className="w-12 h-12 border-4 border-[#f7951d] border-t-transparent rounded-full animate-spin mb-4"></div>
+                                    <p className="font-black text-gray-400 uppercase tracking-widest text-xs">Cargando historial...</p>
                                 </div>
                             ) : (
-                                <div className="space-y-6 pb-4">
-                                    {categories
-                                        .filter(cat => filteredGroupedProducts.some(p => p.category_id === cat.id))
-                                        .map(category => {
-                                            const categoryProducts = filteredGroupedProducts.filter(p => p.category_id === category.id);
-
-                                            return (
-                                                <div key={category.id} className="space-y-3">
-                                                    {/* Category Header - Compact */}
-                                                    <div className="sticky top-0 z-10 bg-gradient-to-r from-[#f8f7f5]/95 to-[#f8f7f5]/80 backdrop-blur-md py-1.5 flex items-center gap-2">
-                                                        <div className="h-4 w-1 bg-[#f7951d] rounded-full"></div>
-                                                        <h2 className="text-xs font-black text-[#181511] uppercase tracking-wider">
-                                                            {category.name}
-                                                        </h2>
-                                                        <div className="flex-1 h-px bg-gray-200"></div>
-                                                        <span className="text-[9px] font-bold text-gray-400">
-                                                            {categoryProducts.length} items
-                                                        </span>
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                    {recentOrders
+                                        .filter(o => {
+                                            if (recentOrdersFilter === 'Todos') return true;
+                                            if (recentOrdersFilter === 'Pendiente') return o.status === 'confirmado';
+                                            if (recentOrdersFilter === 'Preparando') return o.status === 'preparando' || o.status === 'listo';
+                                            if (recentOrdersFilter === 'Entregado') return o.status === 'entregado';
+                                            return true;
+                                        })
+                                        .map((order) => (
+                                        <div key={order.id} className="bg-white rounded-3xl border border-gray-100 p-6 hover:shadow-xl transition-all group overflow-hidden relative">
+                                            <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-500 opacity-50"></div>
+                                            
+                                            <div className="relative z-10">
+                                                <div className="flex justify-between items-start mb-6">
+                                                    <div>
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.id.toString().slice(-6)}</span>
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                                                order.status === 'entregado' ? 'bg-green-100 text-green-700' :
+                                                                order.status === 'confirmado' ? 'bg-blue-100 text-blue-700' :
+                                                                'bg-orange-100 text-orange-700'
+                                                            }`}>
+                                                                {order.status === 'entregado' ? 'Finalizado' : order.status === 'confirmado' ? 'Recibido' : order.status}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-xl font-black text-[#181511] tracking-tight">
+                                                            {order.customer_name || (order.table_number ? `Mesa #${order.table_number}` : 'Venta Rápida')}
+                                                        </p>
+                                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                            {new Date(order.created_at).toLocaleTimeString()} • {order.order_type === 'delivery' ? 'Domicilio' : 'Local'}
+                                                        </p>
                                                     </div>
-
-                                                    {/* Grid with 8 columns on large screens */}
-                                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 2xl:grid-cols-8 gap-2">
-                                                        {categoryProducts.map((group) => (
-                                                            <div
-                                                                key={group.name}
-                                                                onClick={() => openProductCustomizer(group)}
-                                                                className="bg-white p-2 rounded-xl border border-gray-100 flex flex-col group hover:border-[#f7951d] transition-all cursor-pointer relative"
-                                                            >
-                                                                {/* Compact Image */}
-                                                                <div className="relative w-full aspect-square bg-[#F2F2F7] rounded-lg mb-1.5 overflow-hidden">
-                                                                    <img
-                                                                        src="/icon.png"
-                                                                        className="w-full h-full object-contain p-1.5 group-hover:scale-105 transition-transform duration-300"
-                                                                        alt={group.name}
-                                                                    />
-                                                                    <div className="absolute bottom-1 right-1 bg-white/95 px-1 py-0.5 rounded text-[10px] font-black shadow-sm text-[#181511]">
-                                                                        ${group.basePrice}
-                                                                    </div>
-                                                                </div>
-
-                                                                {/* Compact Content */}
-                                                                <div className="flex flex-col gap-0.5">
-                                                                    <h3 className="font-bold text-[10px] text-[#1D1D1F] leading-tight line-clamp-2 h-7">
-                                                                        {group.name}
-                                                                    </h3>
-                                                                    {group.variants.length > 1 && (
-                                                                        <div className="flex items-center gap-1 text-[#f7951d]">
-                                                                            <span className="material-icons-round text-[10px]">expand_more</span>
-                                                                            <span className="text-[8px] font-bold uppercase">{group.variants.length} Tam.</span>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
+                                                    <p className="text-2xl font-black text-[#181511] tracking-tighter">${order.total_amount.toFixed(2)}</p>
                                                 </div>
-                                            );
-                                        })}
 
-                                    {filteredGroupedProducts.length === 0 && (
-                                        <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-                                            <span className="material-icons-round text-6xl mb-4 opacity-20">search_off</span>
-                                            <p className="font-bold">No se encontraron productos</p>
+                                                <div className="space-y-2 mb-6">
+                                                    {order.order_items?.map((item: any, i: number) => (
+                                                        <div key={i} className="flex justify-between items-center text-xs">
+                                                            <span className="text-[#8c785f] font-medium"><span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}</span>
+                                                            <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+
+                                                <div className="flex gap-2">
+                                                    <button 
+                                                        onClick={() => {
+                                                            const mappedItems = (order.order_items || []).map((it: any) => ({
+                                                                quantity: it.quantity || 0,
+                                                                name: it.product_name || '',
+                                                                price: it.unit_price || 0,
+                                                                selectedSize: it.selected_size,
+                                                                extras: it.extras
+                                                            }));
+                                                            handleOpenTicketModal(order, mappedItems);
+                                                        }}
+                                                        className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-[#181511]/80 transition-colors shadow-lg active:scale-95"
+                                                    >
+                                                        Imprimir Ticket
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {recentOrders.length === 0 && (
+                                        <div className="col-span-full h-96 flex flex-col items-center justify-center opacity-30">
+                                            <span className="material-icons-round text-8xl mb-4">receipt_long</span>
+                                            <p className="text-xl font-black uppercase tracking-tighter">No hay pedidos registrados</p>
                                         </div>
                                     )}
                                 </div>
                             )}
-                        </div>
-                    </section>
+                        </section>
+                    ) : (
+                        /* Products Section - No Horizontal Scroll */
+                        <section className="flex-1 p-3 lg:p-4 overflow-hidden flex flex-col">
+                            {/* Categories Selection - Full Width Grid at the top to avoid scroll */}
+                            <div className="mb-3 shrink-0">
+                                <div className="grid grid-cols-5 sm:grid-cols-8 lg:grid-cols-10 gap-1 lg:gap-1.5">
+                                    <button
+                                        onClick={() => setSelectedCategory('all')}
+                                        className={`flex flex-col lg:flex-row items-center justify-center gap-1 rounded-lg py-1.5 px-1 transition-all border ${selectedCategory === 'all'
+                                            ? 'bg-[#f7951d] border-[#f7951d] text-white shadow-sm'
+                                            : 'bg-white border-gray-100 text-[#8c785f] hover:bg-gray-50'
+                                            }`}
+                                    >
+                                        <span className="material-icons-round text-sm">apps</span>
+                                        <span className="text-[8px] lg:text-[10px] font-black uppercase tracking-tighter text-center">Todas</span>
+                                    </button>
+
+                                    {categories.map((cat) => (
+                                        <button
+                                            key={cat.id}
+                                            onClick={() => setSelectedCategory(cat.id)}
+                                            className={`flex flex-col lg:flex-row items-center justify-center gap-1 rounded-lg py-1.5 px-0.5 lg:px-2 transition-all border ${selectedCategory === cat.id
+                                                ? 'bg-[#f7951d] border-[#f7951d] text-white shadow-sm'
+                                                : 'bg-white border-gray-100 text-[#8c785f] hover:bg-gray-50'
+                                                }`}
+                                        >
+                                            <span className="material-icons-round text-sm">
+                                                {cat.name.toLowerCase().includes('pizza') ? 'local_pizza' :
+                                                    cat.name.toLowerCase().includes('especialidades') ? 'local_pizza' :
+                                                        cat.name.toLowerCase().includes('gourmet') ? 'local_pizza' :
+                                                            cat.name.toLowerCase().includes('combo') ? 'loyalty' :
+                                                                cat.name.toLowerCase().includes('orilla') ? 'add_circle' :
+                                                                    cat.name === 'Bebidas' ? 'local_drink' :
+                                                                        cat.name === 'Hamburguesas' ? 'lunch_dining' :
+                                                                            cat.name === 'Postres' ? 'cake' :
+                                                                                cat.name === 'Entradas y snacks' ? 'fastfood' :
+                                                                                    'restaurant'}
+                                            </span>
+                                            <span className="text-[8px] lg:text-[9px] xl:text-[10px] font-black uppercase tracking-tighter text-center leading-[1] truncate w-full">
+                                                {cat.name}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Banner - Extra Compact */}
+                            {activeBanner && (
+                                <div
+                                    onClick={handleBannerClick}
+                                    className="hidden 2xl:flex mb-3 rounded-xl overflow-hidden relative h-20 shrink-0 bg-[#1D1D1F] text-white shadow-sm group cursor-pointer"
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/20 to-transparent z-10"></div>
+                                    <img
+                                        src={activeBanner.image_url}
+                                        alt={activeBanner.title}
+                                        className="absolute inset-0 w-full h-full object-cover"
+                                    />
+                                    <div className="relative z-20 flex flex-col justify-center px-6">
+                                        <h3 className="text-xl font-black mb-0.5">{activeBanner.title}</h3>
+                                        <p className="text-xs text-white/70 font-medium line-clamp-1">{activeBanner.description}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Products Grid - Maximum Density */}
+                            <div className="flex-1 overflow-y-auto scrollbar-hide">
+                                {loading ? (
+                                    <div className="flex items-center justify-center h-full">
+                                        <div className="w-8 h-8 border-3 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-6 pb-4">
+                                        {categories
+                                            .filter(cat => filteredGroupedProducts.some(p => p.category_id === cat.id))
+                                            .map(category => {
+                                                const categoryProducts = filteredGroupedProducts.filter(p => p.category_id === category.id);
+
+                                                return (
+                                                    <div key={category.id} className="space-y-3">
+                                                        {/* Category Header - Compact */}
+                                                        <div className="sticky top-0 z-10 bg-gradient-to-r from-[#f8f7f5]/95 to-[#f8f7f5]/80 backdrop-blur-md py-1.5 flex items-center gap-2">
+                                                            <div className="h-4 w-1 bg-[#f7951d] rounded-full"></div>
+                                                            <h2 className="text-xs font-black text-[#181511] uppercase tracking-wider">
+                                                                {category.name}
+                                                            </h2>
+                                                            <div className="flex-1 h-px bg-gray-200"></div>
+                                                            <span className="text-[9px] font-bold text-gray-400">
+                                                                {categoryProducts.length} items
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Grid with 8 columns on large screens */}
+                                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 2xl:grid-cols-8 gap-2">
+                                                            {categoryProducts.map((group) => (
+                                                                <div
+                                                                    key={group.name}
+                                                                    onClick={() => openProductCustomizer(group)}
+                                                                    className="bg-white p-2 rounded-xl border border-gray-100 flex flex-col group hover:border-[#f7951d] transition-all cursor-pointer relative"
+                                                                >
+                                                                    {/* Compact Image */}
+                                                                    <div className="relative w-full aspect-square bg-[#F2F2F7] rounded-lg mb-1.5 overflow-hidden">
+                                                                        <img
+                                                                            src="/icon.png"
+                                                                            className="w-full h-full object-contain p-1.5 group-hover:scale-105 transition-transform duration-300"
+                                                                            alt={group.name}
+                                                                        />
+                                                                        <div className="absolute bottom-1 right-1 bg-white/95 px-1 py-0.5 rounded text-[10px] font-black shadow-sm text-[#181511]">
+                                                                            ${group.basePrice}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Compact Content */}
+                                                                    <div className="flex flex-col gap-0.5">
+                                                                        <h3 className="font-bold text-[10px] text-[#1D1D1F] leading-tight line-clamp-2 h-7">
+                                                                            {group.name}
+                                                                        </h3>
+                                                                        {group.variants.length > 1 && (
+                                                                            <div className="flex items-center gap-1 text-[#f7951d]">
+                                                                                <span className="material-icons-round text-[10px]">expand_more</span>
+                                                                                <span className="text-[8px] font-bold uppercase">{group.variants.length} Tam.</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+
+                                        {filteredGroupedProducts.length === 0 && (
+                                            <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+                                                <span className="material-icons-round text-6xl mb-4 opacity-20">search_off</span>
+                                                <p className="font-bold">No se encontraron productos</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+                    )}
                 </div>
             </main>
 
