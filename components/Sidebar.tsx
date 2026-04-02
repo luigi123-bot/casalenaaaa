@@ -81,13 +81,16 @@ export default function Sidebar() {
 
     // Determine which items to show based on role
     let navItems: NavItem[] = [];
-    if (user?.role === 'administrador') {
+    const normalizedRole = user?.role?.toLowerCase();
+
+    if (normalizedRole === 'administrador' || normalizedRole === 'admin') {
         navItems = adminNavItems;
-    } else if (user?.role === 'cajero') {
+    } else if (normalizedRole === 'cajero') {
         navItems = cashierNavItems;
-    } else if (user?.role === 'cocina') {
+    } else if (normalizedRole === 'cocina') {
         navItems = kitchenNavItems;
-    } else if (user?.role === 'cliente') {
+    } else {
+        // Fallback for 'cliente', 'CLIENTE', or unauthenticated users (guests) visiting the store
         navItems = clientNavItems;
     }
 
