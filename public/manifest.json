@@ -1,7 +1,7 @@
 {
     "name": "Casaleña POS",
     "short_name": "Casaleña",
-    "description": "Sistema de Punto de Venta para pizzería",
+    "description": "Sistema de Punto de Venta para Taquería",
     "id": "/",
     "start_url": "/",
     "display": "standalone",

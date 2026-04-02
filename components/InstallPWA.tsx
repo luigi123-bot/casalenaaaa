@@ -46,8 +46,8 @@ export default function InstallPWA() {
         if (isWindows) {
             // Priority: Download Desktop App on Windows with a real download trigger
             const link = document.createElement('a');
-            link.href = '/CasalenaPOS.exe';
-            link.download = 'CasalenaPOS.exe';
+            link.href = '/Casalena POS.exe';
+            link.download = 'Casalena POS.exe';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

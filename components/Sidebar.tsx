@@ -28,8 +28,8 @@ export default function Sidebar() {
 
     const handleDownloadDesktop = () => {
         const link = document.createElement('a');
-        link.href = '/CasalenaPOS.exe';
-        link.download = 'CasalenaPOS.exe';
+        link.href = '/Casalena POS.exe';
+        link.download = 'Casalena POS.exe';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
