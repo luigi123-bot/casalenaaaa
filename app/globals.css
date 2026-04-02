@@ -25,12 +25,21 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* Custom shadow from user template */
+/* Material Icons/Symbols Failsafe - Force Font Family */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined' !important;
+}
+
+.material-icons-round {
+  font-family: 'Material Icons Round' !important;
+}
+
+/* Custom shadow */
 .card-shadow {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
 
-/* Custom scrollbar for better aesthetics */
+/* Scrollbar aesthetics */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -46,14 +55,6 @@ body {
 
 .dark ::-webkit-scrollbar-thumb {
   background: #4b5563;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #d1d5db;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
 }
 
 .scrollbar-hide::-webkit-scrollbar {

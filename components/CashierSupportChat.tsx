@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -19,20 +19,7 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
     const [loading, setLoading] = useState(false);
     const [sessionId, setSessionId] = useState<string | null>(null);
 
-    useEffect(() => {
-        console.log('=== OPENING SUPPORT CHAT - INITIALIZING SESSION ===');
-        initializeChatSession();
-    }, []);
-
-    useEffect(() => {
-        if (sessionId) {
-            console.log(`=== SESSION ID SET: ${sessionId} - FETCHING MESSAGES ===`);
-            fetchMessages();
-            subscribeToMessages();
-        }
-    }, [sessionId]);
-
-    const initializeChatSession = async () => {
+    const initializeChatSession = useCallback(async () => {
         console.log('--- Checking for active session ---');
         // Check if there's an active session
         const { data: existingSession } = await supabase
@@ -63,9 +50,9 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
                 setSessionId(newSession.id);
             }
         }
-    };
+    }, [user?.id, user?.full_name]);
 
-    const fetchMessages = async () => {
+    const fetchMessages = useCallback(async () => {
         if (!sessionId) return;
 
         console.log(`--- Fetching messages for session ${sessionId} ---`);
@@ -83,9 +70,9 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
             console.log(`--- Fetched ${data.length} messages ---`);
             setMessages(data);
         }
-    };
+    }, [sessionId]);
 
-    const subscribeToMessages = () => {
+    const subscribeToMessages = useCallback(() => {
         if (!sessionId) return;
 
         const channel = supabase
@@ -111,7 +98,20 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
         return () => {
             supabase.removeChannel(channel);
         };
-    };
+    }, [sessionId]);
+
+    useEffect(() => {
+        console.log('=== OPENING SUPPORT CHAT - INITIALIZING SESSION ===');
+        initializeChatSession();
+    }, [initializeChatSession]);
+
+    useEffect(() => {
+        if (sessionId) {
+            console.log(`=== SESSION ID SET: ${sessionId} - FETCHING MESSAGES ===`);
+            fetchMessages();
+            return subscribeToMessages();
+        }
+    }, [sessionId, fetchMessages, subscribeToMessages]);
 
     const sendMessage = async () => {
         if (!newMessage.trim() || !sessionId) return;

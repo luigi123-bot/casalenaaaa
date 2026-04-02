@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 
 interface Customer {
@@ -20,7 +20,6 @@ export default function CustomerSelector({ onSelect, selectedCustomer }: Custome
     const [results, setResults] = useState<Customer[]>([]);
     const [isOpen, setIsOpen] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
-    const [newCustomerBadges, setNewCustomerBadges] = useState(false);
 
     // New Customer Form State
     const [newCustomerName, setNewCustomerName] = useState('');
@@ -38,15 +37,7 @@ export default function CustomerSelector({ onSelect, selectedCustomer }: Custome
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    useEffect(() => {
-        if (searchTerm.length > 2) {
-            searchCustomers();
-        } else {
-            setResults([]);
-        }
-    }, [searchTerm]);
-
-    const searchCustomers = async () => {
+    const searchCustomers = useCallback(async () => {
         const { data } = await supabase
             .from('customers')
             .select('*')
@@ -54,7 +45,15 @@ export default function CustomerSelector({ onSelect, selectedCustomer }: Custome
             .limit(5);
         setResults(data || []);
         setIsOpen(true);
-    };
+    }, [searchTerm]);
+
+    useEffect(() => {
+        if (searchTerm.length > 2) {
+            searchCustomers();
+        } else {
+            setResults([]);
+        }
+    }, [searchTerm, searchCustomers]);
 
     const handleCreateCustomer = async () => {
         if (!newCustomerName) return;
@@ -78,7 +77,6 @@ export default function CustomerSelector({ onSelect, selectedCustomer }: Custome
         setIsCreating(false);
         setNewCustomerName('');
         setNewCustomerPhone('');
-        setNewCustomerBadges(false);
     };
 
     if (isCreating) {
@@ -188,7 +186,7 @@ export default function CustomerSelector({ onSelect, selectedCustomer }: Custome
                         className="w-full p-3 bg-[#fcfbf9] text-primary font-bold text-sm hover:bg-[#f8f7f5] flex items-center justify-center gap-2 border-t border-[#e6e1db]"
                     >
                         <span className="material-symbols-outlined">add</span>
-                        Crear "{searchTerm || 'Nuevo Cliente'}"
+                        Crear &quot;{searchTerm || 'Nuevo Cliente'}&quot;
                     </button>
                 </div>
             )}

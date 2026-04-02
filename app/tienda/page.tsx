@@ -87,9 +87,9 @@ export default function TiendaPage() {
     const [whatsappLink, setWhatsappLink] = useState('');
 
     const EXTRAS_OPTIONS = [
-        { id: 'extra_cheese', name: 'Extra Queso', price: 20 },
-        { id: 'stuffed_crust', name: 'Orilla Rellena', price: 35 },
-        { id: 'extra_sauce', name: 'Extra Salsa', price: 10 },
+        { id: 'extra_ingredient', name: 'Ingrediente extra', price: 20 },
+        { id: 'extra_cheese', name: 'Extra queso', price: 35 },
+        { id: 'extra_sauce', name: 'Aderezo extra', price: 10 },
     ];
 
     // Initial Data Fetch
@@ -221,7 +221,29 @@ export default function TiendaPage() {
         console.log('📦 Categories result:', data?.length, error);
         if (error) console.error('Error categories:', error);
 
-        setCategories(data || []);
+        if (data) {
+            // Custom order mapping for consistency with cashier
+            const categorySortOrder: Record<string, number> = {
+                'PIZZAS TRADICIONALES': 1,
+                'ESPECIALIDADES': 2,
+                'GOURMET': 3,
+                'ORILLAFRESCA': 4,
+                'ENTRADAS Y SNACKS': 5,
+                'HAMBURGUESAS': 6,
+                'BEBIDAS': 7,
+                'POSTRES': 8,
+                'COMBOS': 9
+            };
+
+            const sortedData = [...data].sort((a, b) => {
+                const orderA = categorySortOrder[a.name.toUpperCase()] || 999;
+                const orderB = categorySortOrder[b.name.toUpperCase()] || 999;
+                return orderA - orderB;
+            });
+            setCategories(sortedData);
+        } else {
+            setCategories([]);
+        }
     };
 
     const fetchProducts = async () => {
@@ -800,27 +822,44 @@ export default function TiendaPage() {
 
                     {/* Categories - Responsive Sticky */}
                     <div className="sticky top-0 z-10 bg-[#FAFAFA]/95 backdrop-blur-sm py-2 sm:py-3 mb-3 sm:mb-4 flex gap-1.5 sm:gap-2 overflow-x-auto pb-3 scrollbar-hide -mx-1 px-1">
+                        {categories.map((cat) => {
+                            const displayNames: Record<string, string> = {
+                                'PIZZAS TRADICIONALES': 'Tradicionales',
+                                'ESPECIALIDADES': 'Especialidades',
+                                'GOURMET': 'Gourmet',
+                                'ORILLAFRESCA': 'Orilla',
+                                'ENTRADAS Y SNACKS': 'Snacks',
+                                'HAMBURGUESAS': 'Hamburguesas',
+                                'BEBIDAS': 'Bebidas',
+                                'POSTRES': 'Postres',
+                                'COMBOS': 'Combos'
+                            };
+                            const cleanName = displayNames[cat.name.toUpperCase()] || cat.name;
+
+                            return (
+                                <button
+                                    key={cat.id}
+                                    onClick={() => setSelectedCategory(cat.id)}
+                                    className={`px-4 sm:px-5 md:px-6 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm md:text-base font-black uppercase tracking-tight whitespace-nowrap transition-all duration-300 flex-shrink-0 ${selectedCategory === cat.id
+                                        ? 'bg-[#1D1D1F] text-white shadow-xl scale-105'
+                                        : 'bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-900 shadow-sm border border-gray-100'
+                                        }`}
+                                >
+                                    {cleanName}
+                                </button>
+                            )
+                        })}
+
+                        {/* Todos moved to the end */}
                         <button
                             onClick={() => setSelectedCategory('Todas')}
-                            className={`px-3 sm:px-4 md:px-5 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs md:text-sm font-bold whitespace-nowrap transition-all duration-300 flex-shrink-0 ${selectedCategory === 'Todas'
-                                ? 'bg-[#1D1D1F] text-white shadow-md scale-105'
+                            className={`px-4 sm:px-5 md:px-6 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm md:text-base font-black uppercase tracking-tight whitespace-nowrap transition-all duration-300 flex-shrink-0 ${selectedCategory === 'Todas'
+                                ? 'bg-[#1D1D1F] text-white shadow-xl scale-105'
                                 : 'bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-900 shadow-sm border border-gray-100'
                                 }`}
                         >
-                            Todos
+                            Todas
                         </button>
-                        {categories.map((cat) => (
-                            <button
-                                key={cat.id}
-                                onClick={() => setSelectedCategory(cat.id)}
-                                className={`px-3 sm:px-4 md:px-5 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs md:text-sm font-bold whitespace-nowrap transition-all duration-300 flex-shrink-0 ${selectedCategory === cat.id
-                                    ? 'bg-[#1D1D1F] text-white shadow-md scale-105'
-                                    : 'bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-900 shadow-sm border border-gray-100'
-                                    }`}
-                            >
-                                {cat.name}
-                            </button>
-                        ))}
                     </div>
 
                     {/* Product Grid - Responsive */}
@@ -947,28 +986,31 @@ export default function TiendaPage() {
                                             <span className="material-icons-round text-[#F7941D]">extension</span>
                                             Agrega extras (Opcional)
                                         </h4>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                            {EXTRAS_OPTIONS.map((extra) => (
-                                                <label
-                                                    key={extra.id}
-                                                    className={`flex flex-col p-3 rounded-xl border-2 cursor-pointer transition-all ${selectedExtras.includes(extra.id)
-                                                        ? 'border-[#F7941D] bg-orange-50/50'
-                                                        : 'border-gray-100 hover:border-gray-200'}`}
-                                                >
-                                                    <div className="flex justify-between items-start mb-1">
-                                                        <span className={`text-sm font-bold ${selectedExtras.includes(extra.id) ? 'text-[#1D1D1F]' : 'text-gray-600'}`}>
-                                                            {extra.name}
+                                        <div className="flex flex-wrap gap-2 sm:gap-3">
+                                            {EXTRAS_OPTIONS.map((extra) => {
+                                                const isSelected = selectedExtras.includes(extra.id);
+                                                return (
+                                                    <button
+                                                        key={extra.id}
+                                                        onClick={() => toggleExtra(extra.id)}
+                                                        className={`flex flex-col items-start px-4 py-3 rounded-2xl border-2 transition-all min-w-[140px] flex-1 sm:flex-none ${isSelected
+                                                            ? 'border-[#F7941D] bg-[#F7941D] text-white shadow-lg shadow-orange-500/20'
+                                                            : 'border-gray-100 bg-gray-50 text-gray-900 hover:border-gray-200 hover:bg-white'}`}
+                                                    >
+                                                        <div className="flex justify-between items-center w-full mb-1">
+                                                            <span className={`text-xs font-black uppercase tracking-wider ${isSelected ? 'text-white' : 'text-gray-900'}`}>
+                                                                {extra.name}
+                                                            </span>
+                                                            {isSelected && (
+                                                                <span className="material-icons-round text-sm animate-in zoom-in">check_circle</span>
+                                                            )}
+                                                        </div>
+                                                        <span className={`text-[11px] font-bold ${isSelected ? 'text-white/80' : 'text-[#F7941D]'}`}>
+                                                            +${extra.price}
                                                         </span>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selectedExtras.includes(extra.id)}
-                                                            onChange={() => toggleExtra(extra.id)}
-                                                            className="rounded text-[#F7941D] focus:ring-[#F7941D] w-4 h-4 mt-0.5"
-                                                        />
-                                                    </div>
-                                                    <span className="text-xs font-bold text-[#F7941D]">+${extra.price}</span>
-                                                </label>
-                                            ))}
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </div>

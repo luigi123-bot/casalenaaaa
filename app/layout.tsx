@@ -27,6 +27,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://casalena.app.netlify.app"),
   title: {
     default: "Casaleña - Pizza & Grill",
     template: "%s | Casaleña"

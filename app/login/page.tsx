@@ -48,7 +48,7 @@ export default function LoginPage() {
 
             // Redirect based on role
             if (role === 'administrador') {
-                router.push('/admin/users');
+                router.push('/admin');
             } else if (role === 'cajero') {
                 router.push('/cashier');
             } else if (role === 'cocina') {

@@ -220,6 +220,15 @@ export default function ReportsPage() {
                         <h1 className="text-2xl font-bold text-[#181511]">Reportes de Ventas</h1>
                         <p className="text-[#8c785f] text-sm">Genera y exporta reportes detallados de transacciones.</p>
                     </div>
+                    <div className="flex gap-3">
+                        <button 
+                            onClick={() => window.location.href = '/admin/reports/insights'}
+                            className="px-6 py-3 bg-[#181511] text-white font-black rounded-xl hover:bg-black transition-all shadow-lg flex items-center gap-2 group active:scale-95"
+                        >
+                            <span className="material-symbols-outlined text-lg group-hover:scale-125 transition-transform">insights</span>
+                            ANALÍTICA DE PRODUCTOS
+                        </button>
+                    </div>
                 </div>
 
                 {/* Filters Card */}

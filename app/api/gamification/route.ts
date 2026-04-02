@@ -170,7 +170,7 @@ export async function POST(request: Request) {
                     total_points: newTotal,
                     current_level: newLevel,
                     points_to_next_level: pointsToNext
-                });
+                }, { onConflict: 'user_id' });
 
             if (updateError) throw updateError;
 

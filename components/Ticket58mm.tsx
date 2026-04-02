@@ -18,6 +18,7 @@ export interface TicketData {
         metodo_pago: string;
         pago_con?: number;
         cambio?: number;
+        is_pre_ticket?: boolean; // Flag to show "PRE-CUENTA"
     };
     cliente?: {
         nombre: string;
@@ -74,9 +75,9 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
         <div className="w-full bg-white text-black font-mono text-[9px] leading-[1.15] mx-auto px-0 py-2 flex flex-col items-center">
 
             {/* 1. LOGO Y DATOS DE CONTACTO */}
-            <div className="flex flex-col items-center w-full mb-1">
-                <img src="/icon.png" alt="Logo" className="w-14 grayscale mb-1" />
-                <h1 className="font-black text-base tracking-tighter uppercase mb-0.5">CASALEÑA</h1>
+            <div className="flex flex-col items-center w-full mb-3">
+                <img src="/icon.png" alt="Logo" className="w-28 grayscale mb-2" />
+                <h1 className="font-black text-3xl tracking-tighter uppercase mb-1">CASALEÑA</h1>
                 <div className="text-center font-bold text-[7.5px] uppercase leading-tight space-y-0 text-gray-800">
                     <p>Boulevard Juan N Alvarez</p>
                     <p>Col. Sentimientos de la Nación</p>
@@ -105,6 +106,11 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 {!isDelivery && (
                     <div className="text-center border-2 border-black py-0.5 my-1 text-[10px] font-black">
                         {data.pedido.tipo === 'dine-in' ? `MESA: ${data.pedido.mesa || 'S/N'}` : 'PARA LLEVAR'}
+                    </div>
+                )}
+                {data.pedido.is_pre_ticket && (
+                    <div className="text-center bg-black text-white py-1 my-1 text-[11px] font-black tracking-widest animate-pulse">
+                        *** PRE-CUENTA ***
                     </div>
                 )}
             </div>

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSafeCashier } from '@/contexts/CashierContext';
 import { supabase } from '@/utils/supabase/client';
@@ -10,8 +10,6 @@ interface HeaderProps {
     role: 'admin' | 'cashier';
     searchTerm?: string;
     setSearchTerm?: (term: string) => void;
-    activeCategory?: string;
-    setActiveCategory?: (category: string) => void;
 }
 
 interface AppNotification {
@@ -24,6 +22,85 @@ interface AppNotification {
     read: boolean;
 }
 
+// ─── Sub-components declared outside Header to avoid recreation on render ────
+
+interface UserProfileProps {
+    fullName?: string;
+    role: string;
+    avatarUrl?: string;
+    onSignOut: () => void;
+    getRoleName: (r: string) => string;
+}
+
+function UserProfile({ fullName, role, avatarUrl, onSignOut, getRoleName }: UserProfileProps) {
+    return (
+        <div className="flex items-center gap-2 sm:gap-3 pl-3 sm:pl-6 border-l border-[#e6e1db]">
+            <div className="text-right hidden md:block">
+                <p className="text-sm font-bold text-[#181511]">{fullName || 'Usuario'}</p>
+                <p className="text-xs text-[#8c785f]">{role ? getRoleName(role) : ''}</p>
+            </div>
+            <button onClick={onSignOut} className="rounded-full size-8 sm:size-10 border-2 border-[#e6e1db] hover:border-primary transition-colors flex items-center justify-center overflow-hidden">
+                {avatarUrl
+                    ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    : <span className="material-symbols-outlined text-[#8c785f] text-xl sm:text-2xl">person</span>
+                }
+            </button>
+        </div>
+    );
+}
+
+interface NotificationDropdownProps {
+    show: boolean;
+    notifications: AppNotification[];
+    onClose: () => void;
+    onClear: () => void;
+    onNotificationClick: (n: AppNotification) => void;
+}
+
+function NotificationDropdown({ show, notifications, onClose, onClear, onNotificationClick }: NotificationDropdownProps) {
+    if (!show) return null;
+    return (
+        <>
+            <div className="fixed inset-0 z-40" onClick={onClose} />
+            <div className="absolute top-14 sm:top-16 right-4 sm:right-20 w-[calc(100vw-2rem)] sm:w-80 max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                <div className="p-3 sm:p-4 border-b flex justify-between items-center bg-gray-50/50">
+                    <h3 className="font-bold text-sm sm:text-base text-[#181511]">Notificaciones</h3>
+                    {notifications.length > 0 && <button onClick={onClear} className="text-xs text-primary font-bold hover:underline">Limpiar todo</button>}
+                </div>
+                <div className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
+                    {notifications.length === 0 ? (
+                        <div className="p-6 sm:p-8 text-center text-gray-400"><p className="text-xs font-medium">No hay notificaciones</p></div>
+                    ) : (
+                        notifications.map(notif => (
+                            <div key={notif.id} onClick={() => onNotificationClick(notif)} className={`p-3 sm:p-4 border-b hover:bg-gray-50 cursor-pointer flex gap-2 sm:gap-3 ${!notif.read ? 'bg-orange-50/30' : ''}`}>
+                                <div className={`mt-1 size-7 sm:size-8 rounded-full flex items-center justify-center shrink-0 ${notif.type === 'order' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
+                                    <span className="material-symbols-outlined text-base sm:text-lg">{notif.type === 'order' ? 'receipt_long' : 'chat'}</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <h4 className={`text-xs sm:text-sm ${!notif.read ? 'font-bold' : 'font-medium text-gray-600'}`}>{notif.title}</h4>
+                                    <p className="text-[10px] sm:text-xs text-gray-500 line-clamp-2 my-0.5">{notif.description}</p>
+                                </div>
+                                {!notif.read && <div className="shrink-0 mt-2 size-2 rounded-full bg-primary" />}
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+        </>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getRoleName(userRole: string): string {
+    switch (userRole) {
+        case 'administrador': return 'Administrador';
+        case 'cajero': return 'Cajero';
+        case 'cocina': return 'Cocina';
+        default: return 'Usuario';
+    }
+}
+
 export default function Header(props: HeaderProps) {
     const { role } = props;
     const { user, signOut } = useAuth();
@@ -33,38 +110,34 @@ export default function Header(props: HeaderProps) {
 
     const searchTerm = cashierContext?.searchTerm ?? props.searchTerm;
     const setSearchTerm = cashierContext?.setSearchTerm ?? props.setSearchTerm;
-    const activeCategory = cashierContext?.activeCategory ?? props.activeCategory;
-    const setActiveCategory = cashierContext?.setActiveCategory ?? props.setActiveCategory;
 
     const [currentTime, setCurrentTime] = useState('');
     const [currentDate, setCurrentDate] = useState('');
 
-    // Notification State
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [showNotifications, setShowNotifications] = useState(false);
 
-    // Derived count of unread notifications
-    const unreadCount = useMemo(() =>
-        notifications.filter(n => !n.read).length
-        , [notifications]);
-
-    const hasUnread = unreadCount > 0;
     const notificationAudioRef = useRef<HTMLAudioElement | null>(null);
 
-    // Initial Data Fetch & Realtime Subscription
+    const handleNewNotification = useCallback((notif: AppNotification) => {
+        setNotifications(prev => [notif, ...prev]);
+        if (notificationAudioRef.current) {
+            notificationAudioRef.current.currentTime = 0;
+            notificationAudioRef.current.play().catch(() => { });
+        }
+    }, []);
+
     useEffect(() => {
         notificationAudioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3');
 
         const fetchInitialState = async () => {
             try {
-                // Unread Messages (only from clients)
                 const { count: msgCount } = await supabase
                     .from('chat_messages')
                     .select('*', { count: 'exact', head: true })
                     .eq('is_read', false)
                     .eq('sender', 'client');
 
-                // Pending Orders
                 const { count: orderCount } = await supabase
                     .from('orders')
                     .select('*', { count: 'exact', head: true })
@@ -106,7 +179,7 @@ export default function Header(props: HeaderProps) {
         const channel = supabase
             .channel('header_notifications')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
-                const newOrder = payload.new;
+                const newOrder = payload.new as { id: number; customer_name?: string };
                 handleNewNotification({
                     id: `order-${newOrder.id}`,
                     type: 'order',
@@ -118,7 +191,7 @@ export default function Header(props: HeaderProps) {
                 });
             })
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, (payload) => {
-                const newMsg = payload.new as any;
+                const newMsg = payload.new as { id: number; sender: string; customer_name?: string; message: string };
                 if (newMsg.sender === 'client') {
                     handleNewNotification({
                         id: `msg-${newMsg.id}`,
@@ -136,17 +209,13 @@ export default function Header(props: HeaderProps) {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [role]);
+    }, [role, handleNewNotification]);
 
-    const handleNewNotification = (notif: AppNotification) => {
-        setNotifications(prev => [notif, ...prev]);
-        if (notificationAudioRef.current) {
-            notificationAudioRef.current.currentTime = 0;
-            notificationAudioRef.current.play().catch(() => { });
-        }
-    };
+    const unreadCount = useMemo(() =>
+        notifications.filter(n => !n.read).length
+        , [notifications]);
 
-    const handleNotificationClick = (notif: AppNotification) => {
+    const handleNotificationClick = useCallback((notif: AppNotification) => {
         setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
         setShowNotifications(false);
 
@@ -155,12 +224,12 @@ export default function Header(props: HeaderProps) {
         } else {
             router.push(notif.link);
         }
-    };
+    }, [router]);
 
-    const clearNotifications = () => {
+    const clearNotifications = useCallback(() => {
         setNotifications([]);
         setShowNotifications(false);
-    };
+    }, []);
 
     useEffect(() => {
         const updateDateTime = () => {
@@ -175,59 +244,6 @@ export default function Header(props: HeaderProps) {
         const interval = setInterval(updateDateTime, 1000);
         return () => clearInterval(interval);
     }, [role]);
-
-    const getRoleName = (userRole: string) => {
-        switch (userRole) {
-            case 'administrador': return 'Administrador';
-            case 'cajero': return 'Cajero';
-            case 'cocina': return 'Cocina';
-            default: return 'Usuario';
-        }
-    };
-
-    const UserProfile = () => (
-        <div className="flex items-center gap-2 sm:gap-3 pl-3 sm:pl-6 border-l border-[#e6e1db]">
-            <div className="text-right hidden md:block">
-                <p className="text-sm font-bold text-[#181511]">{user?.full_name || 'Usuario'}</p>
-                <p className="text-xs text-[#8c785f]">{user ? getRoleName(user.role) : ''}</p>
-            </div>
-            <button onClick={() => signOut()} className="rounded-full size-8 sm:size-10 border-2 border-[#e6e1db] hover:border-primary transition-colors flex items-center justify-center overflow-hidden">
-                {user?.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : <span className="material-symbols-outlined text-[#8c785f] text-xl sm:text-2xl">person</span>}
-            </button>
-        </div>
-    );
-
-    const NotificationDropdown = () => (
-        showNotifications && (
-            <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                <div className="absolute top-14 sm:top-16 right-4 sm:right-20 w-[calc(100vw-2rem)] sm:w-80 max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                    <div className="p-3 sm:p-4 border-b flex justify-between items-center bg-gray-50/50">
-                        <h3 className="font-bold text-sm sm:text-base text-[#181511]">Notificaciones</h3>
-                        {notifications.length > 0 && <button onClick={clearNotifications} className="text-xs text-primary font-bold hover:underline">Limpiar todo</button>}
-                    </div>
-                    <div className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
-                        {notifications.length === 0 ? (
-                            <div className="p-6 sm:p-8 text-center text-gray-400"><p className="text-xs font-medium">No hay notificaciones</p></div>
-                        ) : (
-                            notifications.map(notif => (
-                                <div key={notif.id} onClick={() => handleNotificationClick(notif)} className={`p-3 sm:p-4 border-b hover:bg-gray-50 cursor-pointer flex gap-2 sm:gap-3 ${!notif.read ? 'bg-orange-50/30' : ''}`}>
-                                    <div className={`mt-1 size-7 sm:size-8 rounded-full flex items-center justify-center shrink-0 ${notif.type === 'order' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-                                        <span className="material-symbols-outlined text-base sm:text-lg">{notif.type === 'order' ? 'receipt_long' : 'chat'}</span>
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h4 className={`text-xs sm:text-sm ${!notif.read ? 'font-bold' : 'font-medium text-gray-600'}`}>{notif.title}</h4>
-                                        <p className="text-[10px] sm:text-xs text-gray-500 line-clamp-2 my-0.5">{notif.description}</p>
-                                    </div>
-                                    {!notif.read && <div className="shrink-0 mt-2 size-2 rounded-full bg-primary" />}
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
-            </>
-        )
-    );
 
     return (
         <header className="flex items-center justify-between border-b border-[#e6e1db] bg-white px-4 sm:px-6 lg:px-8 py-3 sm:py-4 shrink-0 h-[60px] sm:h-[72px] relative">
@@ -254,7 +270,7 @@ export default function Header(props: HeaderProps) {
             )}
 
             <div className="flex items-center gap-3 sm:gap-6">
-                <button onClick={() => setShowNotifications(!showNotifications)} className="relative text-[#8c785f] hover:text-primary transition-colors">
+                <button onClick={() => setShowNotifications(v => !v)} className="relative text-[#8c785f] hover:text-primary transition-colors">
                     <span className="material-symbols-outlined text-2xl sm:text-[28px]">notifications</span>
                     {unreadCount > 0 && (
                         <span className="absolute -top-1 -right-1 min-w-[16px] sm:min-w-[18px] h-[16px] sm:h-[18px] bg-red-500 text-white text-[9px] sm:text-[10px] font-bold rounded-full flex items-center justify-center px-0.5 sm:px-1 border-2 border-white animate-bounce-slow">
@@ -262,8 +278,20 @@ export default function Header(props: HeaderProps) {
                         </span>
                     )}
                 </button>
-                <NotificationDropdown />
-                <UserProfile />
+                <NotificationDropdown
+                    show={showNotifications}
+                    notifications={notifications}
+                    onClose={() => setShowNotifications(false)}
+                    onClear={clearNotifications}
+                    onNotificationClick={handleNotificationClick}
+                />
+                <UserProfile
+                    fullName={user?.full_name}
+                    role={user?.role ?? ''}
+                    avatarUrl={user?.avatar_url}
+                    onSignOut={signOut}
+                    getRoleName={getRoleName}
+                />
             </div>
         </header>
     );

@@ -79,16 +79,23 @@ export default function CashierOrdersPage() {
         let result = [...orders];
 
         if (statusFilter !== 'Todos') {
-            const statusMap: { [key: string]: string[] } = {
-                'Finalizado': ['entregado', 'completado'],
-                'Preparando': ['confirmado', 'preparando'],
-                'Listo': ['listo'],
-                'Cancelado': ['cancelado'],
-                'Pendiente': ['pendiente']
-            };
-            const possibleStatuses = statusMap[statusFilter];
-            if (possibleStatuses) {
-                result = result.filter(o => possibleStatuses.includes(o.status));
+            if (statusFilter === 'PickUp') {
+                result = result.filter(o => o.order_type === 'takeout' && o.status !== 'cancelado');
+            } else if (statusFilter === 'Domicilio') {
+                result = result.filter(o => o.order_type === 'delivery' && o.status !== 'cancelado');
+            } else {
+                const statusMap: { [key: string]: string[] } = {
+                    'Finalizado': ['entregado', 'completado'],
+                    'Preparando': ['confirmado', 'preparando'],
+                    'Abiertas': ['abierta'],
+                    'Listos': ['listo'],
+                    'cancelado': ['cancelado'],
+                    'Pendiente': ['pendiente']
+                };
+                const possibleStatuses = statusMap[statusFilter];
+                if (possibleStatuses) {
+                    result = result.filter(o => possibleStatuses.includes(o.status));
+                }
             }
         }
 
@@ -116,11 +123,11 @@ export default function CashierOrdersPage() {
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'entregado':
-                return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-green-100 text-green-700 border border-green-200">Entregado</span>;
+                return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-green-100 text-green-700 border border-green-200">Finalizado</span>;
             case 'listo':
-                return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-purple-100 text-purple-700 border border-purple-200 animate-pulse">Listo</span>;
+                return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-purple-100 text-purple-700 border border-purple-200 animate-pulse">Listos</span>;
             case 'preparando':
-                return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-orange-100 text-orange-700 border border-orange-200">Cocinando</span>;
+                return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-orange-100 text-orange-700 border border-orange-200">Preparando</span>;
             case 'confirmado':
                 return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-blue-100 text-blue-700 border border-blue-200">Confirmado</span>;
             case 'cancelado':
@@ -231,11 +238,13 @@ export default function CashierOrdersPage() {
             <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
                 {[
                     { label: 'Todos', icon: 'apps' },
-                    { label: 'Pendiente', icon: 'schedule' },
+                    { label: 'Abiertas', icon: 'restaurant_menu' },
                     { label: 'Preparando', icon: 'restaurant' },
-                    { label: 'Listo', icon: 'task_alt' },
+                    { label: 'Listos', icon: 'task_alt' },
+                    { label: 'PickUp', icon: 'shopping_bag' },
+                    { label: 'Domicilio', icon: 'delivery_dining' },
                     { label: 'Finalizado', icon: 'check_circle' },
-                    { label: 'Cancelado', icon: 'cancel' },
+                    { label: 'cancelado', icon: 'cancel' },
                 ].map((filter) => {
                     const isActive = statusFilter === filter.label;
                     return (

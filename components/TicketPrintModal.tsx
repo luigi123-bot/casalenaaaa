@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import Ticket58mm, { TicketData } from './Ticket58mm';
 
 interface TicketPrintModalProps {

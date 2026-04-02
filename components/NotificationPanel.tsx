@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 
 interface Notification {
@@ -15,7 +15,40 @@ interface Notification {
 
 export default function NotificationPanel({ onClose }: { onClose: () => void }) {
     const [notifications, setNotifications] = useState<Notification[]>([]);
-    const [unreadCount, setUnreadCount] = useState(0);
+    const unreadCount = notifications.filter(n => !n.read).length;
+
+    const addNotification = useCallback((notification: Notification) => {
+        setNotifications(prev => [notification, ...prev]);
+
+        // Play notification sound
+        const audio = new Audio('/notification.mp3');
+        audio.volume = 0.3;
+        audio.play().catch(() => { });
+    }, []);
+
+    const loadExistingNotifications = useCallback(async () => {
+        try {
+            const { data } = await supabase
+                .from('cashier_notifications')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            if (data) {
+                const mappedNotifications = data.map(n => ({
+                    id: n.id,
+                    type: n.type as any,
+                    title: n.title,
+                    message: n.message,
+                    timestamp: new Date(n.created_at),
+                    read: n.read
+                }));
+                setNotifications(mappedNotifications);
+            }
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+        }
+    }, []);
 
     useEffect(() => {
         // Load existing notifications from database
@@ -81,44 +114,7 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
             supabase.removeChannel(ordersChannel);
             supabase.removeChannel(whatsappChannel);
         };
-    }, []);
-
-    const loadExistingNotifications = async () => {
-        try {
-            const { data } = await supabase
-                .from('cashier_notifications')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(20);
-
-            if (data) {
-                const mappedNotifications = data.map(n => ({
-                    id: n.id,
-                    type: n.type as any,
-                    title: n.title,
-                    message: n.message,
-                    timestamp: new Date(n.created_at),
-                    read: n.read
-                }));
-                setNotifications(mappedNotifications);
-            }
-        } catch (error) {
-            console.error('Error loading notifications:', error);
-        }
-    };
-
-    useEffect(() => {
-        setUnreadCount(notifications.filter(n => !n.read).length);
-    }, [notifications]);
-
-    const addNotification = (notification: Notification) => {
-        setNotifications(prev => [notification, ...prev]);
-
-        // Play notification sound
-        const audio = new Audio('/notification.mp3');
-        audio.volume = 0.3;
-        audio.play().catch(() => { });
-    };
+    }, [loadExistingNotifications, addNotification]);
 
     const markAsRead = (id: string) => {
         setNotifications(prev =>

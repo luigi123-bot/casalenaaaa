@@ -1,6 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
-import { addPointsForOrder } from '@/utils/gamification';
 import TicketPrintModal from './TicketPrintModal';
 import { TicketData } from './Ticket58mm';
 
@@ -41,10 +40,11 @@ interface OrderDetailsPanelProps {
 export default function OrderDetailsPanel({ order, onClose, onStatusChange }: OrderDetailsPanelProps) {
     const panelRef = useRef<HTMLDivElement>(null);
     const iframeRef = useRef<HTMLIFrameElement>(null);
-    const [updating, setUpdating] = useState(false);
-    const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [showTicketModal, setShowTicketModal] = useState(false);
+    const [updating, setUpdating] = useState(false);
     const [ticketData, setTicketData] = useState<TicketData | null>(null);
+    const [repartidores, setRepartidores] = useState<any[]>([]);
+    const [selectedRepartidor, setSelectedRepartidor] = useState<string>('');
 
     const handlePrintTicket = () => {
         if (!order) return;
@@ -94,6 +94,30 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
         setTicketData(data);
         setShowTicketModal(true);
     };
+
+    useEffect(() => {
+        const fetchRepartidores = async () => {
+            try {
+                // Fetch users with role 'repartidor' from the profiles or api
+                const response = await fetch('/api/users');
+                if (response.ok) {
+                    const allUsers = await response.json();
+                    const drivers = allUsers.filter((u: any) => u.role?.toLowerCase() === 'repartidor');
+                    setRepartidores(drivers);
+                }
+            } catch (error) {
+                console.error('Error fetching repartidores:', error);
+            }
+        };
+
+        fetchRepartidores();
+        
+        if (order && (order as any).repartidor_name) {
+            setSelectedRepartidor((order as any).repartidor_name);
+        } else {
+            setSelectedRepartidor('');
+        }
+    }, [order]);
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -239,10 +263,39 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
                         ))}
                     </div>
 
-                    <div className="bg-white rounded-2xl p-4 border border-[#e6e1db]">
-                        <div className="grid grid-cols-2 gap-4 text-[11px]">
+                    <div className="bg-white rounded-2xl p-4 border border-[#e6e1db] space-y-4">
+                        <div className="grid grid-cols-2 gap-4 text-[11px] border-b border-gray-100 pb-3">
                             <div><p className="text-gray-400 font-bold uppercase mb-1">Tipo</p><p className="font-bold text-[#181511]">{order.order_type === 'delivery' ? 'Domicilio' : 'Comedor (' + (order.table_number || 'S/N') + ')'}</p></div>
-                            <div><p className="text-gray-400 font-bold uppercase mb-1">Pago</p><p className="font-bold text-[#181511]">Efectivo</p></div>
+                            <div><p className="text-gray-400 font-bold uppercase mb-1">Pago</p><p className="font-bold text-[#181511]">{order.payment_method || 'Efectivo'}</p></div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4 text-[11px]">
+                            <div>
+                                <p className="text-gray-400 font-bold uppercase mb-1">Tomado por</p>
+                                <p className="font-bold text-primary">{(order as any).cashier_name || 'Cajero'}</p>
+                            </div>
+                            {order.order_type === 'delivery' && (
+                                <div>
+                                    <p className="text-gray-400 font-bold uppercase mb-1">Repartidor</p>
+                                    <select 
+                                        value={selectedRepartidor}
+                                        onChange={async (e) => {
+                                            const name = e.target.value;
+                                            setSelectedRepartidor(name);
+                                            // Assign in DB (Assuming columns exist or using metadata)
+                                            try {
+                                                await supabase.from('orders').update({ repartidor_name: name }).eq('id', order.id);
+                                            } catch (err) { console.error(err); }
+                                        }}
+                                        className="w-full bg-orange-50 border border-orange-200 rounded-lg px-2 py-1 font-black text-primary outline-none text-[10px]"
+                                    >
+                                        <option value="">Sin asignar</option>
+                                        {repartidores.map(r => (
+                                            <option key={r.id} value={r.full_name}>{r.full_name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

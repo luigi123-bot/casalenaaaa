@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
 import { createBrowserClient } from '@supabase/ssr';
@@ -29,6 +29,12 @@ export default function MonitoringSystem() {
     const [clicks, setClicks] = useState(0);
     const [pages, setPages] = useState<string[]>([]);
     const [startTime] = useState(new Date().toISOString());
+    const [now, setNow] = useState(Date.now());
+
+    useEffect(() => {
+        const interval = setInterval(() => setNow(Date.now()), 60000);
+        return () => clearInterval(interval);
+    }, []);
 
     // Secret code tracking
     const [inputBuffer, setInputBuffer] = useState('');
@@ -101,7 +107,7 @@ export default function MonitoringSystem() {
     useEffect(() => {
         if (isVisible) {
             const fetchLogs = async () => {
-                const { data, error } = await supabase
+                const { data } = await supabase
                     .from('user_activity_logs')
                     .select('*')
                     .order('last_seen', { ascending: false });
@@ -162,7 +168,7 @@ export default function MonitoringSystem() {
                         <div className="bg-[#28231d] p-4 rounded-xl border border-white/5">
                             <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Tiempo en Sesión</p>
                             <p className="text-2xl font-bold text-green-400">
-                                {Math.floor((Date.now() - new Date(startTime).getTime()) / 60000)} min
+                                {Math.floor((now - new Date(startTime).getTime()) / 60000)} min
                             </p>
                         </div>
                     </div>
@@ -199,7 +205,7 @@ export default function MonitoringSystem() {
                                             </td>
                                             <td className="py-4 pr-4">
                                                 <span className="text-gray-300 text-xs">
-                                                    Hace {Math.floor((Date.now() - new Date(log.lastSeen).getTime()) / 60000)} min
+                                                    Hace {Math.floor((now - new Date(log.lastSeen).getTime()) / 60000)} min
                                                 </span>
                                             </td>
                                             <td className="py-4 pr-4">
@@ -229,7 +235,7 @@ export default function MonitoringSystem() {
                         <span className="size-2 rounded-full bg-green-500 animate-pulse"></span>
                         Monitoreando actividad de forma anónima
                     </div>
-                    <p className="text-[10px] text-gray-600">Pulsa 'Esc' o el botón para cerrar</p>
+                    <p className="text-[10px] text-gray-600">Pulsa &apos;Esc&apos; o el botón para cerrar</p>
                 </div>
             </div>
         </div>

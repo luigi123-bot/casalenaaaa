@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import Link from 'next/link';
 import NotificationPanel from '@/components/NotificationPanel';
@@ -26,34 +26,12 @@ export default function CashierDashboard() {
     const [showChat, setShowChat] = useState(false);
     const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-    useEffect(() => {
-        fetchDashboardData();
-
-        // Real-time subscription
-        const channel = supabase
-            .channel('cashier_dashboard')
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'orders'
-            }, () => {
-                fetchDashboardData();
-                setUnreadNotifications(prev => prev + 1);
-            })
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
-    }, []);
-
-    const fetchDashboardData = async () => {
+    const fetchDashboardData = useCallback(async () => {
         setLoading(true);
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // Fetch today's orders
         const { data: orders } = await supabase
             .from('orders')
             .select('*')
@@ -74,7 +52,6 @@ export default function CashierDashboard() {
             });
         }
 
-        // Fetch recent orders
         const { data: recent } = await supabase
             .from('orders')
             .select('*')
@@ -86,7 +63,28 @@ export default function CashierDashboard() {
         }
 
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        fetchDashboardData();
+
+        // Real-time subscription
+        const channel = supabase
+            .channel('cashier_dashboard')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'orders'
+            }, () => {
+                fetchDashboardData();
+                setUnreadNotifications(prev => prev + 1);
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [fetchDashboardData]);
 
     const getStatusBadge = (status: string) => {
         switch (status) {

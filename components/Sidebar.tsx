@@ -50,6 +50,7 @@ export default function Sidebar() {
         { label: 'Productos', icon: 'inventory_2', href: '/admin/productos' },
         { label: 'Anuncios', icon: 'campaign', href: '/admin/anuncios' },
         { label: 'Órdenes', icon: 'receipt_long', href: '/admin/orders' },
+        { label: 'Cierres de Caja', icon: 'lock_clock', href: '/admin/cierres' },
         { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
         { label: 'Reportes', icon: 'analytics', href: '/admin/reports' },
         { label: 'Usuarios', icon: 'group', href: '/admin/users' },

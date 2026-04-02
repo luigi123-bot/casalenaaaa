@@ -22,6 +22,8 @@ interface Product {
     categories?: {
         name: string;
     } | { name: string }[];
+    track_inventory?: boolean;
+    stock?: number | null;
 }
 
 export default function ProductsPage() {
@@ -42,6 +44,8 @@ export default function ProductsPage() {
         category_id: '',
         imagen_url: '',
         available: true,
+        track_inventory: false,
+        stock: '',
     });
 
     useEffect(() => {
@@ -167,6 +171,8 @@ export default function ProductsPage() {
             category_id: formData.category_id ? parseInt(formData.category_id) : null,
             imagen_url: imageUrl,
             available: formData.available,
+            track_inventory: formData.track_inventory,
+            stock: formData.track_inventory && formData.stock !== '' ? parseInt(formData.stock) : null,
         };
 
         try {
@@ -250,6 +256,8 @@ export default function ProductsPage() {
                 category_id: product.category_id?.toString() || '',
                 imagen_url: product.imagen_url || '',
                 available: product.available,
+                track_inventory: product.track_inventory || false,
+                stock: product.stock?.toString() || '',
             });
             setImagePreview(product.imagen_url || '');
         } else {
@@ -261,6 +269,8 @@ export default function ProductsPage() {
                 category_id: '',
                 imagen_url: '',
                 available: true,
+                track_inventory: false,
+                stock: '',
             });
             setImagePreview('');
         }
@@ -280,6 +290,8 @@ export default function ProductsPage() {
             category_id: '',
             imagen_url: '',
             available: true,
+            track_inventory: false,
+            stock: '',
         });
     };
 
@@ -624,6 +636,32 @@ export default function ProductsPage() {
                                                 Producto disponible
                                             </label>
                                         </div>
+
+                                        <div className="flex items-center gap-3 pt-2">
+                                            <input
+                                                type="checkbox"
+                                                id="track_inventory"
+                                                checked={formData.track_inventory}
+                                                onChange={(e) => setFormData({ ...formData, track_inventory: e.target.checked })}
+                                                className="w-5 h-5 text-[#f7951d] border-[#e6e1db] rounded focus:ring-[#f7951d] cursor-pointer"
+                                            />
+                                            <label htmlFor="track_inventory" className="text-sm font-medium text-[#181511] cursor-pointer">
+                                                Controlar Inventario (ej. Bebidas)
+                                            </label>
+                                        </div>
+
+                                        {formData.track_inventory && (
+                                            <div className="flex flex-col gap-1.5 pt-2">
+                                                <label className="text-sm font-bold text-[#181511]">Stock Disponible</label>
+                                                <input
+                                                    type="number"
+                                                    value={formData.stock}
+                                                    onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                                                    className="h-11 w-full rounded-lg bg-transparent border border-[#e6e1db] px-4 text-sm font-medium text-[#181511] placeholder-[#8c785f]/60 focus:border-[#f7951d] focus:ring-1 focus:ring-[#f7951d] outline-none transition-all"
+                                                    placeholder="Cantidad física en stock"
+                                                />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>

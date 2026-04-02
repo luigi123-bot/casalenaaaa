@@ -72,7 +72,7 @@ export async function GET(request: Request) {
         const completedOrders = currentOrders.filter(o => o.status === 'completado').length;
 
         // Generar datos del gráfico
-        let chartData: { day: string; amount: number; date: string }[] = [];
+        const chartData: { day: string; amount: number; date: string }[] = [];
 
         if (range === 'week') {
             for (let i = 6; i >= 0; i--) {

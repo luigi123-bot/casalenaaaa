@@ -65,7 +65,7 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
 
                 setConversations(prev => {
                     const existingIdx = prev.findIndex(c => c.userId === newMsg.user_id);
-                    let newConvs = [...prev];
+                    const newConvs = [...prev];
 
                     if (existingIdx >= 0) {
                         const conv = { ...newConvs[existingIdx] };
