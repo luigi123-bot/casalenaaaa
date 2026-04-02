@@ -27,28 +27,40 @@ export default function LoginPage() {
 
             if (error) throw error;
 
-            // Get user role from profiles table
-            const { data: profile } = await supabase
+            // Get user role with metadata fallback
+            let role = '';
+            
+            // 1. Try from profiles table
+            const { data: profile, error: profileError } = await supabase
                 .from('profiles')
                 .select('role')
                 .eq('id', data.user.id)
                 .single();
 
-            // Redirect based on role
-            const role = profile?.role;
-            console.log('👤 [Login] User role found:', role);
+            if (profile?.role) {
+                role = profile.role.toLowerCase();
+            } else {
+                // 2. Fallback to auth metadata
+                role = (data.user.user_metadata?.role || 'cliente').toLowerCase();
+            }
 
+            console.log('👤 [Login] User role resolved:', role);
+
+            // Redirect based on role
             if (role === 'administrador') {
                 router.push('/admin/users');
             } else if (role === 'cajero') {
                 router.push('/cashier');
             } else if (role === 'cocina') {
+                // Check if cashier exists as fallback if cocina route doesn't? 
+                // For now keep the logic but lowercase
                 router.push('/cocina');
             } else {
                 // Default to store for clients and others
                 router.push('/tienda');
             }
         } catch (error: any) {
+            console.error('❌ [Login] Error:', error);
             setError(error.message || 'Error al iniciar sesión');
         } finally {
             setLoading(false);
