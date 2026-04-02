@@ -130,7 +130,7 @@ export default function RootLayout({
               "longitude": -98.405
             },
             "url": "https://casalena.app.netlify.app",
-            "telephone": "+527411011595",
+            "telephone": "+527411075056",
             "servesCuisine": ["Pizza", "Steakhouse", "Grill"],
             "priceRange": "$$",
             "openingHoursSpecification": [

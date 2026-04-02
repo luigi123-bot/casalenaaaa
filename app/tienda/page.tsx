@@ -475,7 +475,7 @@ export default function TiendaPage() {
             await new Promise(resolve => setTimeout(resolve, 800));
 
             // 4. Build WhatsApp Message
-            const whatsappNumber = '527411011595'; // Mexico format: 52 + number (Factura: 741-101-1595)
+            const whatsappNumber = '527411075056'; // Mexico format: 52 + number (Update: 741-107-5056)
 
             let message = `🍕 *NUEVO PEDIDO #${orderData.id} - DOMICILIO*\n\n`;
             message += `👤 *Cliente:* ${userName}\n`;
@@ -999,103 +999,131 @@ export default function TiendaPage() {
             </main>
 
             {/* CART SIDEBAR - Hidden on mobile, shown on xl+ */}
-            <aside className="hidden xl:flex w-[380px] 2xl:w-[420px] bg-white border-l border-gray-100 flex-col z-30 flex-shrink-0 shadow-[-10px_0_40px_rgba(0,0,0,0.02)]">
-                <div className="p-8 pb-4">
-                    <div className="flex items-center justify-between mb-8">
-                        <h2 className="text-2xl font-black text-[#1D1D1F]">Tu Comanda</h2>
-                        <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-[#1D1D1F] font-bold text-xs ring-1 ring-black/5">
-                            {cart.length}
+            <aside className="hidden xl:flex w-[400px] 2xl:w-[440px] bg-white border-l border-gray-100 flex-col z-30 flex-shrink-0 shadow-[-20px_0_60px_rgba(0,0,0,0.03)] relative overflow-hidden">
+                <div className="p-8 pb-6 flex flex-col gap-6">
+                    <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                            <h2 className="text-2xl font-black text-[#1D1D1F] tracking-tight decoration-[#F7941D] underline decoration-4 underline-offset-4">Tu Orden</h2>
+                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] mt-2">Casaleña Store</span>
+                        </div>
+                        <div className="flex items-center gap-2 bg-[#F7941D]/10 px-3 py-1.5 rounded-full ring-1 ring-[#F7941D]/20 animate-pulse">
+                            <span className="material-icons-round text-[#F7941D] text-sm">shopping_basket</span>
+                            <span className="text-[#F7941D] font-black text-sm">{cart.length}</span>
                         </div>
                     </div>
-
-                    {/* Delivery Fields - Always visible for customer orders */}
-                    <div className="mt-4 p-4 bg-orange-50 rounded-xl space-y-3">
-                        <h4 className="font-bold text-orange-800 text-sm flex items-center gap-2">
-                            <span className="material-icons-round text-sm">delivery_dining</span>
-                            Datos para Domicilio
+                    <div className="p-5 bg-gray-50/50 rounded-[28px] border border-gray-100 space-y-4 shadow-inner relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-[#F7941D]/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110 duration-700"></div>
+                        
+                        <h4 className="font-extrabold text-[#1D1D1F] text-[10px] uppercase tracking-widest flex items-center gap-2 relative z-10 px-1">
+                            <span className="w-6 h-6 rounded-full bg-white shadow-sm flex items-center justify-center text-[#F7941D]">
+                                <span className="material-icons-round text-[14px]">location_on</span>
+                            </span>
+                            Detalles de Entrega
                         </h4>
-                        <p className="text-xs text-orange-700 mb-2">
-                            Completa estos datos para recibir tu pedido
-                        </p>
-                        <input
-                            type="text"
-                            placeholder="Nombre completo"
-                            value={userName}
-                            disabled
-                            className="w-full px-3 py-2 rounded-lg border border-orange-200 bg-white text-sm font-medium text-gray-700"
-                        />
-                        <input
-                            type="text"
-                            placeholder="Dirección completa de entrega"
-                            value={deliveryAddress}
-                            onChange={(e) => setDeliveryAddress(e.target.value)}
-                            className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
-                            required
-                        />
-                        <input
-                            type="tel"
-                            placeholder="Teléfono de contacto"
-                            value={phoneNumber}
-                            onChange={(e) => setPhoneNumber(e.target.value)}
-                            className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
-                            required
-                        />
+                        
+                        <div className="space-y-3 relative z-10">
+                            <div className="relative group/input">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 material-icons-round text-sm group-focus-within/input:text-[#F7941D] transition-colors duration-300">person</span>
+                                <input
+                                    type="text"
+                                    placeholder="Nombre"
+                                    value={userName}
+                                    disabled
+                                    className="w-full pl-10 pr-4 py-3 rounded-2xl border border-gray-100 bg-white/80 text-[11px] font-bold text-gray-800 disabled:opacity-75 outline-none"
+                                />
+                            </div>
+                            <div className="relative group/input">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 material-icons-round text-sm group-focus-within/input:text-[#F7941D] transition-colors duration-300">home</span>
+                                <input
+                                    type="text"
+                                    placeholder="¿Dónde entregamos?"
+                                    value={deliveryAddress}
+                                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-3 rounded-2xl border border-gray-100 focus:border-[#F7941D] focus:ring-4 focus:ring-[#F7941D]/5 outline-none text-[11px] font-medium transition-all duration-300"
+                                    required
+                                />
+                            </div>
+                            <div className="relative group/input">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 material-icons-round text-sm group-focus-within/input:text-[#F7941D] transition-colors duration-300">phone</span>
+                                <input
+                                    type="tel"
+                                    placeholder="WhatsApp de contacto"
+                                    value={phoneNumber}
+                                    onChange={(e) => setPhoneNumber(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-3 rounded-2xl border border-gray-100 focus:border-[#F7941D] focus:ring-4 focus:ring-[#F7941D]/5 outline-none text-[11px] font-medium transition-all duration-300"
+                                    required
+                                />
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 {/* Cart Items List */}
-                <div className="flex-1 overflow-y-auto px-8 space-y-6 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto px-8 space-y-6 custom-scrollbar pb-8">
                     {cart.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-gray-300 space-y-6">
-                            <div className="w-24 h-24 rounded-full bg-gray-50 flex items-center justify-center">
-                                <span className="material-icons-round text-4xl opacity-50">shopping_bag</span>
+                            <div className="w-24 h-24 rounded-[32px] bg-gray-50 flex items-center justify-center shadow-inner">
+                                <span className="material-icons-round text-4xl opacity-30 animate-pulse">shopping_bag</span>
                             </div>
-                            <div className="text-center">
-                                <p className="font-bold text-gray-900 mb-1">Tu carrito está vacío</p>
-                                <p className="text-sm text-gray-400">¡Agrega algo delicioso del menú!</p>
+                            <div className="text-center px-4">
+                                <p className="font-black text-gray-900 text-lg mb-1">Tu carrito está vacío</p>
+                                <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest leading-relaxed">¡Explora nuestro delicioso menú y agrega tus favoritos!</p>
                             </div>
                         </div>
                     ) : (
                         cart.map((item) => (
-                            <div key={item.cartItemId} className="flex gap-4 items-center group animate-in slide-in-from-right-4 duration-500">
-                                <div className="w-20 h-20 rounded-2xl bg-gray-50 p-1 flex-shrink-0 relative overflow-hidden">
+                            <div key={item.cartItemId} className="flex gap-4 items-center group animate-in slide-in-from-right-4 duration-500 hover:bg-gray-50 rounded-[28px] p-2 -mx-2 transition-all duration-300">
+                                <div className="w-22 h-22 rounded-2xl bg-gray-100 p-1 flex-shrink-0 relative overflow-hidden shadow-sm group-hover:shadow-md transition-all duration-500">
                                     {item.imagen_url ? (
                                         <img src={item.imagen_url} className="w-full h-full object-cover rounded-xl" alt="" />
                                     ) : (
-                                        <span className="material-icons-round text-2xl text-gray-300 absolute inset-0 m-auto w-fit h-fit">fastfood</span>
+                                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                                            <span className="material-icons-round text-3xl">fastfood</span>
+                                        </div>
                                     )}
                                 </div>
 
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-start mb-1">
-                                        <h4 className="font-bold text-[#1D1D1F] text-sm truncate pr-2">{item.name}</h4>
-                                        <p className="font-bold text-[#1D1D1F] text-sm">${(item.price * item.quantity).toFixed(2)}</p>
+                                        <h4 className="font-black text-[#1D1D1F] text-[13px] truncate pr-2 tracking-tight uppercase leading-none">{item.name}</h4>
+                                        <p className="font-black text-[#1D1D1F] text-[13px] leading-none">${(item.price * item.quantity).toFixed(2)}</p>
                                     </div>
-                                    <p className="text-[11px] text-gray-500 mb-1 truncate font-medium">
-                                        {item.selectedSize ? `Tamaño: ${item.selectedSize}` : 'Opción estándar'}
-                                    </p>
-                                    {item.extras && item.extras.length > 0 && (
-                                        <p className="text-[11px] text-[#F7941D] mb-3 truncate">
-                                            + {item.extras.length} extras
-                                        </p>
-                                    )}
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                        {item.selectedSize && (
+                                            <span className="text-[9px] px-2 py-0.5 bg-white border border-gray-100 text-gray-400 rounded-full font-bold uppercase tracking-wider">
+                                                {item.selectedSize}
+                                            </span>
+                                        )}
+                                        {item.extras && item.extras.length > 0 && (
+                                            <span className="text-[9px] px-2 py-0.5 bg-orange-50 text-[#F7941D] rounded-full font-bold uppercase tracking-wider">
+                                                +{item.extras.length} Extras
+                                            </span>
+                                        )}
+                                    </div>
 
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl p-1 shadow-sm ring-1 ring-black/5">
                                             <button
                                                 onClick={() => item.quantity > 1 ? updateQuantity(item.cartItemId, -1) : removeFromCart(item.cartItemId)}
-                                                className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
                                             >
-                                                <span className="material-icons-round text-xs">remove</span>
+                                                <span className="material-icons-round text-[16px]">remove</span>
                                             </button>
-                                            <span className="text-xs font-bold w-6 text-center text-[#1D1D1F]">{item.quantity}</span>
+                                            <span className="text-xs font-black w-6 text-center text-[#1D1D1F]">{item.quantity}</span>
                                             <button
                                                 onClick={() => updateQuantity(item.cartItemId, 1)}
-                                                className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
                                             >
-                                                <span className="material-icons-round text-xs">add</span>
+                                                <span className="material-icons-round text-[16px]">add</span>
                                             </button>
                                         </div>
+                                        
+                                        <button
+                                            onClick={() => removeFromCart(item.cartItemId)}
+                                            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 transition-all active:scale-90"
+                                        >
+                                            <span className="material-icons-round text-lg">delete_outline</span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -1104,18 +1132,19 @@ export default function TiendaPage() {
                 </div>
 
                 {/* Footer Totals */}
-                <div className="p-8 bg-white border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.03)] z-20">
-                    <div className="space-y-3 mb-8">
-                        <div className="flex justify-between text-sm text-gray-500 font-medium">
+                <div className="p-8 bg-white border-t border-gray-100 shadow-[0_-20px_60px_rgba(0,0,0,0.05)] z-20">
+                    <div className="space-y-4 mb-8">
+                        <div className="flex justify-between items-center text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] leading-none">
                             <span>Subtotal</span>
-                            <span>${cartTotals.subtotal.toFixed(2)}</span>
+                            <span className="text-[#1D1D1F]">${cartTotals.subtotal.toFixed(2)}</span>
                         </div>
-                        {/* Tax removed */}
-                        <div className="flex justify-between items-end pt-4 border-t border-dashed border-gray-200">
-                            <span className="text-lg font-bold text-[#1D1D1F]">Total a Pagar</span>
+                        <div className="flex justify-between items-end pt-5 border-t border-dashed border-gray-200">
+                            <div>
+                                <span className="text-xs font-black text-[#1D1D1F] uppercase tracking-[0.2em] block mb-1">Total Orden</span>
+                                <span className="text-[10px] font-bold text-green-500 uppercase">Envío Incluido ✓</span>
+                            </div>
                             <div className="text-right">
-                                <span className="text-3xl font-black text-[#1D1D1F] block leading-none tracking-tight">${cartTotals.total.toFixed(2)}</span>
-                                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">Incluye impuestos</span>
+                                <span className="text-4xl font-black text-[#1D1D1F] block leading-none tracking-tighter tabular-nums">${cartTotals.total.toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
@@ -1124,166 +1153,180 @@ export default function TiendaPage() {
                         type="button"
                         onClick={handleCheckout}
                         disabled={cart.length === 0 || isCheckoutLoading}
-                        className="w-full py-4 bg-[#1D1D1F] text-white rounded-2xl font-bold text-lg shadow-xl shadow-gray-200 hover:shadow-2xl hover:bg-black hover:scale-[1.02] active:scale-95 transition-all duration-300 disabled:opacity-50 disabled:shadow-none disabled:pointer-events-none flex items-center justify-center gap-3"
+                        className="w-full py-5 bg-[#1D1D1F] text-white rounded-[24px] font-black text-sm uppercase tracking-[0.2em] shadow-2xl shadow-gray-200 hover:shadow-black/20 hover:bg-black hover:scale-[1.02] active:scale-95 transition-all duration-500 disabled:opacity-50 disabled:shadow-none disabled:pointer-events-none flex items-center justify-center gap-3 overflow-hidden relative group"
                     >
+                        <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 -translate-x-full group-hover:translate-x-full duration-1000 transition-transform"></div>
                         {isCheckoutLoading ? (
                             <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
                         ) : (
                             <>
                                 <span>Confirmar Pedido</span>
-                                <span className="material-icons-round">arrow_forward</span>
+                                <span className="material-icons-round text-lg">arrow_forward</span>
                             </>
                         )}
                     </button>
                 </div>
             </aside>
 
-            {/* MOBILE CART MODAL - Shows on mobile/tablet */}
+            {/* MOBILE CART MODAL - Premium Bottom Sheet Design */}
             {showMobileCart && (
-                <div className="xl:hidden fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="xl:hidden fixed inset-0 z-[100] flex items-end justify-center bg-[#1D1D1F]/60 backdrop-blur-md animate-in fade-in duration-300">
                     <div
                         className="absolute inset-0"
                         onClick={() => setShowMobileCart(false)}
                     />
-                    <div className="relative w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[85vh] sm:max-h-[90vh] flex flex-col animate-in slide-in-from-bottom sm:zoom-in-95 duration-300">
+                    <div className="relative w-full max-w-xl bg-[#FAFAFA] rounded-t-[48px] shadow-[0_-20px_80px_rgba(0,0,0,0.3)] max-h-[92vh] flex flex-col animate-in slide-in-from-bottom duration-500 spring-bounce-400">
+                        {/* Drag Handle */}
+                        <div className="w-full flex justify-center pt-4 pb-2">
+                            <div className="w-12 h-1.5 bg-gray-200 rounded-full"></div>
+                        </div>
+
                         {/* Header */}
-                        <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <h2 className="text-xl sm:text-2xl font-black text-[#1D1D1F]">Tu Comanda</h2>
-                                <div className="w-7 h-7 rounded-full bg-gray-50 flex items-center justify-center text-[#1D1D1F] font-bold text-xs">
-                                    {cart.length}
-                                </div>
+                        <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-white rounded-t-[48px]">
+                            <div className="flex flex-col">
+                                <h2 className="text-2xl font-black text-[#1D1D1F] tracking-tight leading-none mb-1">Tu Comanda</h2>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{cart.length} artículos agregados</p>
                             </div>
                             <button
                                 onClick={() => setShowMobileCart(false)}
-                                className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
+                                className="w-12 h-12 rounded-2xl bg-gray-50 hover:bg-gray-100 flex items-center justify-center transition-all active:scale-90"
                             >
                                 <span className="material-icons-round text-gray-600">close</span>
                             </button>
                         </div>
 
-                        {/* Delivery Fields - Always visible in mobile */}
-                        <div className="p-4 sm:p-6 border-b border-gray-100">
-                            <div className="p-3 bg-orange-50 rounded-xl space-y-2">
-                                <h4 className="font-bold text-orange-800 text-sm flex items-center gap-2">
-                                    <span className="material-icons-round text-sm">delivery_dining</span>
-                                    Datos para Domicilio
-                                </h4>
-                                <p className="text-xs text-orange-700 mb-1">
-                                    Completa estos datos para recibir tu pedido
-                                </p>
-                                <input
-                                    type="text"
-                                    placeholder="Nombre completo"
-                                    value={userName}
-                                    disabled
-                                    className="w-full px-3 py-2 rounded-lg border border-orange-200 bg-white text-sm font-medium text-gray-700"
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="Dirección completa de entrega"
-                                    value={deliveryAddress}
-                                    onChange={(e) => setDeliveryAddress(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
-                                />
-                                <input
-                                    type="tel"
-                                    placeholder="Teléfono de contacto"
-                                    value={phoneNumber}
-                                    onChange={(e) => setPhoneNumber(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-lg border border-orange-200 focus:ring-2 focus:ring-orange-500 text-sm"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Cart Items */}
-                        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
-                            {cart.length === 0 ? (
-                                <div className="h-full flex flex-col items-center justify-center text-gray-300 py-12">
-                                    <div className="w-20 h-20 rounded-full bg-gray-50 flex items-center justify-center mb-4">
-                                        <span className="material-icons-round text-3xl opacity-50">shopping_bag</span>
+                        {/* Content Scrollable */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                           {/* Delivery Fields - Elegant Card Style (Mobile) */}
+                           <div className="p-6">
+                                <div className="p-6 bg-white rounded-[32px] border border-gray-100 space-y-4 shadow-sm relative overflow-hidden group">
+                                    <div className="absolute top-0 right-0 w-24 h-24 bg-orange-500/5 rounded-full -mr-12 -mt-12 transition-transform group-active:scale-110"></div>
+                                    
+                                    <h4 className="font-extrabold text-[#1D1D1F] text-[11px] uppercase tracking-widest flex items-center gap-2 mb-2 relative z-10">
+                                        <span className="w-7 h-7 rounded-full bg-orange-50 flex items-center justify-center text-[#F7941D]">
+                                            <span className="material-icons-round text-[16px]">delivery_dining</span>
+                                        </span>
+                                        Dirección de Entrega
+                                    </h4>
+                                    
+                                    <div className="space-y-3 relative z-10">
+                                        <div className="relative">
+                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 material-icons-round text-sm">person</span>
+                                            <input
+                                                type="text"
+                                                placeholder="Nombre"
+                                                value={userName}
+                                                disabled
+                                                className="w-full pl-10 pr-4 py-3.5 rounded-2xl border border-gray-50 bg-gray-50/50 text-[11px] font-bold text-gray-800 outline-none"
+                                            />
+                                        </div>
+                                        <div className="relative group/input">
+                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 material-icons-round text-sm group-focus-within/input:text-[#F7941D] transition-colors">home</span>
+                                            <input
+                                                type="text"
+                                                placeholder="¿A dónde lo enviamos?"
+                                                value={deliveryAddress}
+                                                onChange={(e) => setDeliveryAddress(e.target.value)}
+                                                className="w-full pl-10 pr-4 py-3.5 rounded-2xl border border-gray-100 focus:border-[#F7941D] focus:ring-4 focus:ring-orange-500/5 bg-white text-[11px] font-medium transition-all outline-none"
+                                            />
+                                        </div>
+                                        <div className="relative group/input">
+                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 material-icons-round text-sm group-focus-within/input:text-[#F7941D] transition-colors">phone</span>
+                                            <input
+                                                type="tel"
+                                                placeholder="WhatsApp de contacto"
+                                                value={phoneNumber}
+                                                onChange={(e) => setPhoneNumber(e.target.value)}
+                                                className="w-full pl-10 pr-4 py-3.5 rounded-2xl border border-gray-100 focus:border-[#F7941D] focus:ring-4 focus:ring-orange-500/5 bg-white text-[11px] font-medium transition-all outline-none"
+                                            />
+                                        </div>
                                     </div>
-                                    <p className="font-bold text-gray-900 mb-1">Tu carrito está vacío</p>
-                                    <p className="text-sm text-gray-400">¡Agrega algo delicioso!</p>
                                 </div>
-                            ) : (
-                                cart.map((item) => (
-                                    <div key={item.cartItemId} className="flex gap-3 items-center">
-                                        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-gray-50 p-1 flex-shrink-0 overflow-hidden">
-                                            {item.imagen_url ? (
-                                                <img src={item.imagen_url} className="w-full h-full object-cover rounded-lg" alt="" />
-                                            ) : (
-                                                <span className="material-icons-round text-xl text-gray-300 flex items-center justify-center h-full">fastfood</span>
-                                            )}
+                            </div>
+
+                            {/* Items List (Mobile) */}
+                            <div className="px-6 pb-32 space-y-4">
+                                {cart.length === 0 ? (
+                                    <div className="py-20 flex flex-col items-center justify-center text-gray-300">
+                                        <div className="w-20 h-20 bg-white rounded-[28px] shadow-sm flex items-center justify-center mb-4">
+                                            <span className="material-icons-round text-4xl opacity-20">shopping_bag</span>
                                         </div>
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="font-bold text-sm text-[#1D1D1F] truncate">{item.name}</h4>
-                                            {item.selectedSize && (
-                                                <p className="text-xs text-gray-400">{item.selectedSize}</p>
-                                            )}
-                                            {item.extras && item.extras.length > 0 && (
-                                                <p className="text-xs text-orange-600 truncate">+ {item.extras.join(', ')}</p>
-                                            )}
-                                            <p className="text-sm font-bold text-[#F7941D] mt-1">${item.price.toFixed(2)}</p>
-                                        </div>
-                                        <div className="flex flex-col items-end gap-2">
-                                            <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
-                                                <button
-                                                    onClick={() => updateQuantity(item.cartItemId, -1)}
-                                                    className="w-6 h-6 rounded-md bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600"
-                                                >
-                                                    <span className="material-icons-round text-sm">remove</span>
-                                                </button>
-                                                <span className="text-sm font-bold w-6 text-center">{item.quantity}</span>
-                                                <button
-                                                    onClick={() => updateQuantity(item.cartItemId, 1)}
-                                                    className="w-6 h-6 rounded-md bg-white hover:bg-gray-100 flex items-center justify-center text-gray-600"
-                                                >
-                                                    <span className="material-icons-round text-sm">add</span>
-                                                </button>
+                                        <p className="font-black text-gray-900 uppercase tracking-widest text-[11px]">Carrito Vacío</p>
+                                    </div>
+                                ) : (
+                                    cart.map((item) => (
+                                        <div key={item.cartItemId} className="flex gap-4 items-center bg-white p-4 rounded-[32px] border border-gray-50 shadow-sm relative overflow-hidden active:scale-[0.98] transition-transform">
+                                            <div className="w-20 h-20 rounded-2xl bg-gray-50 p-1 flex-shrink-0 overflow-hidden relative">
+                                                {item.imagen_url ? (
+                                                    <img src={item.imagen_url} className="w-full h-full object-cover rounded-xl" alt="" />
+                                                ) : (
+                                                    <span className="material-icons-round text-3xl text-gray-200 absolute inset-0 m-auto w-fit h-fit">fastfood</span>
+                                                )}
                                             </div>
-                                            <button
-                                                onClick={() => removeFromCart(item.cartItemId)}
-                                                className="text-red-400 hover:text-red-600"
-                                            >
-                                                <span className="material-icons-round text-lg">delete</span>
-                                            </button>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-black text-[13px] text-[#1D1D1F] truncate tracking-tight uppercase mb-1">{item.name}</h4>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <span className="text-[9px] px-2 py-0.5 bg-gray-50 text-gray-400 rounded-full font-extrabold uppercase tracking-widest leading-none border border-gray-100">{item.selectedSize || 'Standard'}</span>
+                                                    <span className="text-sm font-black text-[#1D1D1F] tabular-nums">${(item.price * item.quantity).toFixed(2)}</span>
+                                                </div>
+                                                
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2 bg-gray-50 rounded-xl p-0.5 px-1 border border-gray-100">
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); updateQuantity(item.cartItemId, -1); }}
+                                                            className="w-8 h-8 flex items-center justify-center rounded-lg bg-white shadow-sm text-gray-600 active:scale-90 transition-transform"
+                                                        >
+                                                            <span className="material-icons-round text-sm">remove</span>
+                                                        </button>
+                                                        <span className="text-xs font-black min-w-[20px] text-center text-[#1D1D1F]">{item.quantity}</span>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); updateQuantity(item.cartItemId, 1); }}
+                                                            className="w-8 h-8 flex items-center justify-center rounded-lg bg-white shadow-sm text-gray-600 active:scale-90 transition-transform"
+                                                        >
+                                                            <span className="material-icons-round text-sm">add</span>
+                                                        </button>
+                                                    </div>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); removeFromCart(item.cartItemId); }}
+                                                        className="w-9 h-9 flex items-center justify-center text-gray-300 active:text-red-500 transition-colors"
+                                                    >
+                                                        <span className="material-icons-round text-xl">delete_outline</span>
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                ))
-                            )}
+                                    ))
+                                )}
+                            </div>
                         </div>
 
-                        {/* Footer */}
-                        <div className="p-4 sm:p-6 border-t border-gray-100 bg-white space-y-4">
-                            <div className="space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-500">Subtotal</span>
-                                    <span className="font-bold">${cartTotals.subtotal.toFixed(2)}</span>
+                        {/* Footer (Mobile Stickie) */}
+                        <div className="p-8 pb-10 bg-white border-t border-gray-100 rounded-t-[48px] shadow-[0_-15px_40px_rgba(0,0,0,0.03)] space-y-6 mt-auto">
+                            <div className="flex justify-between items-end">
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mb-2 leading-none">Subtotal a Pagar</span>
+                                    <span className="text-4xl font-black text-[#1D1D1F] tracking-tighter tabular-nums leading-none">${cartTotals.total.toFixed(2)}</span>
                                 </div>
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-500">Impuestos</span>
-                                    <span className="font-bold">${cartTotals.tax.toFixed(2)}</span>
-                                </div>
-                                <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-                                    <span className="text-base sm:text-lg font-bold text-[#1D1D1F]">Total</span>
-                                    <span className="text-2xl sm:text-3xl font-black text-[#1D1D1F]">${cartTotals.total.toFixed(2)}</span>
+                                <div className="text-right">
+                                    <p className="text-[10px] text-green-500 font-black uppercase tracking-widest bg-green-50 px-3 py-1.5 rounded-full">Envío Gratis ✓</p>
                                 </div>
                             </div>
+                            
                             <button
                                 onClick={() => {
                                     setShowMobileCart(false);
                                     handleCheckout();
                                 }}
                                 disabled={cart.length === 0 || isCheckoutLoading}
-                                className="w-full py-3.5 sm:py-4 bg-[#1D1D1F] text-white rounded-xl sm:rounded-2xl font-bold text-base sm:text-lg shadow-xl hover:bg-black hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
+                                className="w-full py-5 bg-[#1D1D1F] text-white rounded-[28px] font-black text-[14px] uppercase tracking-[0.2em] shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3 relative overflow-hidden group"
                             >
+                                <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/5 to-white/0 -translate-x-full group-active:translate-x-full duration-700 transition-transform"></div>
                                 {isCheckoutLoading ? (
                                     <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                 ) : (
                                     <>
                                         <span>Confirmar Pedido</span>
-                                        <span className="material-icons-round">arrow_forward</span>
+                                        <span className="material-icons-round text-[20px]">check_circle</span>
                                     </>
                                 )}
                             </button>
