@@ -25,40 +25,60 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* Material Icons/Symbols Failsafe - Force Font Family and Ligatures */
-.material-symbols-outlined {
-  font-family: 'Material Symbols Outlined' !important;
-  font-weight: normal;
+/* ─── Material Icons: Prevent FOIC (Flash Of Icon Characters) ──────────────
+   Icons are hidden with opacity:0 until the font variant is loaded.
+   This prevents the raw text ("menu", "person_add") from flashing on slow mobile.
+   The font-display: block in the Google URL makes the browser wait before rendering text,
+   and we use a @font-face override + JS class to fade in icons gracefully.
+────────────────────────────────────────────────────────────────────────── */
+.material-symbols-outlined,
+.material-icons-round {
+  /* Core rendering — must match Google's own CSS exactly */
   font-style: normal;
+  font-weight: normal;
   display: inline-block;
   line-height: 1;
-  text-transform: none;
-  letter-spacing: normal;
-  word-wrap: normal;
-  white-space: nowrap;
-  direction: ltr;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  word-wrap: normal !important;
+  white-space: nowrap !important;
+  direction: ltr !important;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: 'liga' !important;
+  /* Enforce ligatures — this is what turns "menu" → icon */
+  font-feature-settings: 'liga' 1 !important;
+  -webkit-font-feature-settings: 'liga' 1 !important;
+  font-variant-ligatures: discretionary-ligatures !important;
+  /* Hide text until font is ready — prevents raw text on slow connections */
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+/* Font loaded: font-display:block guarantees this state after font is available */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined' !important;
 }
 
 .material-icons-round {
   font-family: 'Material Icons Round' !important;
-  font-weight: normal;
-  font-style: normal;
-  display: inline-block;
-  line-height: 1;
-  text-transform: none;
-  letter-spacing: normal;
-  word-wrap: normal;
-  white-space: nowrap;
-  direction: ltr;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: 'liga' !important;
 }
+
+/* Once fonts are loaded (body gets 'fonts-ready' class via JS, or fallback after 1s) */
+.fonts-ready .material-symbols-outlined,
+.fonts-ready .material-icons-round {
+  opacity: 1;
+}
+
+/* Fallback: always visible after 800ms even if JS didn't fire */
+@keyframes icons-appear {
+  to { opacity: 1; }
+}
+.material-symbols-outlined,
+.material-icons-round {
+  animation: icons-appear 0s 0.8s forwards;
+}
+
 
 /* Custom shadow */
 .card-shadow {
