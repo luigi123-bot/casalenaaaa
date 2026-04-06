@@ -321,26 +321,29 @@ export default function CashierPage() {
                     if (data && data.length > 0) {
                         const order = data[0];
                         console.log(`✅ [Cashier] Encontrada comanda #${order.id} abierta para mesa ${tableNum}`);
-                        setActiveOrderId(order.id);
-                        setPaymentMethod(order.payment_method || 'efectivo');
+                        
+                        // Solo cargar si el carrito está vacío para permitir agregar más items localmente
+                        if (cart.length === 0) {
+                            setActiveOrderId(order.id);
+                            setPaymentMethod(order.payment_method || 'efectivo');
 
-                        // Mapear items al carrito
-                        const loadedCart = order.order_items.map((item: any) => ({
-                            id: item.product_id,
-                            name: item.product_name,
-                            price: item.unit_price,
-                            quantity: item.quantity,
-                            selectedSize: item.selected_size,
-                            extras: item.extras || [],
-                            cartItemId: Math.random().toString(36).substr(2, 9)
-                        }));
-                        setCart(loadedCart);
+                            // Mapear items al carrito
+                            const loadedCart = order.order_items.map((item: any) => ({
+                                id: item.product_id,
+                                name: item.product_name,
+                                price: item.unit_price,
+                                quantity: item.quantity,
+                                selectedSize: item.selected_size,
+                                extras: item.extras || [],
+                                cartItemId: Math.random().toString(36).substr(2, 9)
+                            }));
+                            setCart(loadedCart);
+                        }
                     } else {
                         // Si no hay comanda abierta y el carrito estaba cargado por una mesa previa, limpiar
                         // Pero solo si el activeOrderId era diferente de null (indicando que veníamos de una carga)
-                        if (activeOrderId) {
+                        if (activeOrderId && cart.length === 0) {
                             setActiveOrderId(null);
-                            setCart([]);
                         }
                     }
                 } catch (err) {
@@ -1005,7 +1008,7 @@ export default function CashierPage() {
                     extras: extrasNames.length > 0 ? extrasNames : undefined
                 };
             }),
-            cliente: orderData.order_type === 'delivery' ? {
+            cliente: (orderData.order_type === 'delivery' || orderData.order_type === 'takeout') ? {
                 nombre: orderData.customer_name || 'Cliente Genérico',
                 telefono: orderData.phone_number || 'S/N',
                 direccion: orderData.delivery_address || 'Sin dirección'
@@ -1851,19 +1854,21 @@ export default function CashierPage() {
                                                     setTableNumber(order.table_number);
                                                 } else {
                                                     setTableNumber('');
-                                                    setActiveOrderId(order.id);
-                                                    setPaymentMethod(order.payment_method || 'efectivo');
-                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                        id: item.product_id || 0,
-                                                        name: item.product_name,
-                                                        price: item.unit_price,
-                                                        quantity: item.quantity,
-                                                        selectedSize: item.selected_size,
-                                                        extras: item.extras || [],
-                                                        cartItemId: Math.random().toString(36).substr(2, 9)
-                                                    }));
-                                                    setCart(loadedCart);
                                                 }
+                                                
+                                                // SIEMPRE CARGAR EL CARRITO AL SELECCIONAR EXPLÍCITAMENTE
+                                                setActiveOrderId(order.id);
+                                                setPaymentMethod(order.payment_method || 'efectivo');
+                                                const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                    id: item.product_id || 0,
+                                                    name: item.product_name,
+                                                    price: item.unit_price,
+                                                    quantity: item.quantity,
+                                                    selectedSize: item.selected_size,
+                                                    extras: item.extras || [],
+                                                    cartItemId: Math.random().toString(36).substr(2, 9)
+                                                }));
+                                                setCart(loadedCart);
                                             }}
                                             className={`px-3 py-1.5 rounded-lg border text-xs font-black shrink-0 transition-all flex items-center gap-1.5 ${
                                                 isSelected
@@ -1902,7 +1907,10 @@ export default function CashierPage() {
                         <div className="bg-[#f7951d]/10 rounded-xl p-4 border border-[#f7951d]/20 animate-in fade-in slide-in-from-top-2 mb-4">
                             <div className="flex justify-between items-center mb-3">
                                 <span className="text-[10px] font-black text-[#f7951d] uppercase tracking-widest">Datos para Pick up</span>
-                                <span className="material-icons-round text-xs text-[#f7951d]">shopping_bag</span>
+                                <button onClick={() => setShowCustomerModal(true)} className="flex items-center gap-1 group">
+                                    <span className="material-icons-round text-xs text-[#f7951d] group-hover:scale-110 transition-transform">search</span>
+                                    <span className="text-[10px] font-black text-[#181511] uppercase tracking-widest hover:underline underline-offset-2">Buscar</span>
+                                </button>
                             </div>
                             <div className="space-y-2">
                                 <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-gray-100">
@@ -2501,10 +2509,14 @@ export default function CashierPage() {
                                     <div className="flex items-center gap-4">
                                         <div className="size-12 group bg-gradient-to-br from-[#f7941d] to-[#ffb800] rounded-2xl flex items-center justify-center shadow-lg shadow-[#f7941d]/30 text-white relative overflow-hidden">
                                             <div className="absolute inset-0 h-full w-[200%] bg-white/30 origin-top-left -rotate-45 -translate-x-[150%] group-hover:translate-x-[50%] transition-transform duration-700 ease-out"></div>
-                                            <span className="material-icons-round text-[28px] relative z-10">local_shipping</span>
+                                            <span className="material-icons-round text-[28px] relative z-10">
+                                                {orderType === 'delivery' ? 'local_shipping' : 'shopping_bag'}
+                                            </span>
                                         </div>
                                         <div>
-                                            <h3 className="text-3xl font-black text-[#181511] tracking-tight leading-none bg-clip-text text-transparent bg-gradient-to-r from-[#181511] to-[#3a332a]">Datos para Envío</h3>
+                                            <h3 className="text-3xl font-black text-[#181511] tracking-tight leading-none bg-clip-text text-transparent bg-gradient-to-r from-[#181511] to-[#3a332a]">
+                                                {orderType === 'delivery' ? 'Datos para Envío' : 'Datos para Pick Up'}
+                                            </h3>
                                             <p className="text-[11px] font-bold text-gray-400 mt-1 uppercase tracking-widest">Información del Cliente</p>
                                         </div>
                                     </div>
