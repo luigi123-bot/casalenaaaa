@@ -74,12 +74,38 @@ export function useOfflineSync() {
 
         const remaining: PendingOrder[] = [];
 
+        // Obtener el ID del usuario actual de la sesión cargada para evitar bloqueos
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUserId = session?.user?.id;
+
         for (const order of pending) {
+            // Pequeño retardo entre pedidos para evitar saturación y errores de 'AbortError/Locks'
+            await new Promise(resolve => setTimeout(resolve, 300));
+
             try {
                 // Guard: skip corrupt entries without payload
                 if (!order.payload || typeof order.payload !== 'object') {
                     console.warn('⚠️ [OfflineSync] Descartando entrada corrupta (sin payload):', order.id);
                     continue;
+                }
+
+                // Parche automático: Si una orden offline vieja guardó el estado inválido 'abierta', lo corregimos a 'pendiente'
+                if (order.payload.status === 'abierta') {
+                    order.payload.status = 'pendiente';
+                }
+
+                // Parche automático: Eliminar columnas de nueva versión que no existen en la base de datos Supabase remota del usuario
+                if ('cashier_name' in order.payload) delete order.payload.cashier_name;
+                if ('ticket_number' in order.payload) delete order.payload.ticket_number;
+                if ('updated_at' in order.payload) delete order.payload.updated_at;
+
+                // Parche automático: Si el user_id es 'offline-placeholder', intentamos poner el ID real o lo quitamos si Postgres no permite el string
+                if (order.payload.user_id === 'offline-placeholder') {
+                    if (currentUserId) {
+                        order.payload.user_id = currentUserId;
+                    } else {
+                        delete order.payload.user_id; // Permitir que Supabase/Auth lo maneje o sea null
+                    }
                 }
 
                 // 1. Insertar la Orden
@@ -89,13 +115,14 @@ export function useOfflineSync() {
                     .select();
 
                 if (orderError) {
-                    console.error('❌ [OfflineSync] Error Supabase al insertar orden:', {
+                    const errStr = JSON.stringify({
                         message: orderError.message,
                         code: orderError.code,
                         details: orderError.details,
                         hint: orderError.hint,
                         payload: order.payload
-                    });
+                    }, null, 2);
+                    console.error('❌ [OfflineSync] Error Supabase al insertar orden:', errStr);
                     throw orderError;
                 }
                 const createdOrder = orderData?.[0];

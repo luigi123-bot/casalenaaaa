@@ -87,7 +87,7 @@ export default function CashierOrdersPage() {
                 const statusMap: { [key: string]: string[] } = {
                     'Finalizado': ['entregado', 'completado'],
                     'Preparando': ['confirmado', 'preparando'],
-                    'Abiertas': ['abierta'],
+                    'Abiertas': ['pendiente', 'preparando', 'listo'],
                     'Listos': ['listo'],
                     'cancelado': ['cancelado'],
                     'Pendiente': ['pendiente']

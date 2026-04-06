@@ -224,7 +224,7 @@ export default function CashierPage() {
                         .from('orders')
                         .select('*, order_items(*)')
                         .eq('table_number', tableNum)
-                        .eq('status', 'abierta')
+                        .in('status', ['pendiente', 'preparando', 'listo'])
                         .order('created_at', { ascending: false })
                         .limit(1);
 
@@ -939,7 +939,7 @@ export default function CashierPage() {
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            const userId = user?.id || 'offline-placeholder';
+            const userId = user?.id || null;
 
             // Get Daily Ticket Number (Only for new orders)
             let dailySequence = 1;
@@ -954,8 +954,8 @@ export default function CashierPage() {
                 dailySequence = (dailyOrders?.length || 0) + 1;
             }
 
-            // El status es 'abierta' si es pre-ticket, sino el status normal
-            const finalStatus = isFinalPayment ? (orderType === 'delivery' ? 'confirmado' : 'entregado') : 'abierta';
+            // El status es 'pendiente' si es pre-ticket, sino el status normal
+            const finalStatus = isFinalPayment ? (orderType === 'delivery' ? 'confirmado' : 'entregado') : 'pendiente';
 
             const orderPayload: any = {
                 user_id: userId,
@@ -968,7 +968,7 @@ export default function CashierPage() {
                 phone_number: orderType === 'delivery' ? customerInfo.phone : (orderType === 'takeout' ? customerInfo.phone : null),
                 delivery_address: orderType === 'delivery' ? customerInfo.address : null,
                 table_number: orderType === 'dine-in' ? tableNumber : null,
-                updated_at: new Date().toISOString(),
+                // updated_at: new Date().toISOString(),
                 // Metadata for tracking
                 cashier_name: cashierName,
                 ticket_number: dailySequence
@@ -1193,7 +1193,7 @@ export default function CashierPage() {
                         extras
                     )
                 `)
-                .eq('status', 'abierta')
+                .in('status', ['pendiente', 'preparando', 'listo'])
                 .order('created_at', { ascending: false });
 
             if (openErr) console.error('Error fetching open orders:', openErr);
@@ -1212,7 +1212,7 @@ export default function CashierPage() {
                         extras
                     )
                 `)
-                .neq('status', 'abierta')
+                .not('status', 'in', '("pendiente","preparando","listo")')
                 .order('created_at', { ascending: false })
                 .limit(50);
 
@@ -1370,7 +1370,7 @@ export default function CashierPage() {
                                     {recentOrders
                                         .filter(o => {
                                             if (recentOrdersFilter === 'Todos') return true;
-                                            if (recentOrdersFilter === 'Abiertas') return o.status === 'abierta';
+                                            if (recentOrdersFilter === 'Abiertas') return ['pendiente', 'preparando', 'listo'].includes(o.status);
                                             if (recentOrdersFilter === 'Pendiente') return o.status === 'confirmado';
                                             if (recentOrdersFilter === 'Preparando') return o.status === 'preparando' || o.status === 'listo';
                                             if (recentOrdersFilter === 'Entregado') return o.status === 'entregado';
@@ -1387,11 +1387,11 @@ export default function CashierPage() {
                                                             <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.id.toString().slice(-6)}</span>
                                                             <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
                                                                 order.status === 'entregado' ? 'bg-green-100 text-green-700' :
-                                                                order.status === 'abierta' ? 'bg-purple-100 text-purple-700 border border-purple-200' :
+                                                                ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'bg-purple-100 text-purple-700 border border-purple-200' :
                                                                 order.status === 'confirmado' ? 'bg-blue-100 text-blue-700' :
                                                                 'bg-orange-100 text-orange-700'
                                                             }`}>
-                                                                {order.status === 'entregado' ? 'Finalizado' : order.status === 'abierta' ? 'En Mesa' : order.status === 'confirmado' ? 'Recibido' : order.status}
+                                                                {order.status === 'entregado' ? 'Finalizado' : ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'En Mesa' : order.status === 'confirmado' ? 'Recibido' : order.status}
                                                             </span>
                                                         </div>
                                                         <p className="text-xl font-black text-[#181511] tracking-tight">
@@ -1414,15 +1414,13 @@ export default function CashierPage() {
                                                 </div>
 
                                                 <div className="flex gap-2">
-                                                    {order.status === 'abierta' && (
-                                                        <button 
-                                                            onClick={() => {
-                                                                setShowOrdersView(false);
-                                                                if (order.table_number) {
-                                                                    setOrderType('dine-in');
-                                                                    setTableNumber(order.table_number);
-                                                                } else {
-                                                                    setOrderType(order.order_type || 'takeout');
+                                                    {['pendiente', 'preparando', 'listo'].includes(order.status) && (
+                                                        <>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    setShowOrdersView(false);
+                                                                    setOrderType(order.order_type || 'dine-in');
+                                                                    setTableNumber(order.table_number || '');
                                                                     setActiveOrderId(order.id);
                                                                     setPaymentMethod(order.payment_method || 'efectivo');
                                                                     const loadedCart = (order.order_items || []).map((item: any) => ({
@@ -1435,12 +1433,36 @@ export default function CashierPage() {
                                                                         cartItemId: Math.random().toString(36).substr(2, 9)
                                                                     }));
                                                                     setCart(loadedCart);
-                                                                }
-                                                            }}
-                                                            className="flex-1 bg-purple-50 text-purple-600 border-2 border-purple-200 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-100 transition-colors shadow-sm active:scale-95"
-                                                        >
-                                                            Abrir Comanda
-                                                        </button>
+                                                                }}
+                                                                className="flex-1 bg-purple-50 text-purple-600 border-2 border-purple-200 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-100 transition-colors shadow-sm active:scale-95"
+                                                            >
+                                                                Abrir Comanda
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    setShowOrdersView(false);
+                                                                    setOrderType(order.order_type || 'dine-in');
+                                                                    setTableNumber(order.table_number || '');
+                                                                    setActiveOrderId(order.id);
+                                                                    setPaymentMethod(order.payment_method || 'efectivo');
+                                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                                        id: item.product_id || 0,
+                                                                        name: item.product_name,
+                                                                        price: item.unit_price,
+                                                                        quantity: item.quantity,
+                                                                        selectedSize: item.selected_size,
+                                                                        extras: item.extras || [],
+                                                                        cartItemId: Math.random().toString(36).substr(2, 9)
+                                                                    }));
+                                                                    setCart(loadedCart);
+                                                                    setTimeout(() => setShowPaymentModal(true), 150);
+                                                                }}
+                                                                className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-colors shadow-sm active:scale-95 flex items-center justify-center gap-1"
+                                                            >
+                                                                <span className="material-icons-round text-sm">payments</span>
+                                                                Cobrar
+                                                            </button>
+                                                        </>
                                                     )}
                                                     <button 
                                                         onClick={() => {
@@ -1671,13 +1693,13 @@ export default function CashierPage() {
                     </div>
 
                     {/* MESAS / CUENTAS ABIERTAS QUICK ACCESS */}
-                    {recentOrders.filter(o => o.status === 'abierta').length > 0 && (
+                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length > 0 && (
                         <div className="mb-4 animate-in fade-in slide-in-from-top-2">
                             <span className="text-[10px] font-black text-purple-500 uppercase tracking-widest block mb-2 flex items-center gap-1">
                                 <span className="material-icons-round text-[12px]">receipt_long</span> Cuentas Abiertas
                             </span>
                             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                                {recentOrders.filter(o => o.status === 'abierta').map(order => {
+                                {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).map(order => {
                                     const isSelected = activeOrderId === order.id || (order.table_number && tableNumber === order.table_number);
                                     return (
                                         <button 
@@ -1833,9 +1855,9 @@ export default function CashierPage() {
                             <span className="text-xs font-black uppercase tracking-widest">Cuentas Abiertas</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                            {recentOrders.filter(o => o.status === 'abierta').length > 0 && (
+                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length > 0 && (
                                 <span className="bg-purple-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
-                                    {recentOrders.filter(o => o.status === 'abierta').length}
+                                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length}
                                 </span>
                             )}
                             <span className="material-icons-round text-base">chevron_right</span>
@@ -1868,7 +1890,7 @@ export default function CashierPage() {
                             <div>
                                 <h2 className="text-2xl font-black text-[#181511] tracking-tight">Cuentas Abiertas</h2>
                                 <p className="text-xs text-[#8c785f] font-bold mt-0.5">
-                                    {recentOrders.filter(o => o.status === 'abierta').length} cuenta(s) pendiente(s) de cobro
+                                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length} cuenta(s) pendiente(s) de cobro
                                 </p>
                             </div>
                             <button
@@ -1884,16 +1906,16 @@ export default function CashierPage() {
                             {/* DEBUG INFO — remove after fixing */}
                             <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-[10px] font-mono text-yellow-800">
                                 <p className="font-black">DEBUG: recentOrders total: {recentOrders.length}</p>
-                                <p>Con status &apos;abierta&apos;: {recentOrders.filter(o => o.status === 'abierta').length}</p>
+                                <p>Con status &apos;abierta&apos;: {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length}</p>
                                 <p>Statuses: {[...new Set(recentOrders.map(o => o.status))].join(', ') || '(ninguno)'}</p>
                             </div>
-                            {recentOrders.filter(o => o.status === 'abierta').length === 0 ? (
+                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full opacity-20 gap-4">
                                     <span className="material-icons-round text-6xl">receipt_long</span>
                                     <p className="font-black text-sm uppercase tracking-widest">Sin cuentas abiertas</p>
                                 </div>
                             ) : (
-                                recentOrders.filter(o => o.status === 'abierta').map(order => (
+                                recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).map(order => (
                                     <div key={order.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                                         {/* Card header */}
                                         <div className="flex items-center justify-between p-4 border-b border-gray-50">
@@ -2321,85 +2343,94 @@ export default function CashierPage() {
             {/* CUSTOMER MODAL (FOR DELIVERY) */}
             {
                 showCustomerModal && (
-                    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-                        <div className="bg-white rounded-[32px] w-full max-w-4xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 flex flex-col md:flex-row border border-white/20">
+                    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 bg-[#181511]/40 backdrop-blur-md">
+                        <div className="bg-white rounded-[32px] w-full max-w-5xl overflow-hidden shadow-2xl shadow-black/20 animate-in zoom-in-95 duration-300 flex flex-col md:flex-row border border-white/50 relative">
 
                             {/* LEFT SIDE: DATA ENTRY */}
-                            <div className="flex-1 p-6 lg:p-10">
+                            <div className="flex-1 p-6 lg:p-10 z-10 bg-white">
                                 <div className="flex justify-between items-center mb-8">
-                                    <div className="flex items-center gap-3">
-                                        <div className="size-10 bg-[#f7951d] rounded-xl flex items-center justify-center shadow-lg shadow-[#f7951d]/20 text-white">
-                                            <span className="material-icons-round">local_shipping</span>
+                                    <div className="flex items-center gap-4">
+                                        <div className="size-12 group bg-gradient-to-br from-[#f7941d] to-[#ffb800] rounded-2xl flex items-center justify-center shadow-lg shadow-[#f7941d]/30 text-white relative overflow-hidden">
+                                            <div className="absolute inset-0 h-full w-[200%] bg-white/30 origin-top-left -rotate-45 -translate-x-[150%] group-hover:translate-x-[50%] transition-transform duration-700 ease-out"></div>
+                                            <span className="material-icons-round text-[28px] relative z-10">local_shipping</span>
                                         </div>
-                                        <h3 className="text-2xl font-black text-[#181511] tracking-tight">Datos para Envío</h3>
+                                        <div>
+                                            <h3 className="text-3xl font-black text-[#181511] tracking-tight leading-none bg-clip-text text-transparent bg-gradient-to-r from-[#181511] to-[#3a332a]">Datos para Envío</h3>
+                                            <p className="text-[11px] font-bold text-gray-400 mt-1 uppercase tracking-widest">Información del Cliente</p>
+                                        </div>
                                     </div>
-                                    <button onClick={() => { setShowCustomerModal(false); setSearchTerm(''); setFoundCustomers([]); }} className="size-10 flex items-center justify-center bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all">
+                                    <button onClick={() => { setShowCustomerModal(false); setSearchTerm(''); setFoundCustomers([]); }} className="size-10 flex items-center justify-center bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-red-50 hover:shadow-inner rounded-full transition-all active:scale-95">
                                         <span className="material-icons-round text-xl">close</span>
                                     </button>
                                 </div>
 
                                 {/* LARGE PHONE FIELD - High visibility like the POS image */}
-                                <div className="mb-8 p-1 bg-yellow-400/10 border-2 border-yellow-400/30 rounded-[24px]">
-                                    <div className="bg-white rounded-[20px] px-6 py-4 border border-white shadow-sm flex items-center gap-4">
-                                        <div className="flex flex-col">
-                                            <span className="text-[10px] font-black text-yellow-600 uppercase tracking-widest leading-none mb-1">TELEFONO</span>
-                                            <div className="flex items-center gap-2">
-                                                <span className="material-icons-round text-[#f7951d]">phone_android</span>
-                                                <input
-                                                    type="tel"
-                                                    value={customerInfo.phone || ''}
-                                                    onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-                                                    className="bg-transparent border-none p-0 text-3xl font-black text-[#181511] focus:ring-0 outline-none w-full placeholder:text-gray-200"
-                                                    placeholder="741 000 0000"
-                                                />
+                                <div className="mb-8 relative group">
+                                    <div className="absolute inset-0 bg-gradient-to-r from-[#f7941d] to-[#ffb800] rounded-[24px] blur-md opacity-20 group-focus-within:opacity-40 transition-opacity duration-500"></div>
+                                    <div className="relative p-1.5 bg-gradient-to-r from-[#f7941d]/10 to-[#ffb800]/10 border-2 border-white/60 rounded-[24px] backdrop-blur-sm group-focus-within:border-[#f7941d]/30 transition-colors">
+                                        <div className="bg-white rounded-[20px] px-6 py-5 flex items-center gap-4 shadow-sm">
+                                            <div className="flex flex-col flex-1">
+                                                <span className="text-[10px] font-black text-[#f7941d] uppercase tracking-widest leading-none mb-2">TELÉFONO DE CONTACTO</span>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex items-center justify-center size-8 rounded-full bg-orange-50 text-[#f7941d]">
+                                                        <span className="material-icons-round text-xl">phone_in_talk</span>
+                                                    </div>
+                                                    <input
+                                                        type="tel"
+                                                        value={customerInfo.phone || ''}
+                                                        onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                                                        className="bg-transparent border-none p-0 text-3xl font-black text-[#181511] focus:ring-0 outline-none w-full placeholder:text-gray-200 tracking-wider"
+                                                        placeholder="741 000 0000"
+                                                    />
+                                                </div>
                                             </div>
+                                            {isSearchingCustomer && (
+                                                <div className="animate-spin text-[#f7951d] opacity-80">
+                                                    <span className="material-icons-round text-3xl">sync</span>
+                                                </div>
+                                            )}
                                         </div>
-                                        {isSearchingCustomer && (
-                                            <div className="animate-spin text-[#f7951d]">
-                                                <span className="material-icons-round text-3xl">sync</span>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
                                     {/* CLIENT SELECTION DROPDOWN */}
                                     <div className="md:col-span-2">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Autocompletar Cliente</label>
-                                        <div className="relative">
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Autocompletar Cliente</label>
+                                        <div className="relative group">
                                             <select
                                                 onChange={handleClientSelect}
-                                                className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-3 text-sm font-bold focus:border-[#f7951d] outline-none transition-all appearance-none cursor-pointer text-[#181511]"
+                                                className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all appearance-none cursor-pointer text-[#181511] hover:bg-gray-100"
                                                 value={availableClients.find(c => c.phone === customerInfo.phone)?.id || ""}
                                             >
-                                                <option value="" disabled>-- {loadingClients ? 'Cargando lista...' : 'Seleccionar de la lista'} --</option>
+                                                <option value="" disabled>-- {loadingClients ? 'Buscando incidencias...' : 'Selecciona un perfil guardado'} --</option>
                                                 {availableClients.map((client) => (
                                                     <option key={`${client.origin}-${client.id}`} value={client.id}>
                                                         {client.name} {client.phone ? `(${client.phone})` : ''}
                                                     </option>
                                                 ))}
                                             </select>
-                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                                                <span className="material-icons-round">people</span>
+                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 group-hover:text-gray-600 transition-colors">
+                                                <span className="material-icons-round">keyboard_arrow_down</span>
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* NAME */}
                                     <div className="md:col-span-2">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">NOMBRE DEL CLIENTE</label>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Nombre del Cliente</label>
                                         <input
                                             type="text"
                                             value={customerInfo.name || ''}
                                             onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
-                                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-bold focus:border-[#f7951d] outline-none"
+                                            className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all placeholder:text-gray-400 hover:bg-gray-100 focus:hover:bg-white"
                                             placeholder="Nombre completo"
                                         />
                                     </div>
 
                                     {/* STREET */}
                                     <div className="md:col-span-1">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">CALLE Y NÚMERO</label>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Calle y Número</label>
                                         <input
                                             type="text"
                                             value={customerInfo.street || ''}
@@ -2411,14 +2442,14 @@ export default function CashierPage() {
                                                     address: `${street}, ${customerInfo.neighborhood || ''}, ${customerInfo.reference || ''}`
                                                 });
                                             }}
-                                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-bold focus:border-[#f7951d] outline-none"
+                                            className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all placeholder:text-gray-400 hover:bg-gray-100 focus:hover:bg-white"
                                             placeholder="Ej. Av. Juárez #123"
                                         />
                                     </div>
 
                                     {/* NEIGHBORHOOD */}
                                     <div className="md:col-span-1">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">COLONIA</label>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Colonia</label>
                                         <input
                                             type="text"
                                             value={customerInfo.neighborhood || ''}
@@ -2430,14 +2461,14 @@ export default function CashierPage() {
                                                     address: `${customerInfo.street || ''}, ${neighborhood}, ${customerInfo.reference || ''}`
                                                 });
                                             }}
-                                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-bold focus:border-[#f7951d] outline-none"
+                                            className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all placeholder:text-gray-400 hover:bg-gray-100 focus:hover:bg-white"
                                             placeholder="Nombre de la colonia"
                                         />
                                     </div>
 
                                     {/* REFERENCE */}
                                     <div className="md:col-span-2">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">REFERENCIA / NOTAS</label>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Referencia / Notas</label>
                                         <textarea
                                             rows={2}
                                             value={customerInfo.reference || ''}
@@ -2449,83 +2480,96 @@ export default function CashierPage() {
                                                     address: `${customerInfo.street || ''}, ${customerInfo.neighborhood || ''}, ${reference}`
                                                 });
                                             }}
-                                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-bold focus:border-[#f7951d] outline-none resize-none"
-                                            placeholder="Ej. Frente a la tienda El Porvenir"
+                                            className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all placeholder:text-gray-400 hover:bg-gray-100 focus:hover:bg-white resize-none"
+                                            placeholder="Ej. Frente a la tienda El Porvenir. Timbre azul."
                                         />
                                     </div>
                                 </div>
 
-                                <div className="mt-10 flex gap-4">
+                                <div className="mt-8 flex gap-4 border-t border-gray-100 pt-8">
                                     <button
                                         onClick={() => setShowCustomerModal(false)}
-                                        className="flex-1 bg-[#181511] text-white py-4 rounded-2xl font-black shadow-xl shadow-black/10 active:scale-95 transition-all flex items-center justify-center gap-2 group"
+                                        className="flex-1 overflow-hidden relative group bg-[#181511] text-white py-4 rounded-2xl font-black shadow-xl shadow-black/10 active:scale-95 transition-all flex items-center justify-center gap-2"
                                     >
-                                        <span className="material-icons-round text-green-400 group-hover:scale-125 transition-transform">check_circle</span>
-                                        ACEPTAR DATOS
+                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out"></div>
+                                        <span className="material-icons-round text-green-400 relative z-10 group-hover:scale-110 transition-transform duration-300">check_circle</span>
+                                        <span className="relative z-10">ACEPTAR DATOS</span>
                                     </button>
                                     <button
                                         onClick={() => {
                                             setCustomerInfo({ name: '', phone: '', address: '', street: '', neighborhood: '', reference: '' });
                                             setShowCustomerModal(false);
                                         }}
-                                        className="px-6 bg-red-50 text-red-500 py-4 rounded-2xl font-black active:scale-95 transition-all flex items-center justify-center gap-2"
+                                        className="px-8 bg-red-50 text-red-600 py-4 rounded-2xl font-black hover:bg-red-100 active:scale-95 transition-all flex items-center justify-center gap-2 border border-red-100 shadow-sm"
                                     >
-                                        <span className="material-icons-round">delete_outline</span>
-                                        BORRAR
+                                        <span className="material-icons-round text-lg">delete_outline</span>
+                                        <span>ELIMINAR Y CERRAR</span>
                                     </button>
                                 </div>
                             </div>
 
                             {/* RIGHT SIDE: ADDITIONAL INFO */}
-                            <div className="w-full md:w-80 bg-gray-50/50 border-l border-gray-100 flex flex-col p-6 lg:p-10 custom-scrollbar overflow-y-auto">
-                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-8 text-center md:text-left">PERSPECTIVAS DEL CLIENTE</h4>
+                            <div className="w-full md:w-[360px] bg-gradient-to-b from-gray-50/80 to-white border-l border-gray-100/80 flex flex-col p-6 lg:p-10 custom-scrollbar overflow-y-auto relative z-0">
+                                <h4 className="text-[10px] font-black text-gray-400/80 uppercase tracking-widest mb-8 text-center md:text-left flex items-center justify-center md:justify-start gap-2">
+                                    <span className="material-icons-round text-[14px]">psychology</span>
+                                    Historial
+                                </h4>
 
                                 {customerInsights ? (
-                                    <div className="space-y-6">
-                                        <div className="bg-white p-5 rounded-3xl shadow-sm border border-white">
-                                            <div className="bg-blue-50 size-10 rounded-xl mb-4 flex items-center justify-center text-blue-500">
+                                    <div className="space-y-5 animate-in slide-in-from-right-4 fade-in duration-500">
+                                        <div className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-100 hover:shadow-md transition-shadow group cursor-default">
+                                            <div className="bg-blue-50/80 size-10 rounded-xl mb-4 flex items-center justify-center text-blue-500 group-hover:scale-110 group-hover:bg-blue-500 group-hover:text-white transition-all duration-300">
                                                 <span className="material-icons-round">loyalty</span>
                                             </div>
-                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Cliente desde:</p>
+                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-0.5">Cliente desde</p>
                                             <p className="text-xl font-black text-[#181511] tracking-tight">
                                                 {customerInsights.firstOrderDate ? new Date(customerInsights.firstOrderDate).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '---'}
                                             </p>
-                                            <div className={`mt-3 text-[10px] font-black uppercase px-2 py-1 rounded inline-block ${customerInsights.isFrequent ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                                            <div className={`mt-3 text-[10px] font-black uppercase px-2.5 py-1.5 rounded-lg inline-block tracking-widest border ${customerInsights.isFrequent ? 'bg-green-50 text-green-700 border-green-200/50 shadow-sm' : 'bg-gray-50 text-gray-500 border-gray-200/50'}`}>
                                                 {customerInsights.isFrequent ? 'Miembro Frecuente' : 'Nuevo Cliente'}
                                             </div>
                                         </div>
 
-                                        <div className="bg-[#181511] p-6 rounded-3xl shadow-lg shadow-black/10 text-white flex flex-col gap-1">
-                                            <div className="bg-white/10 size-10 rounded-xl mb-3 flex items-center justify-center">
-                                                <span className="material-icons-round text-[#f7951d]">payments</span>
+                                        <div className="bg-gradient-to-br from-[#201d18] to-[#110e0b] p-6 rounded-[24px] shadow-xl shadow-black/10 text-white flex flex-col gap-1 relative overflow-hidden group">
+                                            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 group-hover:scale-110 transition-all duration-500 pointer-events-none">
+                                                <span className="material-icons-round text-8xl text-orange-400">trending_up</span>
                                             </div>
-                                            <p className="text-[10px] font-black uppercase opacity-60">Consumo Total Histórico:</p>
-                                            <p className="text-4xl font-black tracking-tighter">${customerInsights.totalSpent.toFixed(2)}</p>
-                                            <p className="text-[10px] font-bold mt-2 opacity-50 uppercase tracking-widest">{customerInsights.totalOrders} PEDIDOS TOTALES</p>
+                                            <div className="bg-white/10 size-10 rounded-xl mb-3 flex items-center justify-center backdrop-blur-md border border-white/5 group-hover:bg-[#f7941d] transition-colors duration-300">
+                                                <span className="material-icons-round text-white">payments</span>
+                                            </div>
+                                            <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest z-10">Consumo Histórico</p>
+                                            <p className="text-4xl font-black tracking-tighter z-10 text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-300">${customerInsights.totalSpent.toFixed(2)}</p>
+                                            <div className="flex items-center gap-1.5 mt-2 z-10">
+                                                <div className="bg-[#f7941d] size-1.5 rounded-full animate-pulse"></div>
+                                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{customerInsights.totalOrders} PEDIDOS</p>
+                                            </div>
                                         </div>
 
-                                        <div className="bg-orange-400 p-6 rounded-3xl shadow-lg shadow-orange-400/20 text-[#181511] flex flex-col gap-1">
-                                            <div className="bg-black/10 size-10 rounded-xl mb-3 flex items-center justify-center">
+                                        <div className="bg-gradient-to-br from-[#f7941d] to-[#ffb800] p-6 rounded-[24px] shadow-xl shadow-[#f7941d]/20 text-[#181511] flex flex-col gap-1 relative overflow-hidden group cursor-default">
+                                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/30 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700"></div>
+                                            <div className="bg-[#181511]/10 size-10 rounded-xl mb-3 flex items-center justify-center backdrop-blur-sm group-hover:bg-[#181511] group-hover:text-white transition-all duration-300 border border-black/5">
                                                 <span className="material-icons-round">history</span>
                                             </div>
-                                            <p className="text-[10px] font-black uppercase opacity-60">Última Compra:</p>
-                                            <p className="text-xl font-black tracking-tight leading-tight">
+                                            <p className="text-[10px] font-black uppercase text-[#181511]/70 tracking-widest z-10">Última Compra</p>
+                                            <p className="text-xl font-black tracking-tight leading-tight z-10">
                                                 {customerInsights.lastOrderDate ? new Date(customerInsights.lastOrderDate).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '---'}
                                             </p>
-                                            <p className="text-3xl font-black mt-2 tracking-tighter">${customerInsights.lastOrderAmount.toFixed(2)}</p>
+                                            <p className="text-3xl font-black mt-2 tracking-tighter z-10">${customerInsights.lastOrderAmount.toFixed(2)}</p>
                                         </div>
 
                                         {customerInsights.favoriteProducts && customerInsights.favoriteProducts.length > 0 && (
-                                            <div className="bg-white p-5 rounded-3xl shadow-sm border border-white">
+                                            <div className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                                                 <div className="bg-purple-50 size-10 rounded-xl mb-4 flex items-center justify-center text-purple-500">
                                                     <span className="material-icons-round">star</span>
                                                 </div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-2">Productos Favoritos:</p>
-                                                <div className="flex flex-col gap-1.5">
+                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-3 tracking-widest">Productos Preferidos</p>
+                                                <div className="flex flex-col gap-2">
                                                     {customerInsights.favoriteProducts.map((p, i) => (
-                                                        <div key={i} className="flex items-center gap-2">
-                                                            <div className="size-1.5 rounded-full bg-purple-200"></div>
-                                                            <span className="text-xs font-bold text-gray-700 uppercase leading-none">{p}</span>
+                                                        <div key={i} className="flex items-center gap-3 bg-gray-50/50 p-2.5 rounded-xl">
+                                                            <div className="size-6 shrink-0 rounded-lg bg-white border border-purple-100 flex items-center justify-center shadow-sm">
+                                                                <span className="text-[10px] font-black text-purple-600">{i + 1}</span>
+                                                            </div>
+                                                            <span className="text-xs font-bold text-[#181511] uppercase leading-tight line-clamp-2">{p}</span>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -2533,13 +2577,20 @@ export default function CashierPage() {
                                         )}
                                     </div>
                                 ) : (
-                                    <div className="flex flex-col items-center justify-center flex-1 text-center opacity-30 space-y-4 px-4 py-20">
-                                        <div className="size-20 bg-gray-100 rounded-full flex items-center justify-center">
-                                            <span className="material-icons-round text-5xl">person_search</span>
+                                    <div className="flex flex-col items-center justify-center flex-1 text-center opacity-80 px-4 py-8 relative min-h-[400px]">
+                                        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-64 bg-gradient-to-b from-blue-50/0 via-blue-100/50 to-blue-50/0 pointer-events-none rounded-full blur-2xl scale-150"></div>
+                                        <div className="relative z-10 mb-8 animate-in zoom-in duration-700">
+                                            <div className="absolute inset-0 bg-blue-400 blur-2xl opacity-20 rounded-full animate-pulse"></div>
+                                            <div className="size-28 bg-white shadow-xl shadow-blue-900/5 rounded-[32px] flex items-center justify-center relative border border-gray-100/50 rotate-3">
+                                                <span className="material-icons-round text-6xl text-gray-300">person_search</span>
+                                                <div className="absolute -bottom-2 -right-2 size-10 bg-blue-50 rounded-full border-4 border-white flex items-center justify-center shadow-sm">
+                                                    <span className="material-icons-round text-base text-blue-500">manage_search</span>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="space-y-1">
-                                            <p className="font-black text-xs uppercase tracking-widest">Sin Historial</p>
-                                            <p className="text-[10px] font-bold leading-tight">Ingresa un número para analizar al cliente</p>
+                                        <div className="space-y-2.5 relative z-10">
+                                            <p className="font-black text-sm uppercase tracking-widest text-[#181511]">Sin Resultados</p>
+                                            <p className="text-xs font-bold leading-relaxed text-gray-400 max-w-[220px] mx-auto">Teclea un número telefónico para explorar métricas, consumo y lealtad.</p>
                                         </div>
                                     </div>
                                 )}

@@ -100,6 +100,7 @@ export default function RootLayout({
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${plusJakartaSans.variable} font-sans antialiased bg-background-light dark:bg-background-dark text-text-dark dark:text-text-light transition-colors duration-300`}
+        suppressHydrationWarning
       >
         {/* Google Tag Manager (noscript) */}
         <noscript>

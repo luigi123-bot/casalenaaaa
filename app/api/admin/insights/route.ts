@@ -74,7 +74,7 @@ export async function GET(request: Request) {
                 )
             `)
             .neq('status', 'cancelado')
-            .neq('status', 'abierta');
+            .not('status', 'in', '("pendiente","preparando","listo")');
 
         // Date filtering: explicit dates override period
         if (startDate) {
