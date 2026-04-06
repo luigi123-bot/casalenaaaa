@@ -67,6 +67,36 @@ export default function LoginPage() {
         }
     };
 
+    const handleClearCache = async () => {
+        if (confirm('¿Deseas limpiar la caché del sistema? Esto recargará la página y puede solucionar problemas de carga de imágenes e iconos.')) {
+            try {
+                // Clear Storage
+                localStorage.clear();
+                sessionStorage.clear();
+                
+                // Clear Caches
+                if ('caches' in window) {
+                    const cacheNames = await caches.keys();
+                    await Promise.all(cacheNames.map(name => caches.delete(name)));
+                }
+
+                // Clear Service Workers
+                if (navigator.serviceWorker) {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    for (const registration of registrations) {
+                        registration.unregister();
+                    }
+                }
+
+                // Forced reload with timestamp to bypass provider cache
+                window.location.href = window.location.origin + window.location.pathname + '?cache-bust=' + Date.now();
+            } catch (e) {
+                console.error('Error clearing cache:', e);
+                window.location.reload();
+            }
+        }
+    };
+
     return (
         <div className="min-h-screen flex relative overflow-hidden">
             {/* Left Side - Brand Information with Enhanced Effects */}
@@ -265,10 +295,20 @@ export default function LoginPage() {
                             </button>
                         </form>
 
-                        <div className="mt-6 text-center">
+                        <div className="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center gap-4">
                             <Link href="/register" className="text-sm text-[#F7941D] hover:text-[#e8891a] font-bold hover:underline transition-all">
                                 ¿No tienes cuenta? Regístrate aquí
                             </Link>
+
+                            <button
+                                onClick={handleClearCache}
+                                type="button"
+                                className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-gray-400 hover:text-[#F7941D] transition-all duration-300 group mt-2"
+                                title="Limpiar caché si los iconos o logos no cargan"
+                            >
+                                <span className="material-icons-round text-sm group-hover:rotate-180 transition-transform duration-500">sync</span>
+                                ¿Problemas con iconos o logos? Limpiar caché
+                            </button>
                         </div>
                     </div>
                 </div>
