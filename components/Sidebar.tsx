@@ -109,7 +109,7 @@ export default function Sidebar() {
                 onClick={() => setIsMobileMenuOpen(true)}
                 className="lg:hidden fixed top-4 left-4 z-40 p-2 rounded-xl bg-white border border-[#e6e1db] shadow-lg hover:bg-gray-50 transition-colors"
             >
-                <span className="material-symbols-outlined text-2xl text-[#181511]">menu</span>
+                <span className="material-icons-round text-2xl text-[#181511]">menu</span>
             </button>
 
             {/* Mobile Overlay */}
@@ -132,7 +132,7 @@ export default function Sidebar() {
                     onClick={() => setIsMobileMenuOpen(false)}
                     className="lg:hidden absolute top-4 right-4 p-2 rounded-xl hover:bg-gray-100 transition-colors"
                 >
-                    <span className="material-symbols-outlined text-2xl text-[#181511]">close</span>
+                    <span className="material-icons-round text-2xl text-[#181511]">close</span>
                 </button>
 
                 {/* Logo Section - Fixed width container to prevent layout shifts */}
@@ -156,12 +156,12 @@ export default function Sidebar() {
                             key={item.href}
                             href={item.href}
                             onClick={(e) => handleLinkClick(e, item.href)}
-                            className={`flex items-center lg:justify-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 lg:group-hover/sidebar:justify-start rounded-xl transition-all h-11 ${isActive(item.href)
+                            className={`flex items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden rounded-xl transition-all h-11 ${isActive(item.href)
                                 ? 'bg-[#f7951d] text-white shadow-md'
                                 : 'text-[#8c785f] hover:bg-[#f8f7f5] hover:text-[#181511]'
                                 }`}
                         >
-                            <span className={`material-symbols-outlined text-2xl shrink-0 transition-transform duration-300 ${isActive(item.href) ? 'scale-110' : 'group-hover/sidebar:scale-105'} ${item.filled && isActive(item.href) ? 'fill-1' : ''}`}>
+                            <span className={`material-icons-round text-2xl shrink-0 transition-transform duration-300 flex items-center justify-center ${isActive(item.href) ? 'scale-110' : 'group-hover/sidebar:scale-105'}`}>
                                 {item.icon}
                             </span>
                             <span className={`ml-4 text-sm whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0 ${isActive(item.href) ? 'font-black' : 'font-bold'}`}>
@@ -177,9 +177,9 @@ export default function Sidebar() {
                         <Link
                             href="/admin"
                             onClick={() => setIsMobileMenuOpen(false)}
-                            className="flex items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 lg:justify-center lg:group-hover/sidebar:justify-start h-11 rounded-xl text-[#f7951d] hover:bg-orange-50 cursor-pointer transition-all"
+                            className="flex items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden h-11 rounded-xl text-[#f7951d] hover:bg-orange-50 cursor-pointer transition-all"
                         >
-                            <span className="material-symbols-outlined text-2xl shrink-0">arrow_back</span>
+                            <span className="material-icons-round text-2xl shrink-0 flex items-center justify-center">arrow_back</span>
                             <span className="ml-4 text-sm font-black whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0">Volver al Admin</span>
                         </Link>
                     ) : (
@@ -187,9 +187,9 @@ export default function Sidebar() {
                             {isWindows && (
                                 <button
                                     onClick={handleDownloadDesktop}
-                                    className="flex w-full items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 lg:justify-center lg:group-hover/sidebar:justify-start h-11 rounded-xl text-[#F7941D] hover:bg-orange-50 cursor-pointer transition-all border border-orange-100 mb-1"
+                                    className="flex w-full items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden h-11 rounded-xl text-[#F7941D] hover:bg-orange-50 cursor-pointer transition-all border border-orange-100 mb-1"
                                 >
-                                    <span className="material-symbols-outlined text-2xl shrink-0 font-bold">laptop_windows</span>
+                                    <span className="material-icons-round text-2xl shrink-0 flex items-center justify-center">laptop_windows</span>
                                     <span className="ml-4 text-xs font-black whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0">Descargar APP</span>
                                 </button>
                             )}
@@ -205,9 +205,9 @@ export default function Sidebar() {
                                     }
                                     setIsMobileMenuOpen(false);
                                 }}
-                                className="flex w-full items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 lg:justify-center lg:group-hover/sidebar:justify-start h-11 rounded-xl text-[#8c785f] hover:bg-red-50 hover:text-red-500 cursor-pointer transition-all"
+                                className="flex w-full items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden h-11 rounded-xl text-[#8c785f] hover:bg-red-50 hover:text-red-500 cursor-pointer transition-all"
                             >
-                                <span className="material-symbols-outlined text-2xl shrink-0 font-bold">logout</span>
+                                <span className="material-icons-round text-2xl shrink-0 flex items-center justify-center">logout</span>
                                 <span className="ml-4 text-sm font-bold whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0">Cerrar Sesión</span>
                             </button>
                         </div>

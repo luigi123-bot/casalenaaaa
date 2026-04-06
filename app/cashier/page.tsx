@@ -124,6 +124,7 @@ export default function CashierPage() {
     const [showCustomerModal, setShowCustomerModal] = useState(false);
     const [showTicketModal, setShowTicketModal] = useState(false);
     const [ticketData, setTicketData] = useState<any>(null);
+    const [showOpenTabsModal, setShowOpenTabsModal] = useState(false);
 
     // Dropdown State
     const [availableClients, setAvailableClients] = useState<any[]>([]);
@@ -873,7 +874,11 @@ export default function CashierPage() {
     };
 
     const clearCart = () => {
+        if (cart.length > 0 && !window.confirm('¿Estás seguro de limpiar la comanda actual? Se perderán los productos no guardados.')) return;
         setCart([]);
+        setTableNumber('');
+        setActiveOrderId(null);
+        setCustomerInfo({ name: '', phone: '', address: '', street: '', neighborhood: '', reference: '' });
     };
 
     const handleOpenTicketModal = (orderData: any, items: CartItem[]) => {
@@ -1049,10 +1054,17 @@ export default function CashierPage() {
             // UI SUCCESS FLOW
             if (createdOrder) {
                 setLastOrderId(createdOrder.id);
-                // Si es PRE-TICKET no mostramos el Confetti/Success grande, solo el Ticket
+                // Si es PRE-TICKET no mostramos el Confetti/Success grande, solo el Ticket (y un mini alert/toast visual de exito)
                 if (isFinalPayment) {
                     setShowSuccessModal(true);
                     successModalRef.current = true;
+                } else {
+                    // Feedback visual sutil de que se guardó
+                    const toast = document.createElement('div');
+                    toast.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in';
+                    toast.innerHTML = '<span class="material-icons-round align-middle mr-2">save</span> Cuenta Abierta Guardada';
+                    document.body.appendChild(toast);
+                    setTimeout(() => { toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10'); setTimeout(() => toast.remove(), 300); }, 3000);
                 }
 
                 // Generar Ticket (Pre-cuenta o Final)
@@ -1062,18 +1074,15 @@ export default function CashierPage() {
                     console.error('⚠️ [Cashier] Error abriendo modal de ticket:', printErr);
                 }
 
-                // SI ES PAGO FINAL, LIMPIAMOS TODO
-                if (isFinalPayment) {
-                    setCart([]);
-                    setTableNumber('');
-                    setActiveOrderId(null);
-                    setCustomerInfo({ name: '', phone: '', address: '', street: '', neighborhood: '', reference: '' });
-                    setShowPaymentModal(false);
-                } else {
-                    // Si es solo GUARDAR, actualizamos el activeOrderId por si era nuevo
-                    setActiveOrderId(createdOrder.id);
-                    setShowPaymentModal(false);
-                }
+                // SIEMPRE LIMPIAMOS TODO (Incluso en Solo Guardar) para liberar la máquina
+                setCart([]);
+                setTableNumber('');
+                setActiveOrderId(null);
+                setCustomerInfo({ name: '', phone: '', address: '', street: '', neighborhood: '', reference: '' });
+                setShowPaymentModal(false);
+
+                // ACTUALIZAR LA VISTA DE INMEDIATO PARA VER LA NUEVA CUENTA MÁS RÁPIDO
+                setTimeout(() => fetchRecentOrders(false), 500);
             }
 
             setLoading(false);
@@ -1170,26 +1179,52 @@ export default function CashierPage() {
     const fetchRecentOrders = async (showLoading = true) => {
         if (showLoading) setRecentOrdersLoading(true);
         try {
-            const { data, error } = await supabase
+            // Query 1: ALL open accounts (status = 'abierta') — no limit, always show them
+            const { data: openData, error: openErr } = await supabase
                 .from('orders')
                 .select(`
                     *,
                     order_items (
                         product_name,
+                        product_id,
                         quantity,
-                        unit_price
+                        unit_price,
+                        selected_size,
+                        extras
                     )
                 `)
+                .eq('status', 'abierta')
+                .order('created_at', { ascending: false });
+
+            if (openErr) console.error('Error fetching open orders:', openErr);
+
+            // Query 2: Recent 50 orders (any status except abierta to avoid duplicates)
+            const { data: recentData, error: recentErr } = await supabase
+                .from('orders')
+                .select(`
+                    *,
+                    order_items (
+                        product_name,
+                        product_id,
+                        quantity,
+                        unit_price,
+                        selected_size,
+                        extras
+                    )
+                `)
+                .neq('status', 'abierta')
                 .order('created_at', { ascending: false })
                 .limit(50);
 
-            if (error) throw error;
-            
-            // "Sync without deleting if offline": 
-            // We only update if data is successfully received
-            if (data) setRecentOrders(data);
+            if (recentErr) console.error('Error fetching recent orders:', recentErr);
+
+            // Merge: open accounts first, then recent
+            const combined = [...(openData || []), ...(recentData || [])];
+            console.log('🔍 [DEBUG Cuentas] Total combinado:', combined.length, '| Abiertas:', (openData || []).length, '| Recientes:', (recentData || []).length);
+            console.log('🔍 [DEBUG Abiertas]:', openData);
+            if (combined.length > 0) setRecentOrders(combined);
         } catch (err) {
-            console.error('Error fetching recent orders:', err);
+            console.error('Error fetching orders:', err);
         } finally {
             if (showLoading) setRecentOrdersLoading(false);
         }
@@ -1312,12 +1347,12 @@ export default function CashierPage() {
                                     <h2 className="text-3xl font-black text-[#181511] tracking-tight">Registro de Todos los Pedidos</h2>
                                     <p className="text-sm text-[#8c785f] font-medium">Visualización de ventas y estados en tiempo real.</p>
                                 </div>
-                                <div className="flex gap-2 bg-white p-1 rounded-xl shadow-sm border border-gray-100">
-                                    {['Todos', 'Pendiente', 'Preparando', 'Entregado'].map(f => (
+                                <div className="flex gap-2 bg-white p-1 rounded-xl shadow-sm border border-gray-100 overflow-x-auto scrollbar-hide">
+                                    {['Todos', 'Abiertas', 'Pendiente', 'Preparando', 'Entregado'].map(f => (
                                         <button 
                                             key={f}
                                             onClick={() => setRecentOrdersFilter(f)}
-                                            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${recentOrdersFilter === f ? 'bg-[#f7951d] text-white' : 'text-[#8c785f] hover:bg-gray-50'}`}
+                                            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all whitespace-nowrap ${recentOrdersFilter === f ? 'bg-[#f7951d] text-white' : 'text-[#8c785f] hover:bg-gray-50'}`}
                                         >
                                             {f}
                                         </button>
@@ -1335,6 +1370,7 @@ export default function CashierPage() {
                                     {recentOrders
                                         .filter(o => {
                                             if (recentOrdersFilter === 'Todos') return true;
+                                            if (recentOrdersFilter === 'Abiertas') return o.status === 'abierta';
                                             if (recentOrdersFilter === 'Pendiente') return o.status === 'confirmado';
                                             if (recentOrdersFilter === 'Preparando') return o.status === 'preparando' || o.status === 'listo';
                                             if (recentOrdersFilter === 'Entregado') return o.status === 'entregado';
@@ -1351,10 +1387,11 @@ export default function CashierPage() {
                                                             <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.id.toString().slice(-6)}</span>
                                                             <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
                                                                 order.status === 'entregado' ? 'bg-green-100 text-green-700' :
+                                                                order.status === 'abierta' ? 'bg-purple-100 text-purple-700 border border-purple-200' :
                                                                 order.status === 'confirmado' ? 'bg-blue-100 text-blue-700' :
                                                                 'bg-orange-100 text-orange-700'
                                                             }`}>
-                                                                {order.status === 'entregado' ? 'Finalizado' : order.status === 'confirmado' ? 'Recibido' : order.status}
+                                                                {order.status === 'entregado' ? 'Finalizado' : order.status === 'abierta' ? 'En Mesa' : order.status === 'confirmado' ? 'Recibido' : order.status}
                                                             </span>
                                                         </div>
                                                         <p className="text-xl font-black text-[#181511] tracking-tight">
@@ -1377,6 +1414,34 @@ export default function CashierPage() {
                                                 </div>
 
                                                 <div className="flex gap-2">
+                                                    {order.status === 'abierta' && (
+                                                        <button 
+                                                            onClick={() => {
+                                                                setShowOrdersView(false);
+                                                                if (order.table_number) {
+                                                                    setOrderType('dine-in');
+                                                                    setTableNumber(order.table_number);
+                                                                } else {
+                                                                    setOrderType(order.order_type || 'takeout');
+                                                                    setActiveOrderId(order.id);
+                                                                    setPaymentMethod(order.payment_method || 'efectivo');
+                                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                                        id: item.product_id || 0,
+                                                                        name: item.product_name,
+                                                                        price: item.unit_price,
+                                                                        quantity: item.quantity,
+                                                                        selectedSize: item.selected_size,
+                                                                        extras: item.extras || [],
+                                                                        cartItemId: Math.random().toString(36).substr(2, 9)
+                                                                    }));
+                                                                    setCart(loadedCart);
+                                                                }
+                                                            }}
+                                                            className="flex-1 bg-purple-50 text-purple-600 border-2 border-purple-200 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-100 transition-colors shadow-sm active:scale-95"
+                                                        >
+                                                            Abrir Comanda
+                                                        </button>
+                                                    )}
                                                     <button 
                                                         onClick={() => {
                                                             const mappedItems = (order.order_items || []).map((it: any) => ({
@@ -1390,7 +1455,7 @@ export default function CashierPage() {
                                                         }}
                                                         className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-[#181511]/80 transition-colors shadow-lg active:scale-95"
                                                     >
-                                                        Imprimir Ticket
+                                                        Ticket
                                                     </button>
                                                 </div>
                                             </div>
@@ -1605,6 +1670,55 @@ export default function CashierPage() {
                         ))}
                     </div>
 
+                    {/* MESAS / CUENTAS ABIERTAS QUICK ACCESS */}
+                    {recentOrders.filter(o => o.status === 'abierta').length > 0 && (
+                        <div className="mb-4 animate-in fade-in slide-in-from-top-2">
+                            <span className="text-[10px] font-black text-purple-500 uppercase tracking-widest block mb-2 flex items-center gap-1">
+                                <span className="material-icons-round text-[12px]">receipt_long</span> Cuentas Abiertas
+                            </span>
+                            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                                {recentOrders.filter(o => o.status === 'abierta').map(order => {
+                                    const isSelected = activeOrderId === order.id || (order.table_number && tableNumber === order.table_number);
+                                    return (
+                                        <button 
+                                            key={order.id}
+                                            onClick={() => {
+                                                setOrderType(order.order_type || 'dine-in');
+                                                if (order.table_number) {
+                                                    setTableNumber(order.table_number);
+                                                } else {
+                                                    setTableNumber('');
+                                                    setActiveOrderId(order.id);
+                                                    setPaymentMethod(order.payment_method || 'efectivo');
+                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                        id: item.product_id || 0,
+                                                        name: item.product_name,
+                                                        price: item.unit_price,
+                                                        quantity: item.quantity,
+                                                        selectedSize: item.selected_size,
+                                                        extras: item.extras || [],
+                                                        cartItemId: Math.random().toString(36).substr(2, 9)
+                                                    }));
+                                                    setCart(loadedCart);
+                                                }
+                                            }}
+                                            className={`px-3 py-1.5 rounded-lg border text-xs font-black shrink-0 transition-all flex items-center gap-1.5 ${
+                                                isSelected
+                                                ? 'bg-purple-600 text-white border-purple-600 shadow-md scale-[1.03]'
+                                                : 'bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100'
+                                            }`}
+                                        >
+                                            <span className="material-icons-round text-[14px]">
+                                                {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
+                                            </span>
+                                            {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || 'Llevar')}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     {orderType === 'dine-in' && (
                         <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 animate-in fade-in slide-in-from-top-2 flex items-center justify-between mb-4">
                             <span className="text-[10px] font-black text-blue-500 uppercase">Configuración de Mesa</span>
@@ -1708,14 +1822,191 @@ export default function CashierPage() {
                     )}
                 </div>
 
-                <div className="p-6 bg-[#f8f7f5] border-t border-[#e8e5e1]">
-                    <div className="flex justify-between items-end mb-6">
+                <div className="p-4 bg-[#f8f7f5] border-t border-[#e8e5e1] space-y-3">
+                    {/* Open Tabs button - always visible */}
+                    <button
+                        onClick={() => setShowOpenTabsModal(true)}
+                        className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 active:scale-95 transition-all"
+                    >
+                        <div className="flex items-center gap-2">
+                            <span className="material-icons-round text-lg">receipt_long</span>
+                            <span className="text-xs font-black uppercase tracking-widest">Cuentas Abiertas</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            {recentOrders.filter(o => o.status === 'abierta').length > 0 && (
+                                <span className="bg-purple-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                                    {recentOrders.filter(o => o.status === 'abierta').length}
+                                </span>
+                            )}
+                            <span className="material-icons-round text-base">chevron_right</span>
+                        </div>
+                    </button>
+
+                    <div className="flex justify-between items-end">
                         <span className="text-[#8c785f] font-bold text-sm">TOTAL A PAGAR</span>
                         <span className="text-3xl font-black text-[#f7951d] tracking-tighter">${cartTotals.total.toFixed(2)}</span>
                     </div>
-                    <button onClick={() => setShowPaymentModal(true)} disabled={cart.length === 0} className="w-full bg-[#181511] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all disabled:opacity-50">PROCESAR PAGO</button>
+                    <div className="flex gap-2">
+                        <button onClick={clearCart} className="w-1/4 flex-none bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-500 font-black py-4 rounded-xl shadow-sm transition-all text-xs flex items-center justify-center" title="Nueva Orden (Limpiar)">
+                            <span className="material-icons-round">delete_sweep</span>
+                        </button>
+                        <button onClick={() => setShowPaymentModal(true)} disabled={cart.length === 0} className="flex-1 bg-[#181511] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all disabled:opacity-50">PROCESAR PAGO</button>
+                    </div>
                 </div>
             </aside>
+
+            {/* ── CUENTAS ABIERTAS MODAL ── */}
+            {showOpenTabsModal && (
+                <div className="fixed inset-0 z-[150] flex">
+                    {/* Backdrop */}
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowOpenTabsModal(false)} />
+
+                    {/* Slide-over panel from the right */}
+                    <div className="relative ml-auto w-full max-w-md bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right-8 duration-300">
+                        {/* Header */}
+                        <div className="p-6 border-b border-gray-100 flex items-center justify-between shrink-0">
+                            <div>
+                                <h2 className="text-2xl font-black text-[#181511] tracking-tight">Cuentas Abiertas</h2>
+                                <p className="text-xs text-[#8c785f] font-bold mt-0.5">
+                                    {recentOrders.filter(o => o.status === 'abierta').length} cuenta(s) pendiente(s) de cobro
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setShowOpenTabsModal(false)}
+                                className="size-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
+                            >
+                                <span className="material-icons-round text-xl">close</span>
+                            </button>
+                        </div>
+
+                        {/* List */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                            {/* DEBUG INFO — remove after fixing */}
+                            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-[10px] font-mono text-yellow-800">
+                                <p className="font-black">DEBUG: recentOrders total: {recentOrders.length}</p>
+                                <p>Con status &apos;abierta&apos;: {recentOrders.filter(o => o.status === 'abierta').length}</p>
+                                <p>Statuses: {[...new Set(recentOrders.map(o => o.status))].join(', ') || '(ninguno)'}</p>
+                            </div>
+                            {recentOrders.filter(o => o.status === 'abierta').length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-full opacity-20 gap-4">
+                                    <span className="material-icons-round text-6xl">receipt_long</span>
+                                    <p className="font-black text-sm uppercase tracking-widest">Sin cuentas abiertas</p>
+                                </div>
+                            ) : (
+                                recentOrders.filter(o => o.status === 'abierta').map(order => (
+                                    <div key={order.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                                        {/* Card header */}
+                                        <div className="flex items-center justify-between p-4 border-b border-gray-50">
+                                            <div className="flex items-center gap-3">
+                                                <div className="size-10 rounded-xl bg-purple-50 flex items-center justify-center">
+                                                    <span className="material-icons-round text-purple-600">
+                                                        {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <p className="font-black text-[#181511]">
+                                                        {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || 'Llevar')}
+                                                    </p>
+                                                    <p className="text-[10px] text-gray-400 font-bold uppercase">
+                                                        {new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · #{order.id.toString().slice(-5)}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <span className="text-2xl font-black text-[#f7951d]">${order.total_amount?.toFixed(2)}</span>
+                                        </div>
+
+                                        {/* Items */}
+                                        <div className="px-4 py-3 space-y-1.5">
+                                            {(order.order_items || []).slice(0, 4).map((item: any, i: number) => (
+                                                <div key={i} className="flex justify-between text-xs">
+                                                    <span className="text-[#8c785f] font-medium">
+                                                        <span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}
+                                                        {item.selected_size && <span className="text-gray-300"> · {item.selected_size}</span>}
+                                                    </span>
+                                                    <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                </div>
+                                            ))}
+                                            {(order.order_items || []).length > 4 && (
+                                                <p className="text-[10px] text-gray-400 font-bold">+{(order.order_items || []).length - 4} más...</p>
+                                            )}
+                                        </div>
+
+                                        {/* Actions */}
+                                        <div className="flex gap-2 p-4 pt-2">
+                                            <button
+                                                onClick={() => {
+                                                    // Load order into cart
+                                                    setOrderType(order.order_type || 'dine-in');
+                                                    if (order.table_number) {
+                                                        setTableNumber(order.table_number);
+                                                    } else {
+                                                        setTableNumber('');
+                                                        setActiveOrderId(order.id);
+                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                            id: item.product_id || 0,
+                                                            name: item.product_name,
+                                                            price: item.unit_price,
+                                                            quantity: item.quantity,
+                                                            selectedSize: item.selected_size,
+                                                            extras: item.extras || [],
+                                                            cartItemId: Math.random().toString(36).substr(2, 9)
+                                                        }));
+                                                        setCart(loadedCart);
+                                                    }
+                                                    setShowOpenTabsModal(false);
+                                                }}
+                                                className="flex-1 flex items-center justify-center gap-2 bg-[#f8f7f5] text-[#181511] border border-gray-200 py-3 rounded-xl text-xs font-black hover:bg-gray-100 transition-all active:scale-95"
+                                            >
+                                                <span className="material-icons-round text-base">add_circle</span>
+                                                Agregar Más
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    // Load and go directly to payment
+                                                    setOrderType(order.order_type || 'dine-in');
+                                                    if (order.table_number) {
+                                                        setTableNumber(order.table_number);
+                                                    } else {
+                                                        setTableNumber('');
+                                                        setActiveOrderId(order.id);
+                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                            id: item.product_id || 0,
+                                                            name: item.product_name,
+                                                            price: item.unit_price,
+                                                            quantity: item.quantity,
+                                                            selectedSize: item.selected_size,
+                                                            extras: item.extras || [],
+                                                            cartItemId: Math.random().toString(36).substr(2, 9)
+                                                        }));
+                                                        setCart(loadedCart);
+                                                    }
+                                                    setShowOpenTabsModal(false);
+                                                    setTimeout(() => setShowPaymentModal(true), 150);
+                                                }}
+                                                className="flex-1 flex items-center justify-center gap-2 bg-[#181511] text-white py-3 rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 shadow-lg"
+                                            >
+                                                <span className="material-icons-round text-base">payments</span>
+                                                Cobrar
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        {/* Footer refresh button */}
+                        <div className="p-4 border-t border-gray-100 shrink-0">
+                            <button
+                                onClick={() => fetchRecentOrders(false)}
+                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-50 text-gray-500 text-xs font-black hover:bg-gray-100 transition-all"
+                            >
+                                <span className="material-icons-round text-sm">refresh</span>
+                                Actualizar Lista
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* PRODUCT CUSTOMIZATION MODAL - Responsive */}
             {
@@ -2316,13 +2607,13 @@ export default function CashierPage() {
             )}
 
             {shiftState === 'checking' && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#f8f7f5]"><span className="material-symbols-outlined animate-spin text-4xl text-[#F27405]">progress_activity</span></div>
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#f8f7f5]"><span className="material-icons-round animate-spin text-4xl text-[#F27405]">progress_activity</span></div>
             )}
 
             {shiftState === 'too_early' && (
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#f8f7f5] p-6 text-center backdrop-blur-md">
                     <div className="max-w-md w-full bg-white rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-300">
-                        <span className="material-symbols-outlined text-6xl text-gray-400 mb-4 block text-center">schedule</span>
+                        <span className="material-icons-round text-6xl text-gray-400 mb-4 block text-center">schedule</span>
                         <h2 className="text-2xl font-black text-[#181511] mb-2">Aún es temprano</h2>
                         <p className="text-[#8c785f] font-bold">El turno de caja se abre a partir de las 2:00 PM.</p>
                     </div>
@@ -2332,7 +2623,7 @@ export default function CashierPage() {
             {shiftState === 'closed' && (
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#181511] p-6 text-center backdrop-blur-md">
                     <div className="max-w-md w-full bg-[#201d18] border border-white/10 rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-300">
-                        <span className="material-symbols-outlined text-6xl text-green-500 mb-4 block text-center">lock_clock</span>
+                        <span className="material-icons-round text-6xl text-green-500 mb-4 block text-center">lock_clock</span>
                         <h2 className="text-2xl font-black text-white mb-2">Turno Cerrado</h2>
                         <p className="text-gray-400 font-bold mb-6">El turno de hoy ya ha finalizado. No se pueden procesar más órdenes.</p>
                         <p className="text-xs text-gray-500 font-bold">La caja abrirá de nuevo mañana a las 2:00 PM.</p>
@@ -2347,11 +2638,11 @@ export default function CashierPage() {
             {shiftState === 'must_close' && !showCierreCaja && (
                 <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
                      <div className="bg-white rounded-3xl p-8 text-center max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-300">
-                         <span className="material-symbols-outlined text-6xl text-red-500 mb-4 block text-center">warning</span>
+                         <span className="material-icons-round text-6xl text-red-500 mb-4 block text-center">warning</span>
                          <h2 className="text-2xl font-black text-[#181511] mb-2">Hora de Cierre</h2>
                          <p className="text-[#8c785f] mb-6 font-bold">Son más de las 11:00 PM. Por seguridad y para que todo cuadre correctamente, debes cerrar la caja y contar el dinero.</p>
                          <button onClick={() => setShowCierreCaja(true)} className="w-full bg-[#181511] hover:bg-black text-white py-4 rounded-2xl font-black transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2">
-                            <span className="material-symbols-outlined">receipt_long</span> Proceder al Cierre
+                            <span className="material-icons-round">receipt_long</span> Proceder al Cierre
                          </button>
                      </div>
                 </div>

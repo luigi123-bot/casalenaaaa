@@ -76,13 +76,28 @@ export function useOfflineSync() {
 
         for (const order of pending) {
             try {
+                // Guard: skip corrupt entries without payload
+                if (!order.payload || typeof order.payload !== 'object') {
+                    console.warn('⚠️ [OfflineSync] Descartando entrada corrupta (sin payload):', order.id);
+                    continue;
+                }
+
                 // 1. Insertar la Orden
                 const { data: orderData, error: orderError } = await supabase
                     .from('orders')
                     .insert(order.payload)
                     .select();
 
-                if (orderError) throw orderError;
+                if (orderError) {
+                    console.error('❌ [OfflineSync] Error Supabase al insertar orden:', {
+                        message: orderError.message,
+                        code: orderError.code,
+                        details: orderError.details,
+                        hint: orderError.hint,
+                        payload: order.payload
+                    });
+                    throw orderError;
+                }
                 const createdOrder = orderData?.[0];
 
                 if (!createdOrder) throw new Error('No se pudo crear la orden en la BD.');
@@ -97,7 +112,14 @@ export function useOfflineSync() {
                     .from('order_items')
                     .insert(orderItems);
 
-                if (itemsError) throw itemsError;
+                if (itemsError) {
+                    console.error('❌ [OfflineSync] Error Supabase al insertar items:', {
+                        message: itemsError.message,
+                        code: itemsError.code,
+                        details: itemsError.details,
+                    });
+                    throw itemsError;
+                }
 
                 console.log(`✅ [OfflineSync] Pedido sincronizado éxito: ID local ${order.id} -> DB ${createdOrder.id}`);
             } catch (err) {
