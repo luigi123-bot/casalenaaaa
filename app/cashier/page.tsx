@@ -140,60 +140,147 @@ export default function CashierPage() {
 
     // Shift Management State
     const [shiftState, setShiftState] = useState<'checking' | 'too_early' | 'must_open' | 'open' | 'must_close' | 'closed'>('checking');
+    const [systemSettings, setSystemSettings] = useState<any>(null);
 
     useEffect(() => {
-        const evaluateShift = () => {
-            // MODO DESARROLLO: La caja siempre inicia "abierta" para facilitar las pruebas.
-            setShiftState('open');
-            return;
+        let isMounted = true;
+        let timeoutId: NodeJS.Timeout;
 
-            /* LÓGICA DE PRODUCCIÓN GUARDADA
+        const cleanupOldShiftKeys = () => {
+            try {
+                const now = new Date();
+                Object.keys(localStorage).forEach(key => {
+                    if (key.startsWith('caja_casalena_')) {
+                        const dateStr = key.replace('caja_casalena_', '');
+                        const shiftDate = new Date(dateStr);
+                        if ((now.getTime() - shiftDate.getTime()) / (1000 * 3600 * 24) > 7) {
+                            localStorage.removeItem(key);
+                        }
+                    }
+                });
+            } catch (e) {}
+        };
+
+        const fetchSystemConfig = async () => {
+            if (!isMounted) return;
+            try {
+                const res = await fetch('/api/settings');
+                if (!res.ok) throw new Error('Settings fetch failed');
+                const data = await res.json();
+                if (isMounted) setSystemSettings(data);
+            } catch (error) {
+                console.error('Error syncing settings:', error);
+            }
+            if (isMounted) timeoutId = setTimeout(fetchSystemConfig, 15000); // Poll faster (15s) for responsiveness
+        };
+        
+        cleanupOldShiftKeys();
+        fetchSystemConfig();
+        return () => {
+            isMounted = false;
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!systemSettings) return;
+
+        const evaluateShift = async () => {
+            // BYPASS PARA ADMINISTRADORES
+            const { data: { user } } = await supabase.auth.getUser();
+            const { data: profile } = await supabase.from('profiles').select('role').eq('id', user?.id).single();
+            const isAdmin = profile?.role === 'administrador' || profile?.role === 'admin';
+
+            if (isAdmin) {
+                console.log('🔓 [Auth] Bypass de horario para administrador.');
+                setShiftState('open');
+                return;
+            }
+
             const now = new Date();
-            const hour = now.getHours();
+            const currentTime = now.getHours() * 60 + now.getMinutes(); 
             
-            // Format to local date string like "2024-05-20"
+            if (!systemSettings.auto_cashier_schedule) {
+                const dateStr = now.toLocaleDateString('sv-SE');
+                const savedShift = localStorage.getItem(`caja_casalena_${dateStr}`);
+                setShiftState(savedShift ? 'open' : 'must_open');
+                return;
+            }
+
+            const [openH, openM] = (systemSettings.cashier_open_time || '13:00').split(':').map(Number);
+            const [closeH, closeM] = (systemSettings.cashier_close_time || '21:30').split(':').map(Number);
+            
+            const openMinutes = openH * 60 + openM;
+            const closeMinutes = closeH * 60 + closeM;
             const dateStr = now.toLocaleDateString('sv-SE'); 
-            
             const savedShift = localStorage.getItem(`caja_casalena_${dateStr}`);
             
-            if (savedShift) {
-                const shift = JSON.parse(savedShift);
-                if (shift.closedAt) {
-                    setShiftState('closed');
+            if (currentTime < openMinutes) {
+                setShiftState('too_early');
+            } else if (currentTime >= closeMinutes) {
+                if (savedShift && !JSON.parse(savedShift).closedAt) {
+                    setShiftState('must_close');
+                    setShowCierreCaja(true);
                 } else {
-                    if (hour >= 23) {
-                        setShiftState('must_close');
-                        setShowCierreCaja(true);
-                    } else {
-                        setShiftState('open');
-                    }
+                    setShiftState('closed');
                 }
             } else {
-                if (hour < 14) {
-                    setShiftState('too_early');
-                } else if (hour >= 23) {
-                    setShiftState('closed');
+                if (savedShift) {
+                    const shift = JSON.parse(savedShift);
+                    setShiftState(shift.closedAt ? 'closed' : 'open');
                 } else {
                     setShiftState('must_open');
                 }
             }
-            */
         };
 
         evaluateShift();
-        const interval = setInterval(evaluateShift, 60000);
+        const interval = setInterval(evaluateShift, 30000);
         return () => clearInterval(interval);
-    }, []);
+    }, [systemSettings]);
 
-    const handleOpenShift = (info: { fondo: number, notas: string }) => {
-        const dateStr = new Date().toLocaleDateString('sv-SE');
-        localStorage.setItem(`caja_casalena_${dateStr}`, JSON.stringify({
-            openedAt: new Date().toISOString(),
-            fondo: info.fondo,
-            notas: info.notas,
-            closedAt: null
-        }));
-        setShiftState('open');
+    const handleOpenShift = async (info: { fondo: number, notas: string }) => {
+        try {
+            // Guardar en la base de datos (Supabase)
+            const { data: sessionData, error } = await supabase
+                .from('cashier_sessions')
+                .insert([{
+                    cashier_name: cashierName,
+                    initial_fund: info.fondo,
+                    notes: info.notas,
+                    status: 'open',
+                    opened_at: new Date().toISOString()
+                }])
+                .select();
+
+            if (error) throw error;
+            
+            const sessionId = sessionData?.[0]?.id;
+            const dateStr = new Date().toLocaleDateString('sv-SE');
+            
+            // Guardar en LocalStorage para redundancia y persistencia rápida
+            localStorage.setItem(`caja_casalena_${dateStr}`, JSON.stringify({
+                sessionId: sessionId,
+                openedAt: new Date().toISOString(),
+                fondo: info.fondo,
+                notas: info.notas,
+                closedAt: null
+            }));
+            
+            setShiftState('open');
+            console.log('✅ [Shift] Apertura de caja registrada en el servidor:', sessionId);
+        } catch (err) {
+            console.error('❌ [Shift] Error al registrar apertura en la base de datos:', err);
+            // Fallback: al menos permitir que el cajero trabaje aunque falle la escritura (modo offline)
+            const dateStr = new Date().toLocaleDateString('sv-SE');
+            localStorage.setItem(`caja_casalena_${dateStr}`, JSON.stringify({
+                openedAt: new Date().toISOString(),
+                fondo: info.fondo,
+                notas: info.notas,
+                closedAt: null
+            }));
+            setShiftState('open');
+        }
     };
     
     const handleCloseShiftSuccess = () => {
@@ -963,12 +1050,12 @@ export default function CashierPage() {
                 total_amount: cartTotals.total,
                 tax_amount: cartTotals.tax,
                 order_type: orderType,
-                payment_method: paymentMethod,
+                payment_method: paymentMethod.toLowerCase().trim(),
                 customer_name: orderType === 'delivery' ? customerInfo.name : (orderType === 'takeout' ? customerInfo.name : null),
                 phone_number: orderType === 'delivery' ? customerInfo.phone : (orderType === 'takeout' ? customerInfo.phone : null),
                 delivery_address: orderType === 'delivery' ? customerInfo.address : null,
                 table_number: orderType === 'dine-in' ? tableNumber : null,
-                // updated_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
                 // Metadata for tracking
                 cashier_name: cashierName,
                 ticket_number: dailySequence
@@ -1128,33 +1215,52 @@ export default function CashierPage() {
     };
 
     useEffect(() => {
+        let isEffectActive = true;
+        let timeoutId: NodeJS.Timeout;
+
         // PERSISTENT BACKGROUND NOTIFICATION LISTENER
         const ordersChannel = supabase
             .channel('global_cashier_notifications')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
-                // If its a web order (already handled in POS logic if created here)
+                if (!isEffectActive) return;
                 if (payload.new.order_source === 'web' || payload.new.order_type === 'delivery') {
                     playNotificationSound();
                     setUnreadNotifications(prev => prev + 1);
                 }
             })
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'cashier_notifications' }, (payload) => {
+                if (!isEffectActive) return;
                 playNotificationSound();
                 setUnreadNotifications(prev => prev + 1);
             })
             .subscribe();
 
-        // 5s BACKGROUND SYNC / POLLING - Clear local cache by fetching new data from Supabase
-        const syncInterval = setInterval(() => {
-            if (isOnline) { // Using isOnline from useOfflineSync()
-                // Fetch recent orders in background
-                fetchRecentOrders(false); 
+        // Safe recursive sync to avoid AbortError and overlapping
+        const runSync = async () => {
+            if (!isEffectActive) return;
+            
+            if (isOnline) {
+                try {
+                    await fetchRecentOrders(false);
+                } catch (err: any) {
+                    // Ignore abort errors from the environment
+                    if (err.name !== 'AbortError') {
+                        console.error('Sync Error:', err);
+                    }
+                }
             }
-        }, 5000);
+
+            if (isEffectActive) {
+                timeoutId = setTimeout(runSync, 7000); // Poll every 7 seconds (safer)
+            }
+        };
+
+        runSync();
 
         return () => {
+            isEffectActive = false;
             supabase.removeChannel(ordersChannel);
-            clearInterval(syncInterval);
+            if (timeoutId) clearTimeout(timeoutId);
         };
     }, [isOnline]); // Depend on isOnline to restart/stop if needed
 
@@ -1177,9 +1283,16 @@ export default function CashierPage() {
     };
 
     const fetchRecentOrders = async (showLoading = true) => {
+        // Validate session before fetching to avoid RLS/Auth errors
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            console.log('⏳ [Cashier] Sin sesión activa, saltando fetch de órdenes.');
+            return;
+        }
+
         if (showLoading) setRecentOrdersLoading(true);
         try {
-            // Query 1: ALL open accounts (status = 'abierta') — no limit, always show them
+            // Query 1: open accounts (status = 'pendiente', 'preparando', 'listo')
             const { data: openData, error: openErr } = await supabase
                 .from('orders')
                 .select(`
@@ -1196,9 +1309,12 @@ export default function CashierPage() {
                 .in('status', ['pendiente', 'preparando', 'listo'])
                 .order('created_at', { ascending: false });
 
-            if (openErr) console.error('Error fetching open orders:', openErr);
+            if (openErr) {
+                console.error('❌ [Cashier] Error fetching open orders:', openErr.message || JSON.stringify(openErr));
+                return;
+            }
 
-            // Query 2: Recent 50 orders (any status except abierta to avoid duplicates)
+            // Query 2: Recent 50 orders (any status except the ones above to avoid duplicates)
             const { data: recentData, error: recentErr } = await supabase
                 .from('orders')
                 .select(`
@@ -1216,15 +1332,20 @@ export default function CashierPage() {
                 .order('created_at', { ascending: false })
                 .limit(50);
 
-            if (recentErr) console.error('Error fetching recent orders:', recentErr);
+            if (recentErr) {
+                console.error('❌ [Cashier] Error fetching recent orders:', recentErr.message || JSON.stringify(recentErr));
+                return;
+            }
 
             // Merge: open accounts first, then recent
             const combined = [...(openData || []), ...(recentData || [])];
-            console.log('🔍 [DEBUG Cuentas] Total combinado:', combined.length, '| Abiertas:', (openData || []).length, '| Recientes:', (recentData || []).length);
-            console.log('🔍 [DEBUG Abiertas]:', openData);
-            if (combined.length > 0) setRecentOrders(combined);
+            
+            // Only update state if we have results to avoid flickering/clearing
+            if (combined.length > 0) {
+                setRecentOrders(combined);
+            }
         } catch (err) {
-            console.error('Error fetching orders:', err);
+            console.error('❌ [Cashier] Error crítico en fetchRecentOrders:', err);
         } finally {
             if (showLoading) setRecentOrdersLoading(false);
         }
@@ -1986,22 +2107,23 @@ export default function CashierPage() {
                                                 onClick={() => {
                                                     // Load and go directly to payment
                                                     setOrderType(order.order_type || 'dine-in');
-                                                    if (order.table_number) {
-                                                        setTableNumber(order.table_number);
-                                                    } else {
-                                                        setTableNumber('');
-                                                        setActiveOrderId(order.id);
-                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                            id: item.product_id || 0,
-                                                            name: item.product_name,
-                                                            price: item.unit_price,
-                                                            quantity: item.quantity,
-                                                            selectedSize: item.selected_size,
-                                                            extras: item.extras || [],
-                                                            cartItemId: Math.random().toString(36).substr(2, 9)
-                                                        }));
-                                                        setCart(loadedCart);
-                                                    }
+                                                    if (order.table_number) setTableNumber(order.table_number);
+                                                    else setTableNumber('');
+                                                    
+                                                    setActiveOrderId(order.id);
+                                                    
+                                                    // ALWAYS load items into cart so the payment modal sees the total
+                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                        id: item.product_id || 0,
+                                                        name: item.product_name,
+                                                        price: item.unit_price,
+                                                        quantity: item.quantity,
+                                                        selectedSize: item.selected_size,
+                                                        extras: item.extras || [],
+                                                        cartItemId: Math.random().toString(36).substr(2, 9)
+                                                    }));
+                                                    setCart(loadedCart);
+                                                    
                                                     setShowOpenTabsModal(false);
                                                     setTimeout(() => setShowPaymentModal(true), 150);
                                                 }}
@@ -2232,12 +2354,15 @@ export default function CashierPage() {
             {/* Payment Modal */}
             {
                 showPaymentModal && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-                        <div className="bg-[#f8f7f5] w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col">
-                            <div className="bg-white px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                                <h3 className="text-lg font-black uppercase tracking-tight">Cobro de Pedido</h3>
-                                <button onClick={() => setShowPaymentModal(false)} className="size-8 flex items-center justify-center bg-gray-100 rounded-full"><span className="material-icons-round">close</span></button>
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
+                        <div className="bg-[#f8f7f5] w-full max-w-lg rounded-[32px] shadow-2xl flex flex-col max-h-[95vh] sm:max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="bg-white px-6 py-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+                                <h3 className="text-xl font-black uppercase tracking-tight text-[#181511]">Cobro de Pedido</h3>
+                                <button onClick={() => setShowPaymentModal(false)} className="size-10 flex items-center justify-center bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all active:scale-90">
+                                    <span className="material-icons-round">close</span>
+                                </button>
                             </div>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar">
                             <div className="p-8 text-center">
                                 <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Total a Pagar</p>
                                 <p className="text-7xl font-black tracking-tighter text-[#181511]">${cartTotals.total.toFixed(2)}</p>
@@ -2278,8 +2403,11 @@ export default function CashierPage() {
                                                     type="number"
                                                     value={amountPaid}
                                                     onChange={(e) => setAmountPaid(e.target.value)}
-                                                    className="w-full outline-none bg-transparent placeholder-gray-200"
+                                                    onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                                    onFocus={(e) => (e.target as HTMLInputElement).select()}
+                                                    className="w-full outline-none bg-transparent placeholder-gray-200 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                     placeholder="0.00"
+                                                    step="any"
                                                 />
                                             </div>
                                         </div>
@@ -2335,7 +2463,8 @@ export default function CashierPage() {
                                     </p>
                                 )}
                             </div>
-                        </div>
+                         </div>
+                      </div>
                     </div>
                 )
             }
@@ -2666,7 +2795,10 @@ export default function CashierPage() {
                     <div className="max-w-md w-full bg-white rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-300">
                         <span className="material-icons-round text-6xl text-gray-400 mb-4 block text-center">schedule</span>
                         <h2 className="text-2xl font-black text-[#181511] mb-2">Aún es temprano</h2>
-                        <p className="text-[#8c785f] font-bold">El turno de caja se abre a partir de las 2:00 PM.</p>
+                        <p className="text-[#8c785f] font-bold">
+                            El turno de caja se abre a partir de las {systemSettings?.cashier_open_time || '13:00'}.
+                        </p>
+                        <button onClick={handleLogout} className="mt-8 text-xs font-black text-red-500 hover:underline uppercase tracking-widest">Cerrar Sesión</button>
                     </div>
                 </div>
             )}
@@ -2677,7 +2809,8 @@ export default function CashierPage() {
                         <span className="material-icons-round text-6xl text-green-500 mb-4 block text-center">lock_clock</span>
                         <h2 className="text-2xl font-black text-white mb-2">Turno Cerrado</h2>
                         <p className="text-gray-400 font-bold mb-6">El turno de hoy ya ha finalizado. No se pueden procesar más órdenes.</p>
-                        <p className="text-xs text-gray-500 font-bold">La caja abrirá de nuevo mañana a las 2:00 PM.</p>
+                        <p className="text-xs text-gray-500 font-bold">La caja abrirá de nuevo a las {systemSettings?.cashier_open_time || '13:00'}.</p>
+                        <button onClick={handleLogout} className="mt-8 text-xs font-black text-orange-500 hover:underline uppercase tracking-widest">Desconectarse</button>
                     </div>
                 </div>
             )}
@@ -2691,7 +2824,7 @@ export default function CashierPage() {
                      <div className="bg-white rounded-3xl p-8 text-center max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-300">
                          <span className="material-icons-round text-6xl text-red-500 mb-4 block text-center">warning</span>
                          <h2 className="text-2xl font-black text-[#181511] mb-2">Hora de Cierre</h2>
-                         <p className="text-[#8c785f] mb-6 font-bold">Son más de las 11:00 PM. Por seguridad y para que todo cuadre correctamente, debes cerrar la caja y contar el dinero.</p>
+                         <p className="text-[#8c785f] mb-6 font-bold">Son más de las {systemSettings?.cashier_close_time || '21:30'}. Por seguridad y para que todo cuadre correctamente, debes cerrar la caja y contar el dinero.</p>
                          <button onClick={() => setShowCierreCaja(true)} className="w-full bg-[#181511] hover:bg-black text-white py-4 rounded-2xl font-black transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2">
                             <span className="material-icons-round">receipt_long</span> Proceder al Cierre
                          </button>

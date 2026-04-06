@@ -25,31 +25,47 @@ export async function GET() {
             if (error.code === 'PGRST116') {
                 console.log('No settings found, returning defaults');
                 return NextResponse.json({
-                    restaurant_name: 'Casa Leña',
-                    address: '123 Main St',
-                    phone: '555-0123',
+                    restaurant_name: 'CASALEÑA',
+                    address: 'BOULEVARD JUAN N ALVAREZ, COL. SENTIMIENTOS DE LA NACIÓN, OMETEPEC GUERRERO CP 41706',
+                    phone: '741-101-1595',
                     currency: 'MXN',
                     is_open: true,
                     email_notifications: true,
                     auto_print_receipts: false,
-                    automatic_schedule: false,
-                    open_time: '14:00',
-                    close_time: '22:30'
+                    automatic_schedule: true,
+                    open_time: '13:00',
+                    close_time: '21:30',
+                    logo_url: '/icon.png',
+                    whatsapp: '741-107-5056',
+                    instagram: 'casalenapizza',
+                    facebook: 'casalenapizza',
+                    tax_percentage: 16,
+                    auto_cashier_schedule: false,
+                    cashier_open_time: '13:00',
+                    cashier_close_time: '21:30'
                 });
             }
             console.error('Error fetching settings:', error);
             // Return mocks if DB issues
             return NextResponse.json({
-                restaurant_name: 'Casa Leña',
-                address: '123 Main St',
-                phone: '555-0123',
+                restaurant_name: 'CASALEÑA',
+                address: 'BOULEVARD JUAN N ALVAREZ, COL. SENTIMIENTOS DE LA NACIÓN, OMETEPEC GUERRERO CP 41706',
+                phone: '741-101-1595',
                 currency: 'MXN',
                 is_open: true,
                 email_notifications: true,
                 auto_print_receipts: false,
-                automatic_schedule: false,
-                open_time: '14:00',
-                close_time: '22:30'
+                automatic_schedule: true,
+                open_time: '13:00',
+                close_time: '21:30',
+                logo_url: '/icon.png',
+                whatsapp: '741-107-5056',
+                instagram: 'casalenapizza',
+                facebook: 'casalenapizza',
+                tax_percentage: 16,
+                auto_cashier_schedule: false,
+                cashier_open_time: '13:00',
+                cashier_close_time: '21:30'
             });
         }
 
@@ -76,7 +92,15 @@ export async function POST(request: NextRequest) {
             auto_print_receipts: body.autoPrintReceipts,
             automatic_schedule: body.automaticSchedule,
             open_time: body.openTime,
-            close_time: body.closeTime
+            close_time: body.closeTime,
+            logo_url: body.logoUrl,
+            whatsapp: body.whatsapp,
+            instagram: body.instagram,
+            facebook: body.facebook,
+            tax_percentage: body.taxPercentage,
+            auto_cashier_schedule: body.autoCashierSchedule,
+            cashier_open_time: body.cashierOpenTime,
+            cashier_close_time: body.cashierCloseTime
         };
 
         const { data, error } = await supabase

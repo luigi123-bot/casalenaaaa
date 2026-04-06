@@ -98,13 +98,19 @@ export function useOfflineSync() {
                 if ('cashier_name' in order.payload) delete order.payload.cashier_name;
                 if ('ticket_number' in order.payload) delete order.payload.ticket_number;
                 if ('updated_at' in order.payload) delete order.payload.updated_at;
+                if ('closed_at' in order.payload) delete order.payload.closed_at;
 
-                // Parche automático: Si el user_id es 'offline-placeholder', intentamos poner el ID real o lo quitamos si Postgres no permite el string
-                if (order.payload.user_id === 'offline-placeholder') {
+                // Parche automático: Si el user_id es nulo o 'offline-placeholder', intentamos poner el ID real del cajero actual
+                const isPlaceholder = order.payload.user_id === 'offline-placeholder';
+                const isNull = order.payload.user_id === null;
+                
+                if (isPlaceholder || isNull) {
                     if (currentUserId) {
                         order.payload.user_id = currentUserId;
                     } else {
-                        delete order.payload.user_id; // Permitir que Supabase/Auth lo maneje o sea null
+                        // Si no hay usuario y Postgres da error, mejor eliminar el campo para que Supabase intente 
+                        // usar las políticas de 'anon' o el default de la tabla si existe.
+                        delete order.payload.user_id; 
                     }
                 }
 

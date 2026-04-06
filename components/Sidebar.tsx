@@ -15,7 +15,7 @@ interface NavItem {
 
 export default function Sidebar() {
     const pathname = usePathname();
-    const { user, signOut } = useAuth();
+    const { user, loading, signOut } = useAuth();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isWindows, setIsWindows] = useState(false);
 
@@ -48,49 +48,50 @@ export default function Sidebar() {
         { label: 'Dashboard', icon: 'grid_view', href: '/admin' },
         { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
         { label: 'Productos', icon: 'inventory_2', href: '/admin/productos' },
-        { label: 'Anuncios', icon: 'campaign', href: '/admin/anuncios' },
         { label: 'Órdenes', icon: 'receipt_long', href: '/admin/orders' },
-        { label: 'Cierres de Caja', icon: 'lock_clock', href: '/admin/cierres' },
-        { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
+        { label: 'Cierres de Caja', icon: 'history', href: '/admin/cierres' },
         { label: 'Reportes', icon: 'analytics', href: '/admin/reports' },
         { label: 'Usuarios', icon: 'group', href: '/admin/users' },
         { label: 'Configuración', icon: 'settings', href: '/admin/settings' },
+        { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
     ];
 
-    // Navigation for Cashier
+    // Navigation for Cashier / Waiter
     const cashierNavItems: NavItem[] = [
         { label: 'Dashboard', icon: 'dashboard', href: '/cashier/dashboard' },
         { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
-        { label: 'Órdenes', icon: 'receipt_long', href: '/cashier/orders' },
-        { label: 'Inventario', icon: 'inventory_2', href: '/cashier/inventory' },
+        { label: 'Órdenes Hoy', icon: 'receipt_long', href: '/cashier/orders' },
         { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
     ];
 
     // Navigation for Kitchen (Cocina)
     const kitchenNavItems: NavItem[] = [
-        { label: 'Cocina', icon: 'kitchen', href: '/cocina' },
+        { label: 'Monitor Cocina', icon: 'kitchen', href: '/cocina' },
         { label: 'Órdenes', icon: 'receipt_long', href: '/cocina/orders' },
     ];
 
-    // Navigation for Client (Cliente)
+    // Navigation for Client (Cliente) / Guest
     const clientNavItems: NavItem[] = [
-        { label: 'Menú', icon: 'restaurant_menu', href: '/tienda' },
+        { label: 'Menú Digital', icon: 'restaurant_menu', href: '/tienda' },
         { label: 'Mis Pedidos', icon: 'receipt_long', href: '/tienda/mis-pedidos' },
         { label: 'Historial', icon: 'history', href: '/tienda/history' },
     ];
 
     // Determine which items to show based on role
-    let navItems: NavItem[] = [];
-    const normalizedRole = user?.role?.toLowerCase();
+    const normalizedRole = user?.role?.toLowerCase() || 'cliente';
 
-    if (normalizedRole === 'administrador' || normalizedRole === 'admin') {
+    let navItems: NavItem[] = [];
+
+    // During loading, we show an empty list or a very basic item to avoid jumping
+    if (loading) {
+        navItems = []; 
+    } else if (normalizedRole === 'administrador' || normalizedRole === 'admin') {
         navItems = adminNavItems;
-    } else if (normalizedRole === 'cajero') {
+    } else if (normalizedRole === 'cajero' || normalizedRole === 'mesero') {
         navItems = cashierNavItems;
-    } else if (normalizedRole === 'cocina') {
+    } else if (normalizedRole === 'cocina' || normalizedRole === 'chef') {
         navItems = kitchenNavItems;
     } else {
-        // Fallback for 'cliente', 'CLIENTE', or unauthenticated users (guests) visiting the store
         navItems = clientNavItems;
     }
 

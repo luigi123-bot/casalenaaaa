@@ -31,26 +31,38 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
     const [step, setStep] = useState<'summary' | 'count' | 'confirm' | 'done'>('summary');
     const [saving, setSaving] = useState(false);
 
-    const getTodayRange = () => {
-        const now = new Date();
-        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).toISOString();
-        const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
-        return { start, end };
-    };
-
     const fetchCierreData = useCallback(async () => {
         setLoading(true);
         try {
-            const { start, end } = getTodayRange();
+            // Recuperar el momento exacto en que se abrió la caja desde localStorage
+            const dateStr = new Date().toLocaleDateString('sv-SE');
+            const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
+            const shift = saved ? JSON.parse(saved) : null;
+            
+            // Si no hay apertura registrada, usar el inicio del día por defecto
+            let startTime = new Date();
+            startTime.setHours(0,0,0,0);
+            let start = startTime.toISOString();
+            
+            if (shift && shift.openedAt) {
+                start = shift.openedAt;
+                console.log('🔍 [Cierre] Consultando pedidos desde la apertura del turno:', start);
+            }
 
+            // Statuses que significan venta cerrada/cobrada
+            const validStatuses = ['entregado', 'completado', 'listo', 'finalizado', 'confirmado'];
+
+            // Buscamos órdenes que hayan sido ACTUALIZADAS durante el turno.
+            // Usamos updated_at ya que closed_at no existe en el esquema actual.
             const { data: orders, error } = await supabase
                 .from('orders')
                 .select('*, order_items(product_name, quantity, unit_price, selected_size)')
-                .gte('created_at', start)
-                .lte('created_at', end)
-                .in('status', ['entregado', 'completado', 'listo']);
+                .gte('updated_at', start)
+                .in('status', validStatuses);
 
             if (error) throw error;
+            
+            console.log(`📊 [Cierre] Análisis de pagos desde ${start}:`, orders?.length || 0);
 
             const cierre: CierreData = {
                 fechaTurno: new Date().toLocaleDateString('es-MX', {
@@ -71,19 +83,30 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
             const tipoMap: Record<string, { count: number; total: number }> = {};
 
             orders?.forEach(order => {
-                cierre.totalVentas += order.total_amount ?? 0;
+                const total = order.total_amount ?? 0;
+                cierre.totalVentas += total;
 
-                const method = (order.payment_method || 'otro').toLowerCase();
-                if (method === 'efectivo') cierre.ventasEfectivo += order.total_amount ?? 0;
-                else if (method === 'tarjeta') cierre.ventasTarjeta += order.total_amount ?? 0;
-                else cierre.ventasOtro += order.total_amount ?? 0;
+                // Mapeo preciso de formas de pago
+                const method = (order.payment_method || 'otro').toLowerCase().trim();
+                
+                if (method === 'efectivo' || method.includes('efe')) {
+                    cierre.ventasEfectivo += total;
+                } else if (method === 'tarjeta' || method.includes('tar') || method.includes('deb') || method.includes('cred')) {
+                    cierre.ventasTarjeta += total;
+                } else if (method === 'transferencia' || method.includes('trans')) {
+                    // Podemos poner transferencia en "Otro" o crear una columna si fuera necesario
+                    cierre.ventasOtro += total;
+                } else {
+                    cierre.ventasOtro += total;
+                }
 
                 const tipo = order.order_type === 'delivery' ? 'Domicilio'
                     : order.order_type === 'takeout' ? 'Pick Up'
                     : 'Comedor';
+                    
                 if (!tipoMap[tipo]) tipoMap[tipo] = { count: 0, total: 0 };
                 tipoMap[tipo].count += 1;
-                tipoMap[tipo].total += order.total_amount ?? 0;
+                tipoMap[tipo].total += total;
 
                 (order.order_items as any[])?.forEach((item: any) => {
                     const key = item.product_name || 'Sin nombre';
@@ -105,13 +128,27 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
 
             setData(cierre);
         } catch (err) {
-            console.error('[CierreCaja]', err);
+            console.error('[CierreCaja] Error calculando totales:', err);
         } finally {
             setLoading(false);
         }
     }, []);
 
-    useEffect(() => { fetchCierreData(); }, [fetchCierreData]);
+    useEffect(() => {
+        const loadInitialShiftInfo = () => {
+            const dateStr = new Date().toLocaleDateString('sv-SE');
+            const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
+            if (saved) {
+                const shift = JSON.parse(saved);
+                if (shift.fondo) {
+                    setFondoInicial(shift.fondo.toString());
+                    console.log('🔄 [Cierre] Fondo inicial recuperado:', shift.fondo);
+                }
+            }
+        };
+        loadInitialShiftInfo();
+        fetchCierreData(); 
+    }, [fetchCierreData]);
 
     // Calculated difference
     const fondoNum = parseFloat(fondoInicial) || 0;
@@ -122,30 +159,71 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
     const handleConfirmarCierre = async () => {
         setSaving(true);
         try {
-            const payload = {
-                fecha_turno: data?.fechaTurno,
-                cajero: cashierName,
-                total_ordenes: data?.totalOrdenes || 0,
-                total_productos: data?.totalProductos || 0,
-                total_ventas: data?.totalVentas || 0,
+            const dateStr = new Date().toLocaleDateString('sv-SE');
+            const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
+            const shift = saved ? JSON.parse(saved) : null;
+
+            // Datos comunes calculados del día
+            const metrics = {
+                total_orders: data?.totalOrdenes || 0,
+                total_products: data?.totalProductos || 0,
+                total_sales: data?.totalVentas || 0,
                 ventas_efectivo: data?.ventasEfectivo || 0,
                 ventas_tarjeta: data?.ventasTarjeta || 0,
-                ventas_otro: data?.ventasOtro || 0,
-                ticket_promedio: data?.ticketPromedio || 0,
-                fondo_inicial: fondoNum,
-                efectivo_esperado: expectedCash,
-                efectivo_contado: contadoNum,
-                diferencia: diferencia,
-                top_productos: data?.topProductos || []
+                initial_fund: fondoNum,
+                expected_cash: expectedCash,
+                final_cash: contadoNum,
+                difference: diferencia,
+                notes: `Cierre del turno - ${new Date().toLocaleTimeString('es-MX')}`,
+                top_products: data?.topProductos || [],
+                status: 'closed',
+                closed_at: new Date().toISOString()
             };
 
-            await fetch('/api/admin/closures', {
+            // 1. Actualizar Sesión (Nueva Tabla)
+            if (shift && shift.sessionId) {
+                 await supabase
+                    .from('cashier_sessions')
+                    .update(metrics)
+                    .eq('id', shift.sessionId);
+                console.log('✅ [Shift] Sesión actualizada exitosamente en cashier_sessions.');
+            }
+
+            // 2. Guardar en Historial (Tabla Antigua compatible)
+            // IMPORTANTE: Esta tabla usa nombres en ESPAÑOL
+            const legacyPayload = {
+                fecha_turno: data?.fechaTurno,
+                cajero: cashierName,
+                total_ordenes: metrics.total_orders,
+                total_productos: metrics.total_products,
+                total_ventas: metrics.total_sales,
+                ventas_efectivo: metrics.ventas_efectivo,
+                ventas_tarjeta: metrics.ventas_tarjeta,
+                ventas_otro: data?.ventasOtro || 0,
+                ticket_promedio: data?.ticketPromedio || 0,
+                fondo_inicial: metrics.initial_fund,
+                efectivo_esperado: metrics.expected_cash,
+                efectivo_contado: metrics.final_cash,
+                diferencia: metrics.difference,
+                top_productos: metrics.top_products
+            };
+
+            const res = await fetch('/api/admin/closures', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(legacyPayload)
             });
 
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || 'Error en la respuesta del servidor');
+            }
+
             setStep('done');
+            console.log('🏁 [Cierre] Proceso de cierre completado.');
+        } catch (error: any) {
+            console.error('🛑 [Cierre] Error catastrófico cerrando caja:', error);
+            alert(`No se pudo cerrar la caja: ${error.message || 'Error de conexión'}. Verifica tu conexión a internet o habla con el administrador.`);
         } finally {
             setSaving(false);
         }
