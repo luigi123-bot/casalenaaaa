@@ -60,8 +60,20 @@ export default function LoginPage() {
                 router.push('/tienda');
             }
         } catch (error: any) {
-            console.error('❌ [Login] Error:', error);
-            setError(error.message || 'Error al iniciar sesión');
+            console.error('❌ [Login Detail] Error Code:', error.code);
+            console.error('❌ [Login Detail] Error Message:', error.message);
+            
+            // Spanish translation for common Supabase errors
+            let translatedError = error.message;
+            if (error.message.includes('Invalid login credentials')) {
+                translatedError = 'Correo o contraseña incorrectos. Verifica tus datos e intenta de nuevo.';
+            } else if (error.message.includes('Email not confirmed')) {
+                translatedError = 'Tu correo electrónico no ha sido verificado aún.';
+            } else if (error.message.includes('too many requests')) {
+                translatedError = 'Demasiados intentos. Por favor, espera un momento.';
+            }
+
+            setError(translatedError);
         } finally {
             setLoading(false);
         }
@@ -207,10 +219,23 @@ export default function LoginPage() {
                             </p>
                         </div>
 
-                        {/* Error Message */}
+                        {/* Error Message with Diagnostics */}
                         {error && (
-                            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm animate-shake">
-                                {error}
+                            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 animate-shake">
+                                <div className="flex items-center gap-2 mb-2 font-bold text-sm">
+                                    <span className="material-icons-round text-lg">error_outline</span>
+                                    {error}
+                                </div>
+                                {error.includes('incorrectos') && (
+                                    <div className="mt-2 text-[11px] ml-6 opacity-80 font-medium">
+                                        <p className="font-bold mb-1">Prueba lo siguiente:</p>
+                                        <ul className="list-disc space-y-1">
+                                            <li>Verifica que el Bloq Mayús no esté activo.</li>
+                                            <li>Asegúrate de no tener espacios al final del correo.</li>
+                                            <li>Si crees que es un error del sistema, usa el botón de <b>Limpiar Caché</b> abajo.</li>
+                                        </ul>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -303,11 +328,11 @@ export default function LoginPage() {
                             <button
                                 onClick={handleClearCache}
                                 type="button"
-                                className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-gray-400 hover:text-[#F7941D] transition-all duration-300 group mt-2"
+                                className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-gray-500 hover:text-[#F7941D] transition-all duration-300 group mt-2 bg-gray-50 hover:bg-[#F7941D]/5 px-4 py-2 rounded-full border border-gray-100 hover:border-[#F7941D]/20 shadow-sm"
                                 title="Limpiar caché si los iconos o logos no cargan"
                             >
-                                <span className="material-icons-round text-sm group-hover:rotate-180 transition-transform duration-500">sync</span>
-                                ¿Problemas con iconos o logos? Limpiar caché
+                                <span className="material-icons-round text-sm group-hover:rotate-180 transition-transform duration-500 text-gray-400 group-hover:text-[#F7941D]">sync</span>
+                                ¿Problemas de visualización? Limpiar caché
                             </button>
                         </div>
                     </div>
