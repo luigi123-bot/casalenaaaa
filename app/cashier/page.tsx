@@ -93,7 +93,8 @@ export default function CashierPage() {
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const successModalRef = useRef(false); // Persist modal state across re-renders
     const [lastOrderId, setLastOrderId] = useState<string | null>(null);
-
+    const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false);
+    
     // Customer State (for Delivery)
     const [customerInfo, setCustomerInfo] = useState({
         name: '',
@@ -1442,16 +1443,16 @@ export default function CashierPage() {
                         </button>
                     </div>
 
-                    {/* Mobile Cart Button */}
+                    {/* Mobile Cart Toggle Button */}
                     <button
-                        onClick={() => setShowPaymentModal(true)}
-                        className="lg:hidden fixed bottom-4 right-4 z-50 w-14 h-14 bg-[#f7951d] text-white rounded-full shadow-2xl flex items-center justify-center"
+                        onClick={() => setIsCartDrawerOpen(true)}
+                        className="lg:hidden fixed bottom-6 right-6 z-[60] w-16 h-16 bg-[#f7951d] text-white rounded-full shadow-[0_10px_30px_rgba(247,149,29,0.4)] flex items-center justify-center active:scale-90 transition-all active:bg-[#e0861a]"
                     >
                         <div className="relative">
-                            <span className="material-icons-round text-2xl">shopping_cart</span>
+                            <span className="material-icons-round text-3xl">shopping_cart</span>
                             {cart.length > 0 && (
-                                <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                                    {cart.length}
+                                <span className="absolute -top-2 -right-2 bg-white text-[#f7951d] text-[10px] font-black w-6 h-6 rounded-full flex items-center justify-center shadow-lg border-2 border-[#f7951d]">
+                                    {cart.reduce((sum, item) => sum + item.quantity, 0)}
                                 </span>
                             )}
                         </div>
@@ -1775,11 +1776,30 @@ export default function CashierPage() {
                 </div>
             </main>
 
-            {/* RIGHT SIDEBAR - Hidden on mobile, shown on lg+ */}
-            <aside className="hidden lg:flex w-[380px] xl:w-[400px] bg-white border-l border-[#e8e5e1] flex-col h-screen shrink-0 shadow-xl overflow-hidden">
-                <div className="p-6 border-b border-[#e8e5e1]">
+            {/* CART BACKDROP (Mobile) */}
+            {isCartDrawerOpen && (
+                <div 
+                    className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] lg:hidden animate-in fade-in duration-300"
+                    onClick={() => setIsCartDrawerOpen(false)}
+                />
+            )}
+
+            {/* RIGHT SIDEBAR - Responsive: Drawer on mobile, Sidebar on desktop */}
+            <aside className={`fixed lg:static inset-y-0 right-0 z-[80] lg:z-auto transition-transform duration-300 ease-out lg:translate-x-0 ${isCartDrawerOpen ? 'translate-x-0' : 'translate-x-full'} w-[340px] sm:w-[380px] xl:w-[400px] bg-white border-l border-[#e8e5e1] flex flex-col h-screen shrink-0 shadow-2xl lg:shadow-none overflow-hidden`}>
+                <div className="p-6 border-b border-[#e8e5e1] relative">
                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-[#181511] text-2xl font-black tracking-tight">Comanda Actual</h2>
+                        <div className="flex flex-col">
+                            <h2 className="text-[#181511] text-2xl font-black tracking-tight leading-none">Comanda Actual</h2>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[2px] mt-1.5">{cart.length} ITEMS SELECCIONADOS</p>
+                        </div>
+
+                        {/* Mobile Close Button for Drawer */}
+                        <button 
+                            onClick={() => setIsCartDrawerOpen(false)}
+                            className="lg:hidden size-10 flex items-center justify-center rounded-xl bg-gray-50 text-gray-400 active:bg-red-50 active:text-red-500 transition-colors"
+                        >
+                            <span className="material-icons-round">close</span>
+                        </button>
 
                         {/* Offline / Sync Indicators */}
                         <div className="flex items-center gap-2">
