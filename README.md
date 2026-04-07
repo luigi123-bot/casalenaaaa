@@ -1,37 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🪵 CasaleñaPOS - Sistema Integral de Gestión para Restaurantes
 
-## Getting Started
+CasaleñaPOS es una solución industrial-grade diseñada para la gestión total de restaurantes, taquerías y negocios gastronómicos. Desarrollado con tecnologías modernas como **Next.js**, **Supabase** y **Electron**, permite un control preciso desde la toma del pedido hasta el cierre financiero del día.
 
-First, run the development server:
+## 🚀 Módulos Principales
 
+### 1. Panel de Administración (Admin Dashboard)
+- **Insights & Analítica**: Visualización en tiempo real de ventas, platos más vendidos y rendimiento por turno.
+- **Gestión de Personal**: Sistema CRUD completo para administrar empleados, roles y permisos.
+- **Control de Inventario**: Administración de productos, categorías, precios y stock.
+- **Monitoreo Oculto**: Herramientas de diagnóstico avanzada para administradores.
+
+### 2. Terminal de Caja (POS Cashier)
+- **Gestión de Cuentas Abiertas**: Control visual de pedidos pendientes en mesas o para llevar.
+- **Flujo de Pago Optimizado**: Procesamiento rápido de pagos con múltiples métodos.
+- **Cierres de Caja (Cash Closure)**: Generación automática de reportes financieros al final del turno para auditoría.
+- **Soporte en Vivo**: Chat integrado para asistencia técnica directa al cajero.
+
+### 3. Sistema de Cocina (KDS)
+- **Pantallas en Tiempo Real**: Recepción inmediata de pedidos con indicadores de tiempo de espera.
+- **Gestión de Estados**: Actualización del progreso de los platos para sincronización con el servicio.
+
+### 4. Experiencia del Cliente (Tienda & Menú)
+- **Menú Digital Interactivo**: Interfaz táctil para que los clientes exploren el catálogo.
+- **Seguimiento de Pedidos**: Los clientes pueden ver el estado de su orden en tiempo real.
+- **Tickets Digitales**: Opción de compartir tickets de venta vía WhatsApp.
+
+## 🛠 Funciones Especializadas
+
+- **Impresión de Tickets**: Soporte nativo para impresoras térmicas de 58mm.
+- **Desktop & PWA**: Ejecución optimizada mediante Electron para escritorio o como Aplicación Web Progresiva para tablets.
+- **Auto-Mantenimiento**: Botón de "Limpiar Caché" integrado en el login para resolver problemas de carga de imágenes o iconos de forma instantánea.
+- **Seguridad**: Autenticación persistente y gestión de sesiones mediante Supabase Auth.
+
+## 💻 Stack Tecnológico
+
+- **Frontend**: [Next.js 15+](https://nextjs.org/) con [Tailwind CSS](https://tailwindcss.com/)
+- **Backend & DB**: [Supabase](https://supabase.com/) (PostgreSQL, Realtime, Auth)
+- **Desktop**: [Electron](https://www.electronjs.org/)
+- **Estándares**: Diseño responsivo, Animaciones premium, SEO Friendly.
+
+## 🏁 Inicio Rápido
+
+1. Instalación de dependencias:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Configuración de variables de entorno:
+Crea un archivo `.env.local` con tus credenciales de Supabase.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Ejecución en desarrollo:
+```bash
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Compilación para producción:
+```bash
+npm run build
+```
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# casalenaaaa
+---
+© 2025 Casa Leña. Desarrollado para operaciones de alto rendimiento.
