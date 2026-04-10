@@ -714,14 +714,17 @@ export default function CashierPage() {
                 // Custom order mapping
                 const categorySortOrder: Record<string, number> = {
                     'PIZZAS TRADICIONALES': 1,
+                    'ESPECIALIDADES CASALEÑA': 2,
                     'ESPECIALIDADES': 2,
                     'GOURMET': 3,
-                    'ORILLAFRESCA': 4,
-                    'ENTRADAS Y SNACKS': 5,
+                    'PIZZA & FRIENDS - COMBOS': 4,
+                    'COMBOS': 4,
+                    'ORILLA DE QUESO (EXTRA)': 5,
+                    'ORILLAFRESCA': 5,
                     'HAMBURGUESAS': 6,
-                    'BEBIDAS': 7,
+                    'ENTRADAS Y SNACKS': 7,
                     'POSTRES': 8,
-                    'COMBOS': 9
+                    'BEBIDAS': 9
                 };
 
                 const sortedData = [...data].sort((a, b) => {
@@ -1627,13 +1630,16 @@ export default function CashierPage() {
                                         // User requested cleaner names
                                         const displayNames: Record<string, string> = {
                                             'PIZZAS TRADICIONALES': 'Tradicionales',
+                                            'ESPECIALIDADES CASALEÑA': 'Especialidades',
                                             'ESPECIALIDADES': 'Especialidades',
                                             'GOURMET': 'Gourmet',
+                                            'ORILLA DE QUESO (EXTRA)': 'Orilla Queso',
                                             'ORILLAFRESCA': 'Orilla',
                                             'ENTRADAS Y SNACKS': 'Snacks',
                                             'HAMBURGUESAS': 'Hamburguesas',
                                             'BEBIDAS': 'Bebidas',
                                             'POSTRES': 'Postres',
+                                            'PIZZA & FRIENDS - COMBOS': 'Combos',
                                             'COMBOS': 'Combos'
                                         };
                                         const cleanName = displayNames[cat.name.toUpperCase()] || cat.name;
@@ -1653,10 +1659,10 @@ export default function CashierPage() {
                                                             cat.name.toLowerCase().includes('gourmet') ? 'local_pizza' :
                                                                 cat.name.toLowerCase().includes('combo') ? 'loyalty' :
                                                                     cat.name.toLowerCase().includes('orilla') ? 'add_circle' :
-                                                                        cat.name === 'Bebidas' ? 'local_drink' :
-                                                                            cat.name === 'Hamburguesas' ? 'lunch_dining' :
-                                                                                cat.name === 'Postres' ? 'cake' :
-                                                                                    cat.name === 'Entradas y snacks' ? 'fastfood' :
+                                                                        cat.name.toLowerCase().includes('bebida') ? 'local_drink' :
+                                                                            cat.name.toLowerCase().includes('hamburguesa') ? 'lunch_dining' :
+                                                                                cat.name.toLowerCase().includes('postre') ? 'cake' :
+                                                                                    cat.name.toLowerCase().includes('snack') || cat.name.toLowerCase().includes('entrada') ? 'fastfood' :
                                                                                         'restaurant'}
                                                 </span>
                                                 <span className="text-[10px] lg:text-[11px] xl:text-[13px] font-black uppercase tracking-tight text-center leading-[1.1] truncate w-full px-1">
