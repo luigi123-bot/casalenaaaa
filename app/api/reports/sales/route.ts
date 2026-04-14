@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+export const dynamic = 'force-static';
 import { NextResponse } from 'next/server';
 
 const supabase = createClient(
@@ -22,6 +23,7 @@ export async function GET(request: Request) {
         // We use !inner for filtering by category content if needed
         let selectQuery = `
             id,
+            ticket_number,
             total_amount,
             status,
             payment_method,
@@ -40,6 +42,7 @@ export async function GET(request: Request) {
         if (categoryId && categoryId !== 'all') {
             selectQuery = `
                 id,
+                ticket_number,
                 total_amount,
                 status,
                 payment_method,
@@ -98,7 +101,7 @@ export async function GET(request: Request) {
             ).join(', ') || 'Sin items';
 
             return {
-                id: order.id,
+                id: order.ticket_number || order.id,
                 date: new Date(order.created_at).toLocaleDateString('es-ES'),
                 time: new Date(order.created_at).toLocaleTimeString('es-ES'),
                 items: items,

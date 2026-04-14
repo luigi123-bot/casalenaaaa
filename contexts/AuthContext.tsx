@@ -129,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.error('Error signing out:', error);
         } finally {
             setUser(null);
-            window.location.href = '/login';
+            window.location.href = '/tienda';
         }
     };
 

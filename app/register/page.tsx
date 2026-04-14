@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { supabase } from '@/utils/supabase/client';
 
 export default function RegisterPage() {
     const [email, setEmail] = useState('');
@@ -27,7 +28,7 @@ export default function RegisterPage() {
         if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
             const checkout = params.get('checkout') === 'true';
-            const redirect = params.get('redirect') || '/';
+            const redirect = params.get('redirect') || '/tienda';
 
             setIsCheckout(checkout);
             setRedirectPath(redirect);
@@ -42,6 +43,7 @@ export default function RegisterPage() {
         setIsLoading(true);
 
         try {
+            // 1. Create account via API (to handle profiling)
             const response = await fetch('/api/register', {
                 method: 'POST',
                 headers: {
@@ -51,7 +53,7 @@ export default function RegisterPage() {
                     email,
                     password,
                     fullName,
-                    role: 'cliente', // always register as cliente from this public form
+                    role: 'cliente',
                     phoneNumber,
                     address
                 }),
@@ -63,24 +65,32 @@ export default function RegisterPage() {
                 throw new Error(data.error || 'Error al registrar usuario');
             }
 
-            setSuccess('¡Cuenta creada exitosamente! Redirigiendo...');
+            // 2. Auto-login with Supabase client
+            console.log('🔄 [Register] Auto-signing in...');
+            const { error: loginError } = await supabase.auth.signInWithPassword({
+                email,
+                password
+            });
 
+            if (loginError) throw loginError;
+
+            setSuccess('¡Cuenta creada e inicio de sesión exitoso!');
+
+            // 3. Redirect to destination
             setTimeout(() => {
                 if (isCheckout) {
                     // Save fields to localStorage for checkout auto-fill
                     localStorage.setItem('pendingPhoneNumber', phoneNumber);
                     localStorage.setItem('pendingDeliveryAddress', address);
-
-                    // Redirect to login with return params
-                    router.push(`/login?redirect=${encodeURIComponent(redirectPath)}&checkout=true&email=${encodeURIComponent(email)}`);
+                    router.push(redirectPath);
                 } else {
-                    router.push('/login');
+                    router.push('/tienda');
                 }
-            }, 1500);
+            }, 1000);
 
         } catch (err: any) {
-            console.error('Registration error:', err);
-            setError(err.message || 'Error al registrar usuario');
+            console.error('Registration/Login error:', err);
+            setError(err.message || 'Error al completar el registro');
             setIsLoading(false);
         }
     };

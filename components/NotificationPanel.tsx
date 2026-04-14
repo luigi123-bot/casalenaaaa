@@ -13,7 +13,13 @@ interface Notification {
     orderId?: number;
 }
 
-export default function NotificationPanel({ onClose }: { onClose: () => void }) {
+export default function NotificationPanel({ 
+    onClose, 
+    onAction 
+}: { 
+    onClose: () => void;
+    onAction?: (notification: Notification) => void;
+}) {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -41,7 +47,8 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
                     title: n.title,
                     message: n.message,
                     timestamp: new Date(n.created_at),
-                    read: n.read
+                    read: n.read,
+                    orderId: n.order_id // Map correctly if exists
                 }));
                 setNotifications(mappedNotifications);
             }
@@ -66,7 +73,7 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
                     id: crypto.randomUUID(),
                     type: 'order',
                     title: '🔔 Nueva Orden',
-                    message: `Orden #${payload.new.id} - ${payload.new.order_type}`,
+                    message: `Orden #${payload.new.id} - ${payload.new.order_type || 'Pedido'}`,
                     timestamp: new Date(),
                     read: false,
                     orderId: payload.new.id
@@ -102,10 +109,11 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
                 addNotification({
                     id: payload.new.id,
                     type: payload.new.type as any,
-                    title: payload.new.title,
+                    title: payload.new.title || 'Mensaje de WhatsApp',
                     message: payload.new.message,
                     timestamp: new Date(payload.new.created_at),
-                    read: payload.new.read
+                    read: payload.new.read,
+                    orderId: payload.new.order_id
                 });
             })
             .subscribe();
@@ -122,6 +130,13 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
         );
     };
 
+    const handleNotificationClick = (notification: Notification) => {
+        markAsRead(notification.id);
+        if (onAction) {
+            onAction(notification);
+        }
+    };
+
     const markAllAsRead = () => {
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     };
@@ -132,68 +147,64 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
 
     const getNotificationIcon = (type: Notification['type']) => {
         switch (type) {
-            case 'order':
-                return 'receipt_long';
-            case 'payment':
-                return 'payments';
-            case 'alert':
-                return 'campaign';
-            case 'info':
-                return 'info';
+            case 'order': return 'receipt_long';
+            case 'payment': return 'payments';
+            case 'alert': return 'campaign';
+            case 'info': return 'info';
         }
     };
 
     const getNotificationColor = (type: Notification['type']) => {
         switch (type) {
-            case 'order':
-                return 'bg-blue-50 border-blue-200 text-blue-700';
-            case 'payment':
-                return 'bg-green-50 border-green-200 text-green-700';
-            case 'alert':
-                return 'bg-orange-50 border-orange-200 text-orange-700';
-            case 'info':
-                return 'bg-gray-50 border-gray-200 text-gray-700';
+            case 'order': return 'bg-blue-50 border-blue-200 text-blue-700';
+            case 'payment': return 'bg-green-50 border-green-200 text-green-700';
+            case 'alert': return 'bg-orange-50 border-orange-200 text-orange-700';
+            case 'info': return 'bg-gray-50 border-gray-200 text-gray-700';
         }
     };
 
     return (
         <div className="fixed inset-0 z-[200] flex items-start justify-end p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white w-full max-w-md h-full rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right-5 duration-300">
+            <div className="bg-[#f8f7f5] w-full max-w-sm h-full max-h-[90vh] lg:max-h-none rounded-[32px] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right-10 duration-500">
                 {/* Header */}
-                <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-[#181511] to-[#2d2520] text-white">
+                <div className="p-6 pb-4 bg-white">
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
-                            <span className="material-icons-round text-[#F7941D]">notifications_active</span>
-                            <h3 className="text-xl font-black">Notificaciones</h3>
+                            <div className="size-10 bg-gradient-to-br from-[#181511] to-[#2d2520] rounded-xl flex items-center justify-center shadow-lg">
+                                <span className="material-icons-round text-[#F7941D]">notifications</span>
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-black text-[#181511] tracking-tight">Centro de Avisos</h3>
+                                {unreadCount > 0 && (
+                                    <p className="text-[10px] font-black text-[#F7941D] uppercase tracking-widest">
+                                        {unreadCount} Sin Leer
+                                    </p>
+                                )}
+                            </div>
                         </div>
                         <button
                             onClick={onClose}
-                            className="size-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+                            className="size-10 flex items-center justify-center rounded-xl bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-all active:scale-90"
                         >
-                            <span className="material-icons-round text-lg">close</span>
+                            <span className="material-icons-round text-xl">close</span>
                         </button>
                     </div>
-                    {unreadCount > 0 && (
-                        <p className="text-xs text-white/70">
-                            Tienes {unreadCount} notificación{unreadCount !== 1 ? 'es' : ''} sin leer
-                        </p>
-                    )}
                 </div>
 
-                {/* Actions */}
+                {/* Actions Bar */}
                 {notifications.length > 0 && (
-                    <div className="p-4 border-b border-gray-100 flex gap-2">
+                    <div className="px-6 py-2 bg-white flex gap-2">
                         <button
                             onClick={markAllAsRead}
-                            className="flex-1 px-3 py-2 text-xs font-bold text-[#181511] bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                            className="flex-1 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[#8c785f] bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                         >
-                            Marcar todas leídas
+                            Leer Todo
                         </button>
                         <button
                             onClick={clearAll}
-                            className="flex-1 px-3 py-2 text-xs font-bold text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 bg-red-50/50 rounded-lg hover:bg-red-50 transition-colors"
                         >
-                            Limpiar todo
+                            Limpiar
                         </button>
                     </div>
                 )}
@@ -201,50 +212,64 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
                 {/* Notifications List */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                     {notifications.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                            <span className="material-icons-round text-6xl mb-3 opacity-20">notifications_none</span>
-                            <p className="font-bold">Sin notificaciones</p>
-                            <p className="text-xs">Te notificaremos sobre nuevas órdenes</p>
+                        <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-40">
+                            <span className="material-icons-round text-7xl mb-4">notifications_none</span>
+                            <p className="font-black uppercase tracking-widest text-xs">Sin avisos nuevos</p>
                         </div>
                     ) : (
                         notifications.map((notification) => (
                             <div
                                 key={notification.id}
-                                onClick={() => markAsRead(notification.id)}
-                                className={`p-4 rounded-2xl border-2 transition-all cursor-pointer ${!notification.read
-                                    ? 'bg-orange-50 border-[#F7941D] shadow-md'
-                                    : 'bg-white border-gray-100'
+                                onClick={() => handleNotificationClick(notification)}
+                                className={`group p-4 rounded-2xl border transition-all cursor-pointer relative overflow-hidden ${!notification.read
+                                    ? 'bg-white border-[#F7941D]/30 shadow-md ring-1 ring-[#F7941D]/10'
+                                    : 'bg-white/50 border-gray-100 grayscale-[0.5] opacity-80'
                                     }`}
                             >
-                                <div className="flex gap-3">
-                                    <div className={`size-10 rounded-full flex items-center justify-center shrink-0 ${getNotificationColor(notification.type)}`}>
-                                        <span className="material-icons-round text-lg">
+                                {!notification.read && (
+                                    <div className="absolute top-0 left-0 w-1 h-full bg-[#F7941D]"></div>
+                                )}
+                                
+                                <div className="flex gap-4">
+                                    <div className={`size-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${getNotificationColor(notification.type)}`}>
+                                        <span className="material-icons-round text-xl">
                                             {getNotificationIcon(notification.type)}
                                         </span>
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-start justify-between gap-2 mb-1">
-                                            <h4 className="font-black text-sm text-[#181511] leading-tight">
+                                            <h4 className={`font-black text-[13px] tracking-tight leading-tight ${!notification.read ? 'text-[#181511]' : 'text-[#8c785f]'}`}>
                                                 {notification.title}
                                             </h4>
-                                            {!notification.read && (
-                                                <span className="size-2 bg-[#F7941D] rounded-full shrink-0 animate-pulse"></span>
-                                            )}
+                                            <span className="text-[9px] text-gray-400 font-bold uppercase shrink-0">
+                                                {notification.timestamp.toLocaleTimeString('es-ES', {
+                                                    hour: '2-digit',
+                                                    minute: '2-digit'
+                                                })}
+                                            </span>
                                         </div>
-                                        <p className="text-xs text-[#8c785f] font-medium mb-2">
+                                        <p className="text-[11px] text-[#8c785f] font-medium mb-3 line-clamp-2">
                                             {notification.message}
                                         </p>
-                                        <span className="text-[10px] text-gray-400 font-bold">
-                                            {notification.timestamp.toLocaleTimeString('es-ES', {
-                                                hour: '2-digit',
-                                                minute: '2-digit'
-                                            })}
-                                        </span>
+                                        
+                                        {notification.orderId && (
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-lg text-[10px] font-black text-[#181511] uppercase group-hover:bg-[#181511] group-hover:text-white transition-all">
+                                                    <span className="material-icons-round text-sm">visibility</span>
+                                                    Ver Pedido
+                                                </div>
+                                                {!notification.read && <span className="size-2 bg-[#F7941D] rounded-full animate-ping"></span>}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
                         ))
                     )}
+                </div>
+                
+                <div className="p-6 bg-white border-t border-gray-100">
+                   <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest text-center">Casaleña Notification System v2.0</p>
                 </div>
             </div>
         </div>

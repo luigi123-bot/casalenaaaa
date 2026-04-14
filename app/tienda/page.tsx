@@ -429,9 +429,28 @@ export default function TiendaPage() {
         setProcessingStep('Guardando tu pedido...');
 
         try {
-            // 1. Insert Order in Database with Auto-Correction for FK errors
-            let orderData;
+            // 1. Get Daily Sequence
+            let dailySequence = 1;
+            const todayStr = new Date().toLocaleDateString('en-CA');
+            
+            try {
+                const { data: maxOrder } = await supabase
+                    .from('orders')
+                    .select('ticket_number')
+                    .gte('created_at', todayStr + 'T00:00:00')
+                    .lte('created_at', todayStr + 'T23:59:59')
+                    .order('ticket_number', { ascending: false })
+                    .limit(1)
+                    .single();
+                
+                if (maxOrder && maxOrder.ticket_number) {
+                    dailySequence = Number(maxOrder.ticket_number) + 1;
+                }
+            } catch (err) {
+                console.warn('Error fetching max ticket number, defaulting to 1', err);
+            }
 
+            let orderData;
             const insertOrder = async () => {
                 return await supabase
                     .from('orders')
@@ -442,7 +461,8 @@ export default function TiendaPage() {
                         order_type: 'delivery',
                         total_amount: cartTotals.total,
                         delivery_address: deliveryAddress,
-                        phone_number: phoneNumber
+                        phone_number: phoneNumber,
+                        ticket_number: dailySequence
                     })
                     .select()
                     .single();
@@ -499,7 +519,7 @@ export default function TiendaPage() {
             // 4. Build WhatsApp Message
             const whatsappNumber = '527411075056'; // Mexico format: 52 + number (Update: 741-107-5056)
 
-            let message = `🍕 *NUEVO PEDIDO #${orderData.id} - DOMICILIO*\n\n`;
+            let message = `🍕 *NUEVO PEDIDO #${orderData.ticket_number || orderData.id} - DOMICILIO*\n\n`;
             message += `👤 *Cliente:* ${userName}\n`;
             message += `📍 *Dirección:* ${deliveryAddress}\n`;
             message += `📱 *Teléfono:* ${phoneNumber}\n`;
@@ -524,7 +544,7 @@ export default function TiendaPage() {
             });
 
             message += `\n💰 *TOTAL: $${cartTotals.total.toFixed(2)}*\n`;
-            message += `\n_Pedido #${orderData.id} realizado desde CasaleñaPOS 🔥_`;
+            message += `\n_Pedido #${orderData.ticket_number || orderData.id} realizado desde CasaleñaPOS 🔥_`;
 
             // Encode and create WhatsApp URL
             const encodedMessage = encodeURIComponent(message);
@@ -1389,7 +1409,6 @@ export default function TiendaPage() {
                                 🍕
                             </div>
                         </div>
-
                         <div className="text-center space-y-3">
                             <h3 className="text-3xl font-extrabold text-white tracking-tight">Procesando tu pedido</h3>
                             <p className="text-gray-300 text-xl font-medium animate-pulse">
@@ -1401,66 +1420,108 @@ export default function TiendaPage() {
             )}
 
             {showOrderSuccess && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#1D1D1F]/60 backdrop-blur-md animate-in fade-in duration-300">
-                    <div className="bg-white rounded-[40px] p-10 shadow-2xl max-w-sm w-full text-center transform animate-in zoom-in-95 duration-300 border border-white/20">
-                        <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner overflow-hidden relative">
-                            <div className="absolute inset-0 bg-gradient-to-tr from-green-100 to-transparent"></div>
-                            <span className="material-icons-round text-5xl text-green-500 relative z-10 animate-bounce">check_circle</span>
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#1D1D1F]/60 backdrop-blur-xl animate-in fade-in duration-500">
+                    <div className="bg-white rounded-[40px] p-6 sm:p-10 shadow-[0_32px_80px_rgba(0,0,0,0.4)] max-w-2xl w-full text-center transform animate-in zoom-in-95 slide-in-from-bottom-4 duration-500 border border-white/20 max-h-[90vh] overflow-y-auto custom-scrollbar relative">
+                        {/* Festive Confetti particles (decoration) */}
+                        <div className="absolute top-10 left-10 w-2 h-2 rounded-full bg-yellow-400 animate-ping opacity-40"></div>
+                        <div className="absolute bottom-10 right-10 w-3 h-3 rounded-full bg-orange-400 animate-ping opacity-40 delay-300"></div>
+                        
+                        <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-tr from-green-50 to-green-100 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm relative group">
+                            <div className="absolute inset-0 bg-green-500/10 rounded-full animate-pulse group-hover:animate-ping -z-10"></div>
+                            <span className="material-icons-round text-[50px] sm:text-[60px] text-green-500 drop-shadow-sm">check_circle</span>
                         </div>
-                        <h2 className="text-3xl font-black text-[#1D1D1F] mb-4">¡Pedido Confirmado!</h2>
+                        
+                        <h2 className="text-3xl sm:text-4xl font-black text-[#1D1D1F] mb-4 tracking-tighter uppercase italic">¡Pedido Confirmado!</h2>
+                        <p className="text-[#8c785f] text-xs font-bold uppercase tracking-[0.2em] mb-6">Gracias por confiar en Casaleña 🔥</p>
+                        
                         {pointsEarned > 0 && (
-                            <div className="bg-gradient-to-r from-yellow-300 to-orange-400 p-4 rounded-xl mb-6 shadow-lg transform rotate-1 border-2 border-white/50">
-                                <p className="font-bold text-white text-lg drop-shadow-sm flex items-center justify-center gap-2">
-                                    <span className="material-icons-round animate-spin-slow">stars</span>
-                                    ¡Ganaste {pointsEarned} Puntos!
-                                </p>
-                                {newLevel && <p className="text-white text-sm font-bold mt-1">¡Nuevo Nivel: {newLevel.toUpperCase()}! 🎉</p>}
+                            <div className="bg-gradient-to-r from-[#F7941D] to-[#FFC107] p-5 rounded-[24px] mb-8 shadow-xl shadow-orange-500/20 relative overflow-hidden group">
+                                <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <div className="relative z-10">
+                                    <div className="flex items-center justify-center gap-3 mb-1">
+                                        <span className="material-icons-round text-white text-2xl animate-spin-slow">stars</span>
+                                        <p className="font-black text-white text-xl sm:text-2xl tracking-tight">
+                                            ¡Has ganado {pointsEarned} Puntos!
+                                        </p>
+                                    </div>
+                                    {newLevel && (
+                                        <div className="inline-block px-3 py-1 bg-white/20 rounded-full backdrop-blur-sm">
+                                            <p className="text-white text-[10px] font-black uppercase tracking-[0.2em]">Escalaste a: {newLevel} 🚀</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
-                        <p className="text-gray-600 mb-8 leading-relaxed">
-                            Tu pedido ha sido enviado al sistema. Serás redirigido a WhatsApp para confirmar los detalles.
-                        </p>
-                        <div className="bg-green-50 border-2 border-green-200 rounded-2xl p-4 mb-3">
-                            <div className="flex items-center gap-3 mb-2">
-                                <span className="material-icons-round text-green-600">check_circle</span>
-                                <p className="text-sm font-black text-green-800">Enviar Pedido</p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
+                            {/* WhatsApp Helper */}
+                            <div className="bg-[#f0fdf4] border border-[#dcfce7] rounded-[32px] p-6 text-left flex flex-col justify-between group hover:shadow-lg transition-all duration-300">
+                                <div className="mb-4">
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <div className="w-8 h-8 rounded-full bg-[#25D366]/10 flex items-center justify-center text-[#25D366]">
+                                            <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
+                                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                                            </svg>
+                                        </div>
+                                        <p className="text-xs font-black text-[#166534] uppercase tracking-widest leading-none">Confirmación</p>
+                                    </div>
+                                    <p className="text-[12px] text-[#166534]/70 font-medium leading-relaxed">
+                                        Es crucial confirmar tu pedido vía WhatsApp para validar la cocina inmediatamente.
+                                    </p>
+                                </div>
+                                {whatsappLink && (
+                                    <a
+                                        href={whatsappLink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="w-full py-4 bg-[#25D366] text-white rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-lg shadow-[#25D366]/20 hover:bg-[#128C7E] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <span>Confirmar Pedido</span>
+                                        <span className="material-icons-round text-sm">send</span>
+                                    </a>
+                                )}
                             </div>
-                            <p className="text-xs text-green-700 leading-relaxed mb-3">
-                                Si WhatsApp no se abrió automáticamente, presiona aquí:
-                            </p>
-                            {whatsappLink && (
-                                <a
-                                    href={whatsappLink}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="w-full py-3 bg-[#25D366] text-white rounded-xl font-bold text-sm shadow-md hover:bg-[#128C7E] transition-all flex items-center justify-center gap-2"
-                                >
-                                    <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" alt="WA" className="w-5 h-5 filter brightness-0 invert" />
-                                    Enviar por WhatsApp para confirmar pedido
-                                </a>
-                            )}
-                        </div>
-                        <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4 mb-8">
-                            <div className="flex items-center gap-3 mb-2">
-                                <span className="material-icons-round text-blue-600">local_shipping</span>
-                                <p className="text-sm font-black text-blue-800">Entrega a Domicilio</p>
+                            
+                            {/* Delivery Detail */}
+                            <div className="bg-[#eff6ff] border border-[#dbeafe] rounded-[32px] p-6 text-left group hover:shadow-lg transition-all duration-300">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-8 h-8 rounded-full bg-[#3b82f6]/10 flex items-center justify-center text-[#3b82f6]">
+                                        <span className="material-icons-round text-lg">local_shipping</span>
+                                    </div>
+                                    <p className="text-xs font-black text-[#1e40af] uppercase tracking-widest leading-none">Destino</p>
+                                </div>
+                                
+                                <div className="space-y-3" style={{ transition: 'all 0.3s' }}>
+                                    <div>
+                                        <p className="text-[10px] text-[#1e40af]/50 font-black uppercase tracking-widest mb-1">Direccion de Envió</p>
+                                        <div className="bg-white/60 backdrop-blur-sm p-3 rounded-xl border border-[#3b82f6]/10">
+                                            <p className="text-[11px] text-[#1e40af] font-bold leading-tight line-clamp-2">
+                                                {deliveryAddress || 'Pendiente de asignar'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-[10px] text-[#3b82f6] font-bold italic opacity-70">
+                                        <span className="material-icons-round text-xs">phone</span>
+                                        <span>Repartidor llamará al: {phoneNumber}</span>
+                                    </div>
+                                </div>
                             </div>
-                            <p className="text-xs text-blue-700 leading-relaxed">
-                                Tu pedido será entregado en: {deliveryAddress}
-                            </p>
                         </div>
-                        <div className="space-y-4">
-
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <button
                                 onClick={() => router.push('/tienda/mis-pedidos')}
-                                className="w-full py-4 bg-[#1D1D1F] text-white rounded-[20px] font-black text-lg shadow-xl shadow-black/10 hover:bg-black hover:scale-[1.02] active:scale-95 transition-all duration-300 flex items-center justify-center gap-3"
+                                className="w-full py-5 bg-[#1D1D1F] text-white rounded-[24px] font-black text-[12px] uppercase tracking-[0.2em] shadow-xl hover:bg-black hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 group"
                             >
-                                <span>Ver Mi Pedido</span>
-                                <span className="material-icons-round">receipt_long</span>
+                                <span className="material-icons-round text-lg group-hover:rotate-12 transition-transform">receipt_long</span>
+                                Ver mis Pedidos
                             </button>
                             <button
-                                onClick={() => setShowOrderSuccess(false)}
-                                className="w-full py-4 bg-gray-50 text-gray-400 rounded-[20px] font-bold text-sm hover:bg-gray-100 transition-all duration-300 uppercase tracking-widest"
+                                onClick={() => {
+                                    setShowOrderSuccess(false);
+                                    router.replace('/tienda');
+                                }}
+                                className="w-full py-5 bg-gray-50 text-[#1D1D1F] rounded-[24px] border border-gray-100 font-black text-[12px] uppercase tracking-[0.2em] hover:bg-gray-100 hover:scale-[1.02] active:scale-95 transition-all"
                             >
                                 Seguir Comprando
                             </button>

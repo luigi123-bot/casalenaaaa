@@ -9,6 +9,8 @@ import CashierSupportChat from '@/components/CashierSupportChat';
 import TicketPrintModal from '@/components/TicketPrintModal';
 import CierreCajaModal from '@/components/CierreCajaModal';
 import AperturaCajaModal from '@/components/AperturaCajaModal';
+import CustomerDeliveryModal from '@/components/CustomerDeliveryModal';
+
 
 // Types
 interface Category {
@@ -138,10 +140,41 @@ export default function CashierPage() {
     const [recentOrdersLoading, setRecentOrdersLoading] = useState(false);
     const [recentOrdersFilter, setRecentOrdersFilter] = useState('Todos');
     const [unreadNotifications, setUnreadNotifications] = useState(0);
+    const [pendingNewOrder, setPendingNewOrder] = useState<any>(null);
+    const [allPendingVirtualOrders, setAllPendingVirtualOrders] = useState<any[]>([]);
+    const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
+
+    const startAlarm = () => {
+        if (typeof window === 'undefined') return;
+        try {
+            if (!alarmAudioRef.current) {
+                alarmAudioRef.current = new Audio('/Dinner_Rush_Cycle.mp3');
+                alarmAudioRef.current.loop = true;
+                alarmAudioRef.current.volume = 0.6;
+            }
+            const playPromise = alarmAudioRef.current.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(e => {
+                    console.warn('🔊 [Alarm] Reproducción bloqueada por el navegador:', e);
+                });
+            }
+        } catch (err) {
+            console.error('❌ [Alarm] Error inicializando audio:', err);
+        }
+    };
+
+    const stopAlarm = () => {
+        if (alarmAudioRef.current) {
+            alarmAudioRef.current.pause();
+            alarmAudioRef.current.currentTime = 0;
+            console.log('🔇 [Alarm] Alarma detenida.');
+        }
+    };
 
     // Shift Management State
     const [shiftState, setShiftState] = useState<'checking' | 'too_early' | 'must_open' | 'open' | 'must_close' | 'closed'>('checking');
     const [systemSettings, setSystemSettings] = useState<any>(null);
+    const [isAdmin, setIsAdmin] = useState(false);
 
     useEffect(() => {
         let isMounted = true;
@@ -184,63 +217,69 @@ export default function CashierPage() {
     }, []);
 
     useEffect(() => {
-        if (!systemSettings) return;
-
         const evaluateShift = async () => {
-            // BYPASS PARA ADMINISTRADORES
-            const { data: { user } } = await supabase.auth.getUser();
-            const { data: profile } = await supabase.from('profiles').select('role').eq('id', user?.id).single();
-            const isAdmin = profile?.role === 'administrador' || profile?.role === 'admin';
+            try {
+                const startOfDay = new Date();
+                startOfDay.setHours(0,0,0,0);
+                const endOfDay = new Date();
+                endOfDay.setHours(23,59,59,999);
 
-            if (isAdmin) {
-                console.log('🔓 [Auth] Bypass de horario para administrador.');
-                setShiftState('open');
-                return;
-            }
-
-            const now = new Date();
-            const currentTime = now.getHours() * 60 + now.getMinutes(); 
-            
-            if (!systemSettings.auto_cashier_schedule) {
-                const dateStr = now.toLocaleDateString('sv-SE');
-                const savedShift = localStorage.getItem(`caja_casalena_${dateStr}`);
-                setShiftState(savedShift ? 'open' : 'must_open');
-                return;
-            }
-
-            const [openH, openM] = (systemSettings.cashier_open_time || '13:00').split(':').map(Number);
-            const [closeH, closeM] = (systemSettings.cashier_close_time || '21:30').split(':').map(Number);
-            
-            const openMinutes = openH * 60 + openM;
-            const closeMinutes = closeH * 60 + closeM;
-            const dateStr = now.toLocaleDateString('sv-SE'); 
-            const savedShift = localStorage.getItem(`caja_casalena_${dateStr}`);
-            
-            if (currentTime < openMinutes) {
-                setShiftState('too_early');
-            } else if (currentTime >= closeMinutes) {
-                if (savedShift && !JSON.parse(savedShift).closedAt) {
-                    setShiftState('must_close');
-                    setShowCierreCaja(true);
-                } else {
+                // 1. DETERMINAR ROL Y NOMBRE
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) {
                     setShiftState('closed');
+                    return;
                 }
-            } else {
-                if (savedShift) {
-                    const shift = JSON.parse(savedShift);
-                    setShiftState(shift.closedAt ? 'closed' : 'open');
+                const { data: profile } = await supabase.from('profiles').select('role, full_name').eq('id', user.id).single();
+                const isAdminUser = profile?.role === 'administrador' || profile?.role === 'admin';
+                setIsAdmin(isAdminUser);
+                if (profile?.full_name) setCashierName(profile.full_name);
+
+                // 2. BUSCAR SESIÓN ACTIVA EN DB
+                const { data: activeSessions } = await supabase
+                    .from('cashier_sessions')
+                    .select('*')
+                    .eq('status', 'open')
+                    .gte('opened_at', startOfDay.toISOString())
+                    .lte('opened_at', endOfDay.toISOString())
+                    .limit(1);
+
+                const hasActiveDbSession = activeSessions && activeSessions.length > 0;
+
+                // 3. PRIORIDAD ADMIN
+                if (isAdminUser) {
+                    setShiftState('open');
+                    return;
+                }
+
+                // 4. DETERMINAR ESTADO BASADO SOLO EN SESIÓN ACTIVA
+                if (hasActiveDbSession) {
+                    setShiftState('open');
                 } else {
                     setShiftState('must_open');
                 }
+            } catch (err) {
+                console.error("Error evaluating shift:", err);
+                // Fallback safe state
+                setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
             }
         };
 
-        evaluateShift();
+        // SAFETY FALLBACK: if evaluateShift takes too long, force a state
+        const safetyId = setTimeout(() => {
+            setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
+        }, 6000);
+
+        evaluateShift().finally(() => clearTimeout(safetyId));
         const interval = setInterval(evaluateShift, 30000);
-        return () => clearInterval(interval);
-    }, [systemSettings]);
+        return () => {
+            clearInterval(interval);
+            clearTimeout(safetyId);
+        };
+    }, []);
 
     const handleOpenShift = async (info: { fondo: number, notas: string }) => {
+        setShiftState('checking'); // Show loading while processing
         try {
             // Guardar en la base de datos (Supabase)
             const { data: sessionData, error } = await supabase
@@ -300,6 +339,140 @@ export default function CashierPage() {
             fetchClientsForDropdown();
         }
     }, [showCustomerModal]);
+
+    // BROWSER NOTIFICATIONS SYSTEM
+    const handleAcceptOrder = async (orderId: number | string) => {
+        try {
+            console.log(`✅ [Shift] Aceptando pedido #${orderId}...`);
+            const { error } = await supabase
+                .from('orders')
+                .update({ status: 'preparando' })
+                .eq('id', orderId);
+
+            if (error) throw error;
+            fetchRecentOrders(false);
+        } catch (err) {
+            console.error('❌ [Shift] Error al aceptar pedido:', err);
+        }
+    };
+
+    useEffect(() => {
+        let isEffectActive = true;
+
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+            if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+                Notification.requestPermission();
+            }
+        }
+
+        // Initial check for pending orders from platform/virtual
+        const checkInitialPendingOrders = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('orders')
+                    .select('*, order_items(*)')
+                    .eq('status', 'pendiente')
+                    .or('order_source.eq.web,order_type.in.(delivery,takeout)')
+                    .order('created_at', { ascending: true });
+
+                if (error) throw error;
+
+                if (data && data.length > 0 && isEffectActive) {
+                    console.log('🔔 [Notifications] Encontrados pedidos pendientes iniciales:', data.length);
+                    setAllPendingVirtualOrders(data);
+                    setPendingNewOrder(data[0]);
+                    startAlarm();
+                }
+            } catch (err: any) {
+                // Ignore AbortError which happens on rapid re-renders or unmounts
+                if (err?.name === 'AbortError' || err?.message?.includes('aborted')) {
+                    return;
+                }
+                console.error('❌ [Notifications] Error en carga inicial de pendientes:', err);
+            }
+        };
+
+        checkInitialPendingOrders();
+
+        // Subscribe to NEW ORDERS for notifications
+        console.log('🔔 [Notifications] Activando escucha en tiempo real para pedidos...');
+        const ordersChannel = supabase
+            .channel('cashier_realtime_notifications')
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'orders'
+            }, (payload) => {
+                if (!isEffectActive) return;
+                const newOrder = payload.new;
+                
+                // Refresh list
+                fetchRecentOrders(false);
+
+                // Browser Notification (Only for Delivery as requested, or others if needed)
+                if (newOrder.status === 'pendiente' && (newOrder.order_type === 'delivery' || newOrder.order_type === 'takeout')) {
+                    const title = newOrder.order_type === 'delivery' ? '🚀 ¡Nuevo Domicilio!' : '🛍️ ¡Nuevo Pick-up!';
+                    const body = `Orden #${newOrder.id} - $${newOrder.total_amount}\nCliente: ${newOrder.customer_name || 'Desconocido'}`;
+                    
+                    if (Notification.permission === 'granted') {
+                        const notif = new Notification(title, {
+                            body,
+                            icon: '/logo-main.jpg',
+                            badge: '/icon.png'
+                        });
+                        notif.onclick = () => {
+                            window.focus();
+                            handleAcceptOrder(newOrder.id);
+                            stopAlarm();
+                            setShowOrdersView(true);
+                            setPendingNewOrder(null);
+                        };
+                    }
+
+                    // Start Continuous Alarm
+                    startAlarm();
+
+                    // PERSISTENT UI ALERT
+                    setAllPendingVirtualOrders(prev => [...prev, newOrder]);
+                    setPendingNewOrder((prev: any) => prev || newOrder);
+                }
+            })
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'orders'
+            }, (payload) => {
+                if (!isEffectActive) return;
+                const updatedOrder = payload.new;
+
+                // Si deja de estar pendiente (fue aceptado en otro lugar)
+                if (updatedOrder.status !== 'pendiente') {
+                    setAllPendingVirtualOrders(prev => {
+                        const filtered = prev.filter(o => o.id !== updatedOrder.id);
+                        if (filtered.length === 0) {
+                            setPendingNewOrder(null);
+                            stopAlarm();
+                        } else if (pendingNewOrder?.id === updatedOrder.id) {
+                            setPendingNewOrder(filtered[0]);
+                        }
+                        return filtered;
+                    });
+                }
+            })
+            .subscribe();
+
+        return () => {
+            isEffectActive = false;
+            supabase.removeChannel(ordersChannel);
+        };
+    }, []);
+
+    // STOP ALARM WHEN OPENING MODALS
+    useEffect(() => {
+        if (showNotifications || showOrdersView) {
+            stopAlarm();
+        }
+    }, [showNotifications, showOrdersView]);
 
     // EFECTO PARA BUSCAR SI LA MESA YA TIENE UNA COMANDA ABIERTA
     useEffect(() => {
@@ -364,97 +537,78 @@ export default function CashierPage() {
     const fetchClientsForDropdown = async () => {
         setLoadingClients(true);
         try {
-            console.log('🔄 [Cashier] Cargando clientes...');
+            console.log('🔄 [Cashier] Cargando solo usuarios con ROL=CLIENTE...');
 
-            // 1. Customers Table (Ocasionales)
-            const { data: customersData, error: custError } = await supabase
-                .from('customers')
-                .select('*')
-                .order('full_name');
+            // 1. Definir fetchers independientes con filtro de rol 'cliente'
+            const fetchCustomers = supabase.from('customers').select('*').limit(100).order('full_name');
+            const fetchProfiles = supabase.from('profiles').select('*').eq('role', 'cliente').limit(100);
+            const fetchUsuarios = supabase.from('usuarios').select('*').eq('role', 'cliente').limit(100);
 
-            if (custError) console.error('Error fetching customers:', custError);
+            // 2. Ejecutar en paralelo
+            const [customersRes, profilesRes, usuariosRes] = await Promise.allSettled([
+                fetchCustomers,
+                fetchProfiles,
+                fetchUsuarios
+            ]);
 
-            // 2. Profiles Table (Clientes Registrados)
+            let customersData: any[] = [];
             let profilesData: any[] = [];
-            try {
-                // Try fetching case-insensitive or multiple variations
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .in('role', ['cliente', 'CLIENTE', 'Cliente']);
+            let usuariosData: any[] = [];
 
-                if (error) throw error;
-                if (data) profilesData = data;
-            } catch (e) {
-                console.warn('⚠️ Error fetching profiles, trying fallback or ignoring:', e);
+            // 3. Procesar resultados de forma segura
+            if (customersRes.status === 'fulfilled' && !customersRes.value.error) {
+                customersData = customersRes.value.data || [];
+            }
+            if (profilesRes.status === 'fulfilled' && !profilesRes.value.error) {
+                profilesData = profilesRes.value.data || [];
+            }
+            if (usuariosRes.status === 'fulfilled' && !usuariosRes.value.error) {
+                // Merge logic for legacy tables
+                const rawUsuarios = usuariosRes.value.data || [];
+                rawUsuarios.forEach(u => {
+                    const existingProfileIndex = profilesData.findIndex(p => p.id === u.id);
+                    if (existingProfileIndex >= 0) {
+                        const p = profilesData[existingProfileIndex];
+                        const legacyPhone = u.phone || u.phone_number || u.telefono || '';
+                        const legacyAddress = u.address || u.direccion || '';
+                        if (!p.phone_number && legacyPhone) profilesData[existingProfileIndex].phone_merged = legacyPhone;
+                        if (!p.address && legacyAddress) profilesData[existingProfileIndex].address_merged = legacyAddress;
+                    } else {
+                        usuariosData.push(u);
+                    }
+                });
             }
 
-            // 3. Usuarios Table (Legacy/Fallback)
-            const usuariosData: any[] = [];
-            try {
-                const { data, error } = await supabase
-                    .from('usuarios')
-                    .select('*')
-                    .in('role', ['cliente', 'CLIENTE', 'Cliente']);
+            console.log(`📊 [Cashier] Clientes encontrados (rol: cliente): ${customersData.length} ocasionales, ${profilesData.length} perfiles, ${usuariosData.length} legados.`);
 
-                if (!error && data) {
-                    // Smart Merge: If user exists in both, enrich profile with legacy data if missing
-                    data.forEach(u => {
-                        const existingProfileIndex = profilesData.findIndex(p => p.id === u.id);
-                        if (existingProfileIndex >= 0) {
-                            // User exists in both. Check if profile is missing info that legacy has.
-                            const p = profilesData[existingProfileIndex];
-                            const legacyPhone = u.phone || u.phone_number || u.telefono || '';
-                            const legacyAddress = u.address || u.direccion || '';
-
-                            // If profile phone is empty but legacy has one, update profile
-                            if ((!p.phone_number && !p.phone && !p.celular) && legacyPhone) {
-                                profilesData[existingProfileIndex].phone_merged = legacyPhone;
-                            }
-                            // If profile address is empty but legacy has one, update profile
-                            if ((!p.address && !p.location && !p.direccion) && legacyAddress) {
-                                profilesData[existingProfileIndex].address_merged = legacyAddress;
-                            }
-                        } else {
-                            // User only in legacy table
-                            usuariosData.push(u);
-                        }
-                    });
-                }
-            } catch (e) {
-                console.warn('⚠️ Error fetching usuarios legacy:', e);
-            }
-
-            console.log(`📊 [Cashier] Found: ${customersData?.length || 0} customers, ${profilesData.length} profiles, ${usuariosData.length} legacy users`);
-
-            // Combine
+            // 4. Mapeo y Unificación
             const combined = [
-                ...(customersData || []).map(c => ({
+                ...customersData.map(c => ({
                     id: c.id,
                     name: c.full_name,
                     phone: c.phone,
                     address: c.address,
-                    origin: 'customer' // Ocasional
+                    origin: 'customer'
                 })),
                 ...profilesData.map(p => ({
                     id: p.id,
                     name: p.full_name || p.nombre || 'Usuario App',
                     phone: p.phone_merged || p.phone || p.phone_number || p.phoneNumber || p.telefono || p.celular || '',
                     address: p.address_merged || p.address || p.direccion || p.location || '',
-                    origin: 'profile' // Registrado
+                    origin: 'profile'
                 })),
                 ...usuariosData.map(u => ({
                     id: u.id,
                     name: u.full_name || u.email || 'Usuario Legado',
                     phone: u.phone || u.phone_number || u.telefono || '',
                     address: u.address || u.direccion || '',
-                    origin: 'legacy' // Registrado (Tabla vieja)
+                    origin: 'legacy'
                 }))
             ].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
             setAvailableClients(combined);
         } catch (err) {
-            console.error('❌ Error general cargando clientes:', err);
+            console.error('❌ Error crítico en fetchClientsForDropdown:', err);
         } finally {
             setLoadingClients(false);
         }
@@ -490,7 +644,7 @@ export default function CashierPage() {
                 .from('customers')
                 .select('*')
                 .or(`full_name.ilike.%${term}%,phone.ilike.%${term}%`)
-                .limit(5);
+                .limit(50); // Increased limit from 5 to 50
 
             if (customersError) throw customersError;
 
@@ -501,9 +655,8 @@ export default function CashierPage() {
                 const { data, error: profilesError } = await supabase
                     .from('profiles')
                     .select('*')
-                    .eq('role', 'cliente')
                     .or(`full_name.ilike.%${term}%,phone_number.ilike.%${term}%`)
-                    .limit(5);
+                    .limit(50); // Increased limit from 5 to 50 and removed role filter
 
                 if (!profilesError) {
                     profilesData = data || [];
@@ -687,7 +840,10 @@ export default function CashierPage() {
 
         getCashierName();
         fetchCategories();
-        fetchProducts();
+        
+        // Safety timeout for loading state
+        const loadTimeout = setTimeout(() => setLoading(false), 8000); 
+        fetchProducts().finally(() => clearTimeout(loadTimeout));
     }, []);
 
     async function fetchCategories() {
@@ -1038,14 +1194,21 @@ export default function CashierPage() {
             // Get Daily Ticket Number (Only for new orders)
             let dailySequence = 1;
             if (!activeOrderId) {
-                const today = new Date().toISOString().split('T')[0];
-                const { data: dailyOrders } = await supabase
-                    .from('orders')
-                    .select('id')
-                    .gte('created_at', today)
-                    .lte('created_at', today + 'T23:59:59');
+                const today = new Date().toLocaleDateString('en-CA');
                 
-                dailySequence = (dailyOrders?.length || 0) + 1;
+                // Get the maximum ticket number for orders created today
+                const { data: maxOrder } = await supabase
+                    .from('orders')
+                    .select('ticket_number')
+                    .gte('created_at', today + 'T00:00:00')
+                    .lte('created_at', today + 'T23:59:59')
+                    .order('ticket_number', { ascending: false })
+                    .limit(1)
+                    .single();
+                
+                if (maxOrder && maxOrder.ticket_number) {
+                    dailySequence = Number(maxOrder.ticket_number) + 1;
+                }
             }
 
             // El status es 'pendiente' si es pre-ticket, sino el status normal
@@ -1285,7 +1448,7 @@ export default function CashierPage() {
         } catch (error) {
             console.error('Error al cerrar sesión:', error);
         } finally {
-            window.location.href = '/login';
+            window.location.href = '/tienda';
         }
     };
 
@@ -1299,7 +1462,7 @@ export default function CashierPage() {
 
         if (showLoading) setRecentOrdersLoading(true);
         try {
-            // Query 1: open accounts (status = 'pendiente', 'preparando', 'listo')
+            // Query 1: open accounts (DINE-IN ONLY)
             const { data: openData, error: openErr } = await supabase
                 .from('orders')
                 .select(`
@@ -1314,6 +1477,7 @@ export default function CashierPage() {
                     )
                 `)
                 .in('status', ['pendiente', 'preparando', 'listo'])
+                .eq('order_type', 'dine-in')
                 .order('created_at', { ascending: false });
 
             if (openErr) {
@@ -1321,7 +1485,8 @@ export default function CashierPage() {
                 return;
             }
 
-            // Query 2: Recent 50 orders (any status except the ones above to avoid duplicates)
+            // Query 2: All other orders (Delivery, Takeout, or Finished Dine-in)
+            // This ensures Delivery/Takeout show up in "History" even if pending, as they are paid on receipt
             const { data: recentData, error: recentErr } = await supabase
                 .from('orders')
                 .select(`
@@ -1335,7 +1500,7 @@ export default function CashierPage() {
                         extras
                     )
                 `)
-                .not('status', 'in', '("pendiente","preparando","listo")')
+                .or('order_type.neq.dine-in,status.in.(entregado,cancelado,confirmado)')
                 .order('created_at', { ascending: false })
                 .limit(50);
 
@@ -1344,8 +1509,12 @@ export default function CashierPage() {
                 return;
             }
 
-            // Merge: open accounts first, then recent
-            const combined = [...(openData || []), ...(recentData || [])];
+            // Merge: Active Mesa orders first, then the rest
+            // Avoid duplicates just in case
+            const openIds = new Set((openData || []).map(o => o.id));
+            const filteredRecent = (recentData || []).filter(o => !openIds.has(o.id));
+            
+            const combined = [...(openData || []), ...filteredRecent];
             
             // Only update state if we have results to avoid flickering/clearing
             if (combined.length > 0) {
@@ -1359,6 +1528,37 @@ export default function CashierPage() {
     };
 
     // Removed the restricted useEffect for fetching - replaced by global listener
+
+    const handleSaveCustomer = async (info: any) => {
+        try {
+            const { error } = await supabase
+                .from('customers')
+                .upsert({
+                    phone: info.phone.trim(),
+                    full_name: info.name,
+                    address: info.address || '',
+                    street: info.street || '',
+                    neighborhood: info.neighborhood || '',
+                    reference: info.reference || '',
+                }, { onConflict: 'phone' });
+
+            if (error) throw error;
+            
+            // Feedback visual
+            const toast = document.createElement('div');
+            toast.className = 'fixed top-4 right-4 bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in';
+            toast.innerHTML = '<span class="material-icons-round align-middle mr-2">person_add</span> Cliente Guardado Exitosamente';
+            document.body.appendChild(toast);
+            setTimeout(() => { 
+                toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10'); 
+                setTimeout(() => toast.remove(), 300); 
+            }, 3000);
+            
+        } catch (err: any) {
+            console.error('Error saving customer:', err);
+            alert('Error al guardar cliente: ' + err.message);
+        }
+    };
 
     return (
         <div className="flex h-full bg-[#f8f7f5] text-[#181511]">
@@ -1497,8 +1697,21 @@ export default function CashierPage() {
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                     {recentOrders
                                         .filter(o => {
+                                            // Search Filter Logic
+                                            if (searchQuery.trim()) {
+                                                const query = searchQuery.toLowerCase().replace('#', '');
+                                                const matchesSearch = 
+                                                    String(o.id).includes(query) || 
+                                                    (o.customer_name && o.customer_name.toLowerCase().includes(query)) ||
+                                                    (o.ticket_number && String(o.ticket_number).includes(query)) ||
+                                                    (o.table_number && String(o.table_number).includes(query));
+                                                
+                                                if (!matchesSearch) return false;
+                                            }
+
+                                            // Status Filter Logic
                                             if (recentOrdersFilter === 'Todos') return true;
-                                            if (recentOrdersFilter === 'Abiertas') return ['pendiente', 'preparando', 'listo'].includes(o.status);
+                                            if (recentOrdersFilter === 'Abiertas') return ['pendiente', 'preparando', 'listo'].includes(o.status) && o.order_type === 'dine-in';
                                             if (recentOrdersFilter === 'Pendiente') return o.status === 'confirmado';
                                             if (recentOrdersFilter === 'Preparando') return o.status === 'preparando' || o.status === 'listo';
                                             if (recentOrdersFilter === 'Entregado') return o.status === 'entregado';
@@ -1512,7 +1725,7 @@ export default function CashierPage() {
                                                 <div className="flex justify-between items-start mb-6">
                                                     <div>
                                                         <div className="flex items-center gap-2 mb-1">
-                                                            <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.id.toString().slice(-6)}</span>
+                                                            <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.ticket_number || 'S/N'}</span>
                                                             <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
                                                                 order.status === 'entregado' ? 'bg-green-100 text-green-700' :
                                                                 ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'bg-purple-100 text-purple-700 border border-purple-200' :
@@ -1842,14 +2055,14 @@ export default function CashierPage() {
                         ))}
                     </div>
 
-                    {/* MESAS / CUENTAS ABIERTAS QUICK ACCESS */}
-                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length > 0 && (
+                    {/* MESAS / CUENTAS ABIERTAS QUICK ACCESS (SOLO MESA) */}
+                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.order_type === 'dine-in').length > 0 && (
                         <div className="mb-4 animate-in fade-in slide-in-from-top-2">
                             <span className="text-[10px] font-black text-purple-500 uppercase tracking-widest block mb-2 flex items-center gap-1">
-                                <span className="material-icons-round text-[12px]">receipt_long</span> Cuentas Abiertas
+                                <span className="material-icons-round text-[12px]">table_restaurant</span> Cuentas Abiertas (Mesa)
                             </span>
                             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                                {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).map(order => {
+                                {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.order_type === 'dine-in').map(order => {
                                     const isSelected = activeOrderId === order.id || (order.table_number && tableNumber === order.table_number);
                                     return (
                                         <button 
@@ -2504,268 +2717,29 @@ export default function CashierPage() {
             }
 
             {/* CUSTOMER MODAL (FOR DELIVERY) */}
-            {
-                showCustomerModal && (
-                    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 bg-[#181511]/40 backdrop-blur-md">
-                        <div className="bg-white rounded-[32px] w-full max-w-5xl overflow-hidden shadow-2xl shadow-black/20 animate-in zoom-in-95 duration-300 flex flex-col md:flex-row border border-white/50 relative">
+            <CustomerDeliveryModal
+                isOpen={showCustomerModal}
+                orderType={orderType}
+                customerInfo={customerInfo}
+                setCustomerInfo={setCustomerInfo}
+                customerInsights={customerInsights}
+                availableClients={availableClients}
+                loadingClients={loadingClients}
+                isSearchingCustomer={isSearchingCustomer}
+                handleClientSelect={handleClientSelect}
+                onClose={() => {
+                    setShowCustomerModal(false);
+                    setSearchTerm('');
+                    setFoundCustomers([]);
+                }}
+                onAccept={() => setShowCustomerModal(false)}
+                onClear={() => {
+                    setCustomerInfo({ name: '', phone: '', address: '', street: '', neighborhood: '', reference: '' });
+                    setShowCustomerModal(false);
+                }}
+                onSaveCustomer={handleSaveCustomer}
+            />
 
-                            {/* LEFT SIDE: DATA ENTRY */}
-                            <div className="flex-1 p-6 lg:p-10 z-10 bg-white">
-                                <div className="flex justify-between items-center mb-8">
-                                    <div className="flex items-center gap-4">
-                                        <div className="size-12 group bg-gradient-to-br from-[#f7941d] to-[#ffb800] rounded-2xl flex items-center justify-center shadow-lg shadow-[#f7941d]/30 text-white relative overflow-hidden">
-                                            <div className="absolute inset-0 h-full w-[200%] bg-white/30 origin-top-left -rotate-45 -translate-x-[150%] group-hover:translate-x-[50%] transition-transform duration-700 ease-out"></div>
-                                            <span className="material-icons-round text-[28px] relative z-10">
-                                                {orderType === 'delivery' ? 'local_shipping' : 'shopping_bag'}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <h3 className="text-3xl font-black text-[#181511] tracking-tight leading-none bg-clip-text text-transparent bg-gradient-to-r from-[#181511] to-[#3a332a]">
-                                                {orderType === 'delivery' ? 'Datos para Envío' : 'Datos para Pick Up'}
-                                            </h3>
-                                            <p className="text-[11px] font-bold text-gray-400 mt-1 uppercase tracking-widest">Información del Cliente</p>
-                                        </div>
-                                    </div>
-                                    <button onClick={() => { setShowCustomerModal(false); setSearchTerm(''); setFoundCustomers([]); }} className="size-10 flex items-center justify-center bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-red-50 hover:shadow-inner rounded-full transition-all active:scale-95">
-                                        <span className="material-icons-round text-xl">close</span>
-                                    </button>
-                                </div>
-
-                                {/* LARGE PHONE FIELD - High visibility like the POS image */}
-                                <div className="mb-8 relative group">
-                                    <div className="absolute inset-0 bg-gradient-to-r from-[#f7941d] to-[#ffb800] rounded-[24px] blur-md opacity-20 group-focus-within:opacity-40 transition-opacity duration-500"></div>
-                                    <div className="relative p-1.5 bg-gradient-to-r from-[#f7941d]/10 to-[#ffb800]/10 border-2 border-white/60 rounded-[24px] backdrop-blur-sm group-focus-within:border-[#f7941d]/30 transition-colors">
-                                        <div className="bg-white rounded-[20px] px-6 py-5 flex items-center gap-4 shadow-sm">
-                                            <div className="flex flex-col flex-1">
-                                                <span className="text-[10px] font-black text-[#f7941d] uppercase tracking-widest leading-none mb-2">TELÉFONO DE CONTACTO</span>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex items-center justify-center size-8 rounded-full bg-orange-50 text-[#f7941d]">
-                                                        <span className="material-icons-round text-xl">phone_in_talk</span>
-                                                    </div>
-                                                    <input
-                                                        type="tel"
-                                                        value={customerInfo.phone || ''}
-                                                        onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-                                                        className="bg-transparent border-none p-0 text-3xl font-black text-[#181511] focus:ring-0 outline-none w-full placeholder:text-gray-200 tracking-wider"
-                                                        placeholder="741 000 0000"
-                                                    />
-                                                </div>
-                                            </div>
-                                            {isSearchingCustomer && (
-                                                <div className="animate-spin text-[#f7951d] opacity-80">
-                                                    <span className="material-icons-round text-3xl">sync</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
-                                    {/* CLIENT SELECTION DROPDOWN */}
-                                    <div className="md:col-span-2">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Autocompletar Cliente</label>
-                                        <div className="relative group">
-                                            <select
-                                                onChange={handleClientSelect}
-                                                className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all appearance-none cursor-pointer text-[#181511] hover:bg-gray-100"
-                                                value={availableClients.find(c => c.phone === customerInfo.phone)?.id || ""}
-                                            >
-                                                <option value="" disabled>-- {loadingClients ? 'Buscando incidencias...' : 'Selecciona un perfil guardado'} --</option>
-                                                {availableClients.map((client) => (
-                                                    <option key={`${client.origin}-${client.id}`} value={client.id}>
-                                                        {client.name} {client.phone ? `(${client.phone})` : ''}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 group-hover:text-gray-600 transition-colors">
-                                                <span className="material-icons-round">keyboard_arrow_down</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* NAME */}
-                                    <div className="md:col-span-2">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Nombre del Cliente</label>
-                                        <input
-                                            type="text"
-                                            value={customerInfo.name || ''}
-                                            onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
-                                            className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all placeholder:text-gray-400 hover:bg-gray-100 focus:hover:bg-white"
-                                            placeholder="Nombre completo"
-                                        />
-                                    </div>
-
-                                    {/* STREET */}
-                                    <div className="md:col-span-1">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Calle y Número</label>
-                                        <input
-                                            type="text"
-                                            value={customerInfo.street || ''}
-                                            onChange={(e) => {
-                                                const street = e.target.value;
-                                                setCustomerInfo({
-                                                    ...customerInfo,
-                                                    street,
-                                                    address: `${street}, ${customerInfo.neighborhood || ''}, ${customerInfo.reference || ''}`
-                                                });
-                                            }}
-                                            className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all placeholder:text-gray-400 hover:bg-gray-100 focus:hover:bg-white"
-                                            placeholder="Ej. Av. Juárez #123"
-                                        />
-                                    </div>
-
-                                    {/* NEIGHBORHOOD */}
-                                    <div className="md:col-span-1">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Colonia</label>
-                                        <input
-                                            type="text"
-                                            value={customerInfo.neighborhood || ''}
-                                            onChange={(e) => {
-                                                const neighborhood = e.target.value;
-                                                setCustomerInfo({
-                                                    ...customerInfo,
-                                                    neighborhood,
-                                                    address: `${customerInfo.street || ''}, ${neighborhood}, ${customerInfo.reference || ''}`
-                                                });
-                                            }}
-                                            className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all placeholder:text-gray-400 hover:bg-gray-100 focus:hover:bg-white"
-                                            placeholder="Nombre de la colonia"
-                                        />
-                                    </div>
-
-                                    {/* REFERENCE */}
-                                    <div className="md:col-span-2">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Referencia / Notas</label>
-                                        <textarea
-                                            rows={2}
-                                            value={customerInfo.reference || ''}
-                                            onChange={(e) => {
-                                                const reference = e.target.value;
-                                                setCustomerInfo({
-                                                    ...customerInfo,
-                                                    reference,
-                                                    address: `${customerInfo.street || ''}, ${customerInfo.neighborhood || ''}, ${reference}`
-                                                });
-                                            }}
-                                            className="w-full bg-[#f8f7f5] border-2 border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:bg-white focus:border-[#f7951d] focus:ring-4 focus:ring-[#f7951d]/10 outline-none transition-all placeholder:text-gray-400 hover:bg-gray-100 focus:hover:bg-white resize-none"
-                                            placeholder="Ej. Frente a la tienda El Porvenir. Timbre azul."
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="mt-8 flex gap-4 border-t border-gray-100 pt-8">
-                                    <button
-                                        onClick={() => setShowCustomerModal(false)}
-                                        className="flex-1 overflow-hidden relative group bg-[#181511] text-white py-4 rounded-2xl font-black shadow-xl shadow-black/10 active:scale-95 transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out"></div>
-                                        <span className="material-icons-round text-green-400 relative z-10 group-hover:scale-110 transition-transform duration-300">check_circle</span>
-                                        <span className="relative z-10">ACEPTAR DATOS</span>
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            setCustomerInfo({ name: '', phone: '', address: '', street: '', neighborhood: '', reference: '' });
-                                            setShowCustomerModal(false);
-                                        }}
-                                        className="px-8 bg-red-50 text-red-600 py-4 rounded-2xl font-black hover:bg-red-100 active:scale-95 transition-all flex items-center justify-center gap-2 border border-red-100 shadow-sm"
-                                    >
-                                        <span className="material-icons-round text-lg">delete_outline</span>
-                                        <span>ELIMINAR Y CERRAR</span>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* RIGHT SIDE: ADDITIONAL INFO */}
-                            <div className="w-full md:w-[360px] bg-gradient-to-b from-gray-50/80 to-white border-l border-gray-100/80 flex flex-col p-6 lg:p-10 custom-scrollbar overflow-y-auto relative z-0">
-                                <h4 className="text-[10px] font-black text-gray-400/80 uppercase tracking-widest mb-8 text-center md:text-left flex items-center justify-center md:justify-start gap-2">
-                                    <span className="material-icons-round text-[14px]">psychology</span>
-                                    Historial
-                                </h4>
-
-                                {customerInsights ? (
-                                    <div className="space-y-5 animate-in slide-in-from-right-4 fade-in duration-500">
-                                        <div className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-100 hover:shadow-md transition-shadow group cursor-default">
-                                            <div className="bg-blue-50/80 size-10 rounded-xl mb-4 flex items-center justify-center text-blue-500 group-hover:scale-110 group-hover:bg-blue-500 group-hover:text-white transition-all duration-300">
-                                                <span className="material-icons-round">loyalty</span>
-                                            </div>
-                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-0.5">Cliente desde</p>
-                                            <p className="text-xl font-black text-[#181511] tracking-tight">
-                                                {customerInsights.firstOrderDate ? new Date(customerInsights.firstOrderDate).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '---'}
-                                            </p>
-                                            <div className={`mt-3 text-[10px] font-black uppercase px-2.5 py-1.5 rounded-lg inline-block tracking-widest border ${customerInsights.isFrequent ? 'bg-green-50 text-green-700 border-green-200/50 shadow-sm' : 'bg-gray-50 text-gray-500 border-gray-200/50'}`}>
-                                                {customerInsights.isFrequent ? 'Miembro Frecuente' : 'Nuevo Cliente'}
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-gradient-to-br from-[#201d18] to-[#110e0b] p-6 rounded-[24px] shadow-xl shadow-black/10 text-white flex flex-col gap-1 relative overflow-hidden group">
-                                            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 group-hover:scale-110 transition-all duration-500 pointer-events-none">
-                                                <span className="material-icons-round text-8xl text-orange-400">trending_up</span>
-                                            </div>
-                                            <div className="bg-white/10 size-10 rounded-xl mb-3 flex items-center justify-center backdrop-blur-md border border-white/5 group-hover:bg-[#f7941d] transition-colors duration-300">
-                                                <span className="material-icons-round text-white">payments</span>
-                                            </div>
-                                            <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest z-10">Consumo Histórico</p>
-                                            <p className="text-4xl font-black tracking-tighter z-10 text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-300">${customerInsights.totalSpent.toFixed(2)}</p>
-                                            <div className="flex items-center gap-1.5 mt-2 z-10">
-                                                <div className="bg-[#f7941d] size-1.5 rounded-full animate-pulse"></div>
-                                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{customerInsights.totalOrders} PEDIDOS</p>
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-gradient-to-br from-[#f7941d] to-[#ffb800] p-6 rounded-[24px] shadow-xl shadow-[#f7941d]/20 text-[#181511] flex flex-col gap-1 relative overflow-hidden group cursor-default">
-                                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/30 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-700"></div>
-                                            <div className="bg-[#181511]/10 size-10 rounded-xl mb-3 flex items-center justify-center backdrop-blur-sm group-hover:bg-[#181511] group-hover:text-white transition-all duration-300 border border-black/5">
-                                                <span className="material-icons-round">history</span>
-                                            </div>
-                                            <p className="text-[10px] font-black uppercase text-[#181511]/70 tracking-widest z-10">Última Compra</p>
-                                            <p className="text-xl font-black tracking-tight leading-tight z-10">
-                                                {customerInsights.lastOrderDate ? new Date(customerInsights.lastOrderDate).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '---'}
-                                            </p>
-                                            <p className="text-3xl font-black mt-2 tracking-tighter z-10">${customerInsights.lastOrderAmount.toFixed(2)}</p>
-                                        </div>
-
-                                        {customerInsights.favoriteProducts && customerInsights.favoriteProducts.length > 0 && (
-                                            <div className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                                                <div className="bg-purple-50 size-10 rounded-xl mb-4 flex items-center justify-center text-purple-500">
-                                                    <span className="material-icons-round">star</span>
-                                                </div>
-                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-3 tracking-widest">Productos Preferidos</p>
-                                                <div className="flex flex-col gap-2">
-                                                    {customerInsights.favoriteProducts.map((p, i) => (
-                                                        <div key={i} className="flex items-center gap-3 bg-gray-50/50 p-2.5 rounded-xl">
-                                                            <div className="size-6 shrink-0 rounded-lg bg-white border border-purple-100 flex items-center justify-center shadow-sm">
-                                                                <span className="text-[10px] font-black text-purple-600">{i + 1}</span>
-                                                            </div>
-                                                            <span className="text-xs font-bold text-[#181511] uppercase leading-tight line-clamp-2">{p}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center flex-1 text-center opacity-80 px-4 py-8 relative min-h-[400px]">
-                                        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-64 bg-gradient-to-b from-blue-50/0 via-blue-100/50 to-blue-50/0 pointer-events-none rounded-full blur-2xl scale-150"></div>
-                                        <div className="relative z-10 mb-8 animate-in zoom-in duration-700">
-                                            <div className="absolute inset-0 bg-blue-400 blur-2xl opacity-20 rounded-full animate-pulse"></div>
-                                            <div className="size-28 bg-white shadow-xl shadow-blue-900/5 rounded-[32px] flex items-center justify-center relative border border-gray-100/50 rotate-3">
-                                                <span className="material-icons-round text-6xl text-gray-300">person_search</span>
-                                                <div className="absolute -bottom-2 -right-2 size-10 bg-blue-50 rounded-full border-4 border-white flex items-center justify-center shadow-sm">
-                                                    <span className="material-icons-round text-base text-blue-500">manage_search</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2.5 relative z-10">
-                                            <p className="font-black text-sm uppercase tracking-widest text-[#181511]">Sin Resultados</p>
-                                            <p className="text-xs font-bold leading-relaxed text-gray-400 max-w-[220px] mx-auto">Teclea un número telefónico para explorar métricas, consumo y lealtad.</p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
 
 
 
@@ -2813,7 +2787,22 @@ export default function CashierPage() {
 
 
             {/* Modals */}
-            {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
+            {showNotifications && (
+                <NotificationPanel 
+                    onClose={() => setShowNotifications(false)} 
+                    onAction={(notif) => {
+                        if (notif.orderId) {
+                            setShowOrdersView(true);
+                            setRecentOrdersFilter('Todos');
+                            setSearchQuery(`#${notif.orderId}`);
+                            setShowNotifications(false);
+                            
+                            // Visual feedback
+                            console.log(`🎯 [Nav] Navegando al pedido #${notif.orderId}`);
+                        }
+                    }}
+                />
+            )}
             {showChat && <CashierSupportChat onClose={() => setShowChat(false)} />}
             {showCierreCaja && (
                 <CierreCajaModal
@@ -2828,27 +2817,39 @@ export default function CashierPage() {
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#f8f7f5]"><span className="material-icons-round animate-spin text-4xl text-[#F27405]">progress_activity</span></div>
             )}
 
-            {shiftState === 'too_early' && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#f8f7f5] p-6 text-center backdrop-blur-md">
-                    <div className="max-w-md w-full bg-white rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-300">
-                        <span className="material-icons-round text-6xl text-gray-400 mb-4 block text-center">schedule</span>
-                        <h2 className="text-2xl font-black text-[#181511] mb-2">Aún es temprano</h2>
-                        <p className="text-[#8c785f] font-bold">
-                            El turno de caja se abre a partir de las {systemSettings?.cashier_open_time || '13:00'}.
-                        </p>
-                        <button onClick={handleLogout} className="mt-8 text-xs font-black text-red-500 hover:underline uppercase tracking-widest">Cerrar Sesión</button>
-                    </div>
-                </div>
-            )}
+
 
             {shiftState === 'closed' && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#181511] p-6 text-center backdrop-blur-md">
-                    <div className="max-w-md w-full bg-[#201d18] border border-white/10 rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-300">
-                        <span className="material-icons-round text-6xl text-green-500 mb-4 block text-center">lock_clock</span>
-                        <h2 className="text-2xl font-black text-white mb-2">Turno Cerrado</h2>
-                        <p className="text-gray-400 font-bold mb-6">El turno de hoy ya ha finalizado. No se pueden procesar más órdenes.</p>
-                        <p className="text-xs text-gray-500 font-bold">La caja abrirá de nuevo a las {systemSettings?.cashier_open_time || '13:00'}.</p>
-                        <button onClick={handleLogout} className="mt-8 text-xs font-black text-orange-500 hover:underline uppercase tracking-widest">Desconectarse</button>
+                <div className="fixed inset-0 z-[200] bg-[#181511] flex items-center justify-center p-4">
+                    <div className="max-w-md w-full bg-[#1c1917] rounded-[32px] p-8 border border-white/5 text-center shadow-2xl animate-in zoom-in-95 duration-500">
+                        <div className="size-20 bg-green-500/10 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                            <span className="material-icons-round text-4xl text-green-500">lock_clock</span>
+                        </div>
+                        <h2 className="text-3xl font-black text-white mb-4">Turno Cerrado</h2>
+                        <p className="text-gray-400 font-medium mb-8">
+                            El turno de hoy ya ha finalizado. No se pueden procesar más órdenes.
+                        </p>
+                        
+
+                        
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => router.push('/login')}
+                                className="w-full bg-[#f7951d] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all text-xs uppercase tracking-widest"
+                            >
+                                Desconectarse
+                            </button>
+                            
+                            {/* Emergency Bypass for Admins */}
+                            {isAdmin && (
+                                <button
+                                    onClick={() => setShiftState('open')}
+                                    className="w-full bg-white/5 text-gray-500 font-black py-3 rounded-xl hover:bg-white/10 transition-all text-[10px] uppercase tracking-widest"
+                                >
+                                    Forzar Entrada (Solo Admin)
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -2857,16 +2858,86 @@ export default function CashierPage() {
                 <AperturaCajaModal cashierName={cashierName} onOpen={handleOpenShift} />
             )}
 
-            {shiftState === 'must_close' && !showCierreCaja && (
-                <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-                     <div className="bg-white rounded-3xl p-8 text-center max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-300">
-                         <span className="material-icons-round text-6xl text-red-500 mb-4 block text-center">warning</span>
-                         <h2 className="text-2xl font-black text-[#181511] mb-2">Hora de Cierre</h2>
-                         <p className="text-[#8c785f] mb-6 font-bold">Son más de las {systemSettings?.cashier_close_time || '21:30'}. Por seguridad y para que todo cuadre correctamente, debes cerrar la caja y contar el dinero.</p>
-                         <button onClick={() => setShowCierreCaja(true)} className="w-full bg-[#181511] hover:bg-black text-white py-4 rounded-2xl font-black transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2">
-                            <span className="material-icons-round">receipt_long</span> Proceder al Cierre
-                         </button>
-                     </div>
+
+
+            {/* Urgent New Order Alert Modal (Persistent) */}
+            {pendingNewOrder && (
+                <div className="fixed inset-0 z-[10000] bg-[#181511]/90 backdrop-blur-xl flex items-center justify-center p-4 overflow-hidden animate-in fade-in duration-500">
+                    <div className="max-w-md w-full bg-white rounded-[40px] p-8 shadow-2xl shadow-orange-500/20 text-center relative border border-white/20 animate-in zoom-in-95 duration-500">
+                        
+                        {/* Animated Glow Effect */}
+                        <div className="absolute inset-0 bg-gradient-to-b from-orange-50 to-white rounded-[40px] -z-10"></div>
+                        
+                        <div className="size-24 bg-gradient-to-br from-[#f7941d] to-[#ffb800] rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-orange-200 animate-bounce">
+                            <span className="material-icons-round text-5xl text-white">notification_important</span>
+                        </div>
+                        
+                        <h2 className="text-3xl font-black text-[#181511] mb-2 tracking-tight uppercase">¡NUEVO PEDIDO VIRTUAL!</h2>
+                        <p className="text-[#8c785f] font-bold text-sm uppercase tracking-widest mb-8">Requiere atención inmediata</p>
+                        
+                        <div className="bg-[#f8f7f5] rounded-[24px] p-6 mb-8 border border-gray-100 text-left">
+                            <div className="flex justify-between items-center mb-4">
+                                <span className="bg-orange-100 text-[#f7951d] text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider">
+                                    {pendingNewOrder.order_type === 'delivery' ? '🛵 Domicilio' : '🛍️ Para Llevar'}
+                                </span>
+                                <span className="text-xl font-black text-[#181511]">#{pendingNewOrder.id.toString().slice(-5)}</span>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                <div>
+                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Cliente</p>
+                                    <p className="text-lg font-black text-[#181511] truncate">{pendingNewOrder.customer_name || 'Sin nombre'}</p>
+                                </div>
+                                <div className="flex justify-between items-end pt-2 border-t border-gray-200/50">
+                                    <div>
+                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total del Pedido</p>
+                                        <p className="text-2xl font-black text-[#f7941d] tracking-tighter">${pendingNewOrder.total_amount?.toFixed(2)}</p>
+                                    </div>
+                                    <span className="text-[10px] font-black text-gray-300 uppercase italic">
+                                        {new Date(pendingNewOrder.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="space-y-4 pt-2">
+                            <button
+                                onClick={() => {
+                                    handleAcceptOrder(pendingNewOrder.id);
+                                    stopAlarm();
+                                    setShowOrdersView(true);
+                                    setRecentOrdersFilter('Todos');
+                                    setSearchQuery(pendingNewOrder.id.toString());
+                                    
+                                    // Remove from queue and set next or close
+                                    setAllPendingVirtualOrders(prev => {
+                                        const filtered = prev.filter(o => o.id !== pendingNewOrder.id);
+                                        if (filtered.length > 0) {
+                                            setPendingNewOrder(filtered[0]);
+                                        } else {
+                                            setPendingNewOrder(null);
+                                            stopAlarm();
+                                        }
+                                        return filtered;
+                                    });
+                                }}
+                                className="w-full bg-[#181511] text-white font-black py-5 rounded-[20px] shadow-xl shadow-black/20 active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center gap-3"
+                            >
+                                <span className="material-icons-round">visibility</span>
+                                VER PEDIDO Y ATENDER
+                            </button>
+                            
+                            {allPendingVirtualOrders.length > 1 && (
+                                <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">
+                                    Tienes {allPendingVirtualOrders.length - 1} pedidos más pendientes
+                                </p>
+                            )}
+                            
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest animate-pulse">
+                                LA ALARMA CONTINUARÁ SONANDO HASTA ACEPTAR
+                            </p>
+                        </div>
+                    </div>
                 </div>
             )}
 

@@ -79,6 +79,7 @@ export default function OrdersView() {
             const lowerTerm = searchTerm.toLowerCase();
             result = result.filter(o =>
                 o.id.toString().includes(lowerTerm) ||
+                (o.ticket_number && o.ticket_number.toString().includes(lowerTerm)) ||
                 (o.customer_name && o.customer_name.toLowerCase().includes(lowerTerm)) ||
                 o.total_amount.toString().includes(lowerTerm)
             );
@@ -200,7 +201,7 @@ export default function OrdersView() {
                                     onClick={() => setSelectedOrder(order)}
                                     className="hover:bg-orange-50/30 transition-colors cursor-pointer group"
                                 >
-                                    <td className="px-6 py-5 text-sm font-black text-[#181511]">#{order.id.toString().slice(-4)}</td>
+                                    <td className="px-6 py-5 text-sm font-black text-[#181511]">#{order.ticket_number || order.id.toString().slice(-4)}</td>
                                     <td className="px-6 py-5 text-xs text-[#8c785f] font-medium">{formatDate(order.created_at)}</td>
                                     <td className="px-6 py-5">
                                         <div className="flex flex-col">

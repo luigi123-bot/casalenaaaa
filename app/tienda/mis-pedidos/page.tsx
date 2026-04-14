@@ -85,7 +85,7 @@ export default function MisPedidosPage() {
     };
 
     const getWhatsAppLink = (order: any) => {
-        const message = `Hola Casa Leña, tengo una duda con mi pedido #${order.id}.`;
+        const message = `Hola Casa Leña, tengo una duda con mi pedido #${order.ticket_number || order.id}.`;
         return `https://wa.me/527411075056?text=${encodeURIComponent(message)}`;
     };
 
@@ -167,7 +167,7 @@ export default function MisPedidosPage() {
                                 <div key={order.id} className="bg-white rounded-[2rem] p-6 shadow-sm border border-[#e6e1db] relative overflow-hidden group">
                                     <div className="flex justify-between items-start mb-6">
                                         <div>
-                                            <h3 className="font-black text-lg text-[#181511]">Pedido #{order.id.toString().slice(-6)}</h3>
+                                            <h3 className="font-black text-lg text-[#181511]">Pedido #{order.ticket_number || order.id.toString().slice(-6)}</h3>
                                             <p className="text-xs text-[#8c785f] font-medium">Recibido {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                         </div>
                                         {getStatusBadge(order.status)}

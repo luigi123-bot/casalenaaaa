@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+export const dynamic = 'force-static';
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase with service role for admin access (bypasses RLS)

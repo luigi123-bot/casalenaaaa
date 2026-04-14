@@ -8,15 +8,22 @@ interface AperturaCajaModalProps {
 export default function AperturaCajaModal({ cashierName, onOpen }: AperturaCajaModalProps) {
     const [fondo, setFondo] = useState('');
     const [notas, setNotas] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const fondoNum = parseFloat(fondo);
         if (isNaN(fondoNum) || fondoNum < 0) {
             alert('Por favor ingresa un fondo inicial válido (0 o mayor).');
             return;
         }
-        onOpen({ fondo: fondoNum, notas });
+        setIsLoading(true);
+        try {
+            await onOpen({ fondo: fondoNum, notas });
+        } catch (err) {
+            console.error(err);
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -74,11 +81,20 @@ export default function AperturaCajaModal({ cashierName, onOpen }: AperturaCajaM
 
                     <button
                         type="submit"
-                        disabled={!fondo}
+                        disabled={!fondo || isLoading}
                         className="w-full py-4 bg-[#F27405] hover:bg-orange-600 text-white rounded-2xl font-black text-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-orange-200"
                     >
-                        <span className="material-symbols-outlined">lock_open</span>
-                        Abrir Caja
+                        {isLoading ? (
+                            <>
+                                <span className="material-symbols-outlined animate-spin">progress_activity</span>
+                                Abriendo...
+                            </>
+                        ) : (
+                            <>
+                                <span className="material-symbols-outlined">lock_open</span>
+                                Abrir Caja
+                            </>
+                        )}
                     </button>
                 </form>
             </div>

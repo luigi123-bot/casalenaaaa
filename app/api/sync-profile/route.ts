@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+export const dynamic = 'force-static';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';

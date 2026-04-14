@@ -43,6 +43,9 @@
     ]
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
     "@ducanh2912/next-pwa": "^10.2.9",
     "@supabase/auth-helpers-nextjs": "^0.15.0",
     "@supabase/realtime-js": "^2.93.3",

@@ -202,7 +202,7 @@ export default function Sidebar() {
                                         await signOut();
                                     } catch (error) {
                                         console.error('Error al cerrar sesión:', error);
-                                        window.location.href = '/login';
+                                        window.location.href = '/tienda';
                                     }
                                     setIsMobileMenuOpen(false);
                                 }}

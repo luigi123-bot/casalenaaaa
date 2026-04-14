@@ -164,8 +164,11 @@ const withPWA = require("@ducanh2912/next-pwa").default({
 });
 
 const nextConfig: NextConfig = {
+  output: 'export', // Required for Capacitor
+  trailingSlash: true, // Recommended for Capacitor
   reactStrictMode: true,
   images: {
+    unoptimized: true, // Required for static export
     remotePatterns: [
       {
         protocol: 'https',

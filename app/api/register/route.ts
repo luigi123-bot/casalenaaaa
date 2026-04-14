@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+export const dynamic = 'force-static';
 import { NextResponse } from 'next/server';
 
 // Crear cliente de Supabase con la service role key (solo del lado del servidor)
