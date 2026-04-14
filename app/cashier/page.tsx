@@ -217,6 +217,25 @@ export default function CashierPage() {
     }, []);
 
     useEffect(() => {
+        let isEffectActive = true;
+
+        // ─── VERIFICACIÓN INSTANTÁNEA DE LOCALSTORAGE ───────────────────────────
+        const checkLocalShift = () => {
+            try {
+                const dateStr = new Date().toLocaleDateString('sv-SE');
+                const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
+                if (saved) {
+                    const shift = JSON.parse(saved);
+                    if (shift.openedAt && !shift.closedAt) {
+                        console.log('[Shift] ✅ Turno activo en localStorage — omitiendo pantalla de apertura.');
+                        if (isEffectActive) setShiftState('open');
+                        return true;
+                    }
+                }
+            } catch (e) {}
+            return false;
+        };
+
         const evaluateShift = async () => {
             try {
                 const startOfDay = new Date();
@@ -226,53 +245,82 @@ export default function CashierPage() {
 
                 // 1. DETERMINAR ROL Y NOMBRE
                 const { data: { user } } = await supabase.auth.getUser();
+                if (!isEffectActive) return; // componente desmontado, abortar silenciosamente
                 if (!user) {
                     setShiftState('closed');
                     return;
                 }
+
                 const { data: profile } = await supabase.from('profiles').select('role, full_name').eq('id', user.id).single();
+                if (!isEffectActive) return;
+
                 const isAdminUser = profile?.role === 'administrador' || profile?.role === 'admin';
                 setIsAdmin(isAdminUser);
                 if (profile?.full_name) setCashierName(profile.full_name);
 
+                // PRIORIDAD ADMIN
+                if (isAdminUser) {
+                    if (isEffectActive) setShiftState('open');
+                    return;
+                }
+
                 // 2. BUSCAR SESIÓN ACTIVA EN DB
-                const { data: activeSessions } = await supabase
+                const { data: activeSessions, error: sessionError } = await supabase
                     .from('cashier_sessions')
-                    .select('*')
+                    .select('id')
                     .eq('status', 'open')
                     .gte('opened_at', startOfDay.toISOString())
                     .lte('opened_at', endOfDay.toISOString())
                     .limit(1);
 
-                const hasActiveDbSession = activeSessions && activeSessions.length > 0;
+                if (!isEffectActive) return;
 
-                // 3. PRIORIDAD ADMIN
-                if (isAdminUser) {
-                    setShiftState('open');
+                if (sessionError) {
+                    console.warn('[Shift] ⚠️ Error consultando sesiones, conservando estado:', sessionError.message);
                     return;
                 }
 
-                // 4. DETERMINAR ESTADO BASADO SOLO EN SESIÓN ACTIVA
+                const hasActiveDbSession = activeSessions && activeSessions.length > 0;
+
                 if (hasActiveDbSession) {
                     setShiftState('open');
                 } else {
-                    setShiftState('must_open');
+                    setShiftState(prev => {
+                        if (prev !== 'checking') return prev;
+                        const locallyOpen = checkLocalShift();
+                        return locallyOpen ? 'open' : 'must_open';
+                    });
                 }
-            } catch (err) {
-                console.error("Error evaluating shift:", err);
-                // Fallback safe state
+            } catch (err: any) {
+                // Ignorar silenciosamente errores de abort (desmonte del componente / StrictMode)
+                if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('signal')) {
+                    return;
+                }
+                if (!isEffectActive) return;
+                console.error('[Shift] ❌ Error evaluando turno:', err);
                 setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
             }
         };
 
-        // SAFETY FALLBACK: if evaluateShift takes too long, force a state
-        const safetyId = setTimeout(() => {
-            setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
-        }, 6000);
+        // PASO 1 — Revisión instantánea de localStorage (sin red)
+        const alreadyOpen = checkLocalShift();
 
-        evaluateShift().finally(() => clearTimeout(safetyId));
+        // PASO 2 — Safety fallback: si en 8s no resolvió y no hay localStorage
+        const safetyId = setTimeout(() => {
+            if (isEffectActive) setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
+        }, 8000);
+
+        // PASO 3 — Verificación con Supabase en background
+        if (!alreadyOpen) {
+            evaluateShift().finally(() => clearTimeout(safetyId));
+        } else {
+            clearTimeout(safetyId);
+            evaluateShift().catch(() => {}); // background — errores silenciosos
+        }
+
         const interval = setInterval(evaluateShift, 30000);
         return () => {
+            isEffectActive = false;
             clearInterval(interval);
             clearTimeout(safetyId);
         };
