@@ -52,10 +52,23 @@ export async function GET(request: Request) {
             }
         });
 
+        // Fetch delivery drivers to map their role properly in the UI
+        const { data: drivers } = await supabaseAdmin
+            .from('delivery_drivers')
+            .select('id');
+            
+        const driverIds = new Set((drivers || []).map(d => d.id));
+
         // Sort by creation date
         unifiedUsers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-        return NextResponse.json(unifiedUsers);
+        // Override role to 'repartidor' if they exist in delivery_drivers
+        const finalUsers = unifiedUsers.map(u => ({
+            ...u,
+            role: driverIds.has(u.id) ? 'repartidor' : u.role
+        }));
+
+        return NextResponse.json(finalUsers);
     } catch (error: any) {
         console.error('Get users error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -74,7 +87,7 @@ export async function PUT(request: Request) {
 
         // 1. Update Profile (Role & Full Name)
         const profileUpdates: any = {
-            role,
+            role: role === 'repartidor' ? 'cliente' : role,
             full_name: fullName,
         };
 
@@ -95,7 +108,7 @@ export async function PUT(request: Request) {
         try {
             const { error: usuariosError } = await supabaseAdmin
                 .from('usuarios')
-                .update({ role: role, full_name: fullName })
+                .update({ role: role === 'repartidor' ? 'cliente' : role, full_name: fullName })
                 .eq('id', id);
 
             if (usuariosError) {
@@ -105,6 +118,26 @@ export async function PUT(request: Request) {
             }
         } catch (e) {
             console.log('⚠️ [API Update User] Usuarios table might not exist or other error', e);
+        }
+
+        // Si el rol nuevo es repartidor, asegúrate de que exista en delivery_drivers
+        if (role === 'repartidor') {
+            try {
+                const { error: driverError } = await supabaseAdmin
+                    .from('delivery_drivers')
+                    .upsert({
+                        id: id,
+                        full_name: fullName,
+                        vehicle_type: 'moto',
+                        status: 'disponible',
+                        is_active: isActive !== false
+                    }, { onConflict: 'id' });
+                if (driverError) {
+                    console.warn('⚠️ [API Update User] Could not sync delivery_drivers', driverError);
+                }
+            } catch (e) {
+                console.error('Error syncing delivery_drivers', e);
+            }
         }
 
         // 2. Update Auth User (email, password, metadata)

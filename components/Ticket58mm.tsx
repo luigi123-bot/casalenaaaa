@@ -31,6 +31,7 @@ export interface TicketData {
         precio: number;
         detalle?: string;
         extras?: string[]; // Array of extra names like ["Extra Queso", "Orilla Rellena"]
+        note?: string; 
     }>;
 }
 
@@ -154,6 +155,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                                 <div className="text-left flex flex-col leading-tight pr-1">
                                     <span className="uppercase font-black text-[9px]">{prod.nombre}</span>
                                     {showDetail && <span className="text-[7.5px] italic text-gray-600">{prod.detalle}</span>}
+                                    {prod.note && <span className="text-[7.5px] font-black text-[#181511] italic bg-gray-100/50 px-1 rounded-sm mt-0.5">Nota: {prod.note}</span>}
                                     {prod.extras && prod.extras.map((ex, i) => (
                                         <span key={i} className="text-[7.5px] font-normal italic text-gray-500 tracking-tight">
                                             + {ex === 'half_and_half' ? 'Mitad y Mitad' : ex}

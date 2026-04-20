@@ -50,6 +50,7 @@ interface CartItem extends Product {
     quantity: number;
     selectedSize?: string;
     extras?: string[]; // Array of extra IDs
+    note?: string; // Special instructions / customization note
     isHalfAndHalf?: boolean;
     secondHalfVariant?: {
         id: number;
@@ -78,6 +79,7 @@ export default function CashierPage() {
     const [selectedGroupedProduct, setSelectedGroupedProduct] = useState<GroupedProduct | null>(null);
     const [currentSize, setCurrentSize] = useState<string>('');
     const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
+    const [itemNote, setItemNote] = useState<string>('');
     const [isHalfAndHalf, setIsHalfAndHalf] = useState(false);
     const [secondHalf, setSecondHalf] = useState<GroupedProduct | null>(null);
 
@@ -420,7 +422,7 @@ export default function CashierPage() {
                     .from('orders')
                     .select('*, order_items(*)')
                     .eq('status', 'pendiente')
-                    .or('order_source.eq.web,order_type.in.(delivery,takeout)')
+                    .in('order_type', ['delivery', 'takeout'])
                     .order('created_at', { ascending: true });
 
                 if (error) throw error;
@@ -555,7 +557,15 @@ export default function CashierPage() {
                                 price: item.unit_price,
                                 quantity: item.quantity,
                                 selectedSize: item.selected_size,
-                                extras: item.extras || [],
+                                extras: (function() {
+                                    if (!item.extras) return [];
+                                    if (typeof item.extras === 'string') {
+                                        try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                    }
+                                    if (Array.isArray(item.extras)) return item.extras;
+                                    return [];
+                                })(),
+                                note: item.notes || '',
                                 cartItemId: Math.random().toString(36).substr(2, 9)
                             }));
                             setCart(loadedCart);
@@ -601,7 +611,7 @@ export default function CashierPage() {
 
             let customersData: any[] = [];
             let profilesData: any[] = [];
-            let usuariosData: any[] = [];
+            const usuariosData: any[] = [];
 
             // 3. Procesar resultados de forma segura
             if (customersRes.status === 'fulfilled' && !customersRes.value.error) {
@@ -1057,6 +1067,7 @@ export default function CashierPage() {
             setEditingCartItemId(editItem.cartItemId);
             setCurrentSize(editItem.selectedSize || (group.variants.length > 0 ? group.variants[0].size : ''));
             setSelectedExtras(editItem.extras || []);
+            setItemNote(editItem.note || '');
             setIsHalfAndHalf(editItem.isHalfAndHalf || false);
 
             if (editItem.isHalfAndHalf && editItem.secondHalfVariant) {
@@ -1070,6 +1081,7 @@ export default function CashierPage() {
             setIsHalfAndHalf(false);
             setSecondHalf(null);
             setSelectedExtras([]);
+            setItemNote('');
             // Default to first variant size
             if (group.variants.length > 0) {
                 setCurrentSize(group.variants[0].size);
@@ -1121,6 +1133,7 @@ export default function CashierPage() {
                         price: finalPrice + extrasCost,
                         selectedSize: currentSize,
                         extras: [...selectedExtras],
+                        note: itemNote.trim() || undefined,
                         isHalfAndHalf: isHalfAndHalf,
                         secondHalfVariant: secondHalfData
                     };
@@ -1137,6 +1150,7 @@ export default function CashierPage() {
                 quantity: 1,
                 selectedSize: currentSize,
                 extras: [...selectedExtras],
+                note: itemNote.trim() || undefined,
                 isHalfAndHalf: isHalfAndHalf,
                 secondHalfVariant: secondHalfData
             };
@@ -1149,6 +1163,7 @@ export default function CashierPage() {
         setEditingCartItemId(null); // Added this
         setCurrentSize('');
         setSelectedExtras([]);
+        setItemNote('');
         setIsHalfAndHalf(false);
         setSecondHalf(null);
     };
@@ -1212,7 +1227,8 @@ export default function CashierPage() {
                     nombre: it.name,
                     precio: it.price,
                     detalle: it.selectedSize || '',
-                    extras: extrasNames.length > 0 ? extrasNames : undefined
+                    extras: extrasNames.length > 0 ? extrasNames : undefined,
+                    note: it.note
                 };
             }),
             cliente: (orderData.order_type === 'delivery' || orderData.order_type === 'takeout') ? {
@@ -1226,7 +1242,7 @@ export default function CashierPage() {
         setShowTicketModal(true);
     };
 
-    const handlePlaceOrder = async (isFinalPayment: boolean = true) => {
+    const handlePlaceOrder = async (isFinalPayment: boolean = true, overridePaymentMethod?: string, skipPrinting: boolean = false) => {
         if (orderType === 'dine-in' && !tableNumber.trim()) {
             alert('⚠️ POR FAVOR INGRESA EL NÚMERO DE MESA.');
             return;
@@ -1268,7 +1284,7 @@ export default function CashierPage() {
                 total_amount: cartTotals.total,
                 tax_amount: cartTotals.tax,
                 order_type: orderType,
-                payment_method: paymentMethod.toLowerCase().trim(),
+                payment_method: (overridePaymentMethod || paymentMethod).toLowerCase().trim(),
                 customer_name: orderType === 'delivery' ? customerInfo.name : (orderType === 'takeout' ? customerInfo.name : null),
                 phone_number: orderType === 'delivery' ? customerInfo.phone : (orderType === 'takeout' ? customerInfo.phone : null),
                 delivery_address: orderType === 'delivery' ? customerInfo.address : null,
@@ -1302,7 +1318,8 @@ export default function CashierPage() {
                     unit_price: item.price,
                     total_price: item.price * item.quantity,
                     selected_size: item.selectedSize,
-                    extras: extrasData.length > 0 ? extrasData : null
+                    extras: extrasData.length > 0 ? extrasData : null,
+                    notes: item.note || null
                 };
             });
 
@@ -1373,10 +1390,12 @@ export default function CashierPage() {
                 }
 
                 // Generar Ticket (Pre-cuenta o Final)
-                try {
-                    handleOpenTicketModal({ ...createdOrder, is_pre_ticket: !isFinalPayment }, cart);
-                } catch (printErr) {
-                    console.error('⚠️ [Cashier] Error abriendo modal de ticket:', printErr);
+                if (!skipPrinting) {
+                    try {
+                        handleOpenTicketModal({ ...createdOrder, is_pre_ticket: !isFinalPayment }, cart);
+                    } catch (printErr) {
+                        console.error('⚠️ [Cashier] Error abriendo modal de ticket:', printErr);
+                    }
                 }
 
                 // SIEMPRE LIMPIAMOS TODO (Incluso en Solo Guardar) para liberar la máquina
@@ -1521,7 +1540,8 @@ export default function CashierPage() {
                         quantity,
                         unit_price,
                         selected_size,
-                        extras
+                        extras,
+                        notes
                     )
                 `)
                 .in('status', ['pendiente', 'preparando', 'listo'])
@@ -1545,7 +1565,8 @@ export default function CashierPage() {
                         quantity,
                         unit_price,
                         selected_size,
-                        extras
+                        extras,
+                        notes
                     )
                 `)
                 .or('order_type.neq.dine-in,status.in.(entregado,cancelado,confirmado)')
@@ -1584,10 +1605,7 @@ export default function CashierPage() {
                 .upsert({
                     phone: info.phone.trim(),
                     full_name: info.name,
-                    address: info.address || '',
-                    street: info.street || '',
-                    neighborhood: info.neighborhood || '',
-                    reference: info.reference || '',
+                    address: info.address || [info.street, info.neighborhood, info.reference].filter(Boolean).join(', ') || '',
                 }, { onConflict: 'phone' });
 
             if (error) throw error;
@@ -1606,6 +1624,26 @@ export default function CashierPage() {
             console.error('Error saving customer:', err);
             alert('Error al guardar cliente: ' + err.message);
         }
+    };
+
+    const handleWhatsAppShare = (order: any, items: any[]) => {
+        const phone = '527411011595'; // Using the restaurant phone provided
+        let message = `*🍕 Casaleña - Pedido #${order.ticket_number || order.id.toString().slice(-5)}*\n\n`;
+        message += `*Cliente:* ${order.customer_name || (order.table_number ? 'Mesa ' + order.table_number : 'Venta Rápida')}\n`;
+        message += `*Estado:* ${order.status?.toUpperCase()}\n`;
+        message += `*Tipo:* ${order.order_type === 'delivery' ? '🏠 Domicilio' : order.order_type === 'takeout' ? '🛍️ Para llevar' : '🍽️ En mesa'}\n`;
+        
+        message += `\n*📦 Detalle del Pedido:*\n`;
+        items.forEach(item => {
+            message += `• *${item.quantity}x ${item.product_name}* (${item.selected_size}) - $${(item.unit_price * item.quantity).toFixed(2)}\n`;
+            if (item.notes) message += `   _Nota: ${item.notes}_\n`;
+        });
+        
+        message += `\n*💰 TOTAL A PAGAR: $${order.total_amount.toFixed(2)}*\n`;
+        message += `\n¡Gracias por tu preferencia! 🔥\n_Casaleña Artisan Pizza_`;
+        
+        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
     };
 
     return (
@@ -1784,7 +1822,7 @@ export default function CashierPage() {
                                                             </span>
                                                         </div>
                                                         <p className="text-xl font-black text-[#181511] tracking-tight">
-                                                            {order.customer_name || (order.table_number ? `Mesa #${order.table_number}` : 'Venta Rápida')}
+                                                            {order.customer_name || (order.table_number ? `Mesa #${order.table_number}` : `Ticket #${order.ticket_number || order.id.toString().slice(-5)}`)}
                                                         </p>
                                                         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
                                                             {new Date(order.created_at).toLocaleTimeString()} • {order.order_type === 'delivery' ? 'Domicilio' : 'Local'}
@@ -1818,7 +1856,15 @@ export default function CashierPage() {
                                                                         price: item.unit_price,
                                                                         quantity: item.quantity,
                                                                         selectedSize: item.selected_size,
-                                                                        extras: item.extras || [],
+                                                                        extras: (function() {
+                                                                            if (!item.extras) return [];
+                                                                            if (typeof item.extras === 'string') {
+                                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                            }
+                                                                            if (Array.isArray(item.extras)) return item.extras;
+                                                                            return [];
+                                                                        })(),
+                                                                        note: item.notes || '',
                                                                         cartItemId: Math.random().toString(36).substr(2, 9)
                                                                     }));
                                                                     setCart(loadedCart);
@@ -1840,7 +1886,15 @@ export default function CashierPage() {
                                                                         price: item.unit_price,
                                                                         quantity: item.quantity,
                                                                         selectedSize: item.selected_size,
-                                                                        extras: item.extras || [],
+                                                                        extras: (function() {
+                                                                            if (!item.extras) return [];
+                                                                            if (typeof item.extras === 'string') {
+                                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                            }
+                                                                            if (Array.isArray(item.extras)) return item.extras;
+                                                                            return [];
+                                                                        })(),
+                                                                        note: item.notes || '',
                                                                         cartItemId: Math.random().toString(36).substr(2, 9)
                                                                     }));
                                                                     setCart(loadedCart);
@@ -1853,6 +1907,24 @@ export default function CashierPage() {
                                                             </button>
                                                         </>
                                                     )}
+                                                    <button 
+                                                        onClick={() => {
+                                                            const mappedItems = (order.order_items || []).map((it: any) => ({
+                                                                quantity: it.quantity || 0,
+                                                                name: it.product_name || '',
+                                                                price: it.unit_price || 0,
+                                                                product_name: it.product_name,
+                                                                unit_price: it.unit_price,
+                                                                selected_size: it.selected_size,
+                                                                notes: it.notes
+                                                            }));
+                                                            handleWhatsAppShare(order, mappedItems);
+                                                        }}
+                                                        className="size-12 shrink-0 bg-green-500 text-white rounded-2xl flex items-center justify-center hover:bg-green-600 transition-colors shadow-lg active:scale-95"
+                                                        title="WhatsApp"
+                                                    >
+                                                        <span className="material-icons-round">whatsapp</span>
+                                                    </button>
                                                     <button 
                                                         onClick={() => {
                                                             const mappedItems = (order.order_items || []).map((it: any) => ({
@@ -1887,15 +1959,26 @@ export default function CashierPage() {
                             {/* Categories Selection - Full Width Grid at the top to avoid scroll */}
                             <div className="mb-3 shrink-0">
                                 <div className="grid grid-cols-5 sm:grid-cols-8 lg:grid-cols-10 gap-1 lg:gap-1.5">
-                                    {categories.map((cat) => {
+                                    {[...categories].sort((a, b) => {
+                                        const getPriority = (name: string) => {
+                                            const n = name.toUpperCase();
+                                            if (n.includes('TRADICIONAL')) return 1;
+                                            if (n.includes('ESPECIALIDAD')) return 2;
+                                            if (n.includes('GOURMET')) return 3;
+                                            if (n.includes('ORILLA')) return 4;
+                                            if (n.includes('COMBO')) return 5;
+                                            return 10;
+                                        };
+                                        return getPriority(a.name) - getPriority(b.name);
+                                    }).map((cat) => {
                                         // User requested cleaner names
                                         const displayNames: Record<string, string> = {
                                             'PIZZAS TRADICIONALES': 'Tradicionales',
                                             'ESPECIALIDADES CASALEÑA': 'Especialidades',
                                             'ESPECIALIDADES': 'Especialidades',
                                             'GOURMET': 'Gourmet',
-                                            'ORILLA DE QUESO (EXTRA)': 'Orilla Queso',
-                                            'ORILLAFRESCA': 'Orilla',
+                                            'ORILLA DE QUESO (EXTRA)': 'ORILLA RELLENA',
+                                            'ORILLAFRESCA': 'ORILLA RELLENA',
                                             'ENTRADAS Y SNACKS': 'Snacks',
                                             'HAMBURGUESAS': 'Hamburguesas',
                                             'BEBIDAS': 'Bebidas',
@@ -1995,7 +2078,40 @@ export default function CashierPage() {
 
                                                         {/* Grid with 8 columns on large screens */}
                                                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 2xl:grid-cols-8 gap-2">
-                                                            {categoryProducts.map((group) => (
+                                                            {categoryProducts.sort((a, b) => {
+                                                                const mapToOrder = (name: string, catName: string) => {
+                                                                    const n = name.toLowerCase();
+                                                                    const cn = catName.toUpperCase();
+
+                                                                    if (cn.includes('BEBIDA')) {
+                                                                        const order = [
+                                                                            'refrescos 600', 'coca-cola de lata', 'coca-cola 2 l', 'refrescos de sabor 2 l',
+                                                                            'jugo del valle', 'piña colada', 'fresa', 'chocolate', 'limonada mineral',
+                                                                            'jarra de limonada', 'copa de clericot', 'jarra de clericot', 'soda italiana',
+                                                                            'agua natural', 'capuccino'
+                                                                        ];
+                                                                        const idx = order.findIndex(p => n.includes(p));
+                                                                        return idx !== -1 ? idx : 100;
+                                                                    }
+
+                                                                    if (cn.includes('ESPECIALIDAD')) {
+                                                                        const order = [
+                                                                            'hawaiana especial', 'casaleña', 'mexicana', 'carnívora',
+                                                                            'diabla', 'italiana', 'caprichosa'
+                                                                        ];
+                                                                        const idx = order.findIndex(p => n.includes(p));
+                                                                        return idx !== -1 ? idx : 100;
+                                                                    }
+
+                                                                    return 100;
+                                                                };
+
+                                                                const orderA = mapToOrder(a.name, category.name);
+                                                                const orderB = mapToOrder(b.name, category.name);
+
+                                                                if (orderA !== orderB) return orderA - orderB;
+                                                                return a.name.localeCompare(b.name);
+                                                            }).map((group) => (
                                                                 <div
                                                                     key={group.name}
                                                                     onClick={() => openProductCustomizer(group)}
@@ -2004,9 +2120,13 @@ export default function CashierPage() {
                                                                     {/* Compact Image */}
                                                                     <div className="relative w-full aspect-square bg-[#F2F2F7] rounded-lg mb-1.5 overflow-hidden">
                                                                         <img
-                                                                            src="/icon.png"
-                                                                            className="w-full h-full object-contain p-1.5 group-hover:scale-105 transition-transform duration-300"
+                                                                            src={group.imagen_url || "/icon.png"}
+                                                                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                                                                             alt={group.name}
+                                                                            onError={(e) => {
+                                                                                (e.target as HTMLImageElement).src = "/icon.png";
+                                                                                (e.target as HTMLImageElement).className = "w-full h-full object-contain p-2";
+                                                                            }}
                                                                         />
                                                                         <div className="absolute bottom-1 right-1 bg-white/95 px-1 py-0.5 rounded text-[10px] font-black shadow-sm text-[#181511]">
                                                                             ${group.basePrice}
@@ -2015,9 +2135,12 @@ export default function CashierPage() {
 
                                                                     {/* Compact Content */}
                                                                     <div className="flex flex-col gap-0.5">
-                                                                        <h3 className="font-bold text-[10px] text-[#1D1D1F] leading-tight line-clamp-2 h-7">
+                                                                        <h3 className="font-bold text-[10px] lg:text-[11px] text-[#1D1D1F] leading-tight line-clamp-1">
                                                                             {group.name}
                                                                         </h3>
+                                                                        <p className="text-[8px] text-[#8c785f] font-medium line-clamp-1 mb-0.5">
+                                                                            {group.description || 'Pizza artesanal preparada al momento'}
+                                                                        </p>
                                                                         {group.variants.length > 1 && (
                                                                             <div className="flex items-center gap-1 text-[#f7951d]">
                                                                                 <span className="material-icons-round text-[10px]">expand_more</span>
@@ -2146,7 +2269,7 @@ export default function CashierPage() {
                                             <span className="material-icons-round text-[14px]">
                                                 {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
                                             </span>
-                                            {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || 'Llevar')}
+                                            {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || `LLEVAR #${order.ticket_number}`)}
                                         </button>
                                     );
                                 })}
@@ -2205,22 +2328,46 @@ export default function CashierPage() {
                     )}
 
                     {orderType === 'delivery' && (
-                        <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 animate-in fade-in slide-in-from-top-2">
-                            <div className="flex justify-between items-center mb-2">
-                                <span className="text-[10px] font-black text-[#f7951d] uppercase">Datos de Entrega</span>
-                                <button onClick={() => setShowCustomerModal(true)} className="text-[10px] font-black text-[#181511] hover:underline underline-offset-2">
-                                    {customerInfo.name ? 'EDITAR' : 'AGREGAR+'}
+                        <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 animate-in fade-in slide-in-from-top-2 mb-4">
+                            <div className="flex justify-between items-center mb-3">
+                                <span className="text-[10px] font-black text-[#f7951d] uppercase tracking-widest">Datos de Entrega (Domicilio)</span>
+                                <button onClick={() => setShowCustomerModal(true)} className="flex items-center gap-1 group">
+                                    <span className="material-icons-round text-xs text-[#f7951d] group-hover:scale-110 transition-transform">search</span>
+                                    <span className="text-[10px] font-black text-[#181511] uppercase tracking-widest hover:underline underline-offset-2">Buscar Cliente</span>
                                 </button>
                             </div>
-                            {customerInfo.name ? (
-                                <div className="space-y-1">
-                                    <p className="text-sm font-bold truncate">{customerInfo.name}</p>
-                                    <p className="text-[10px] text-[#8c785f] font-medium">{customerInfo.phone}</p>
-                                    <p className="text-[10px] text-[#8c785f] font-medium line-clamp-1 italic">{customerInfo.address}</p>
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-gray-100">
+                                    <span className="material-icons-round text-sm text-gray-300">person</span>
+                                    <input
+                                        type="text"
+                                        placeholder="Nombre del cliente"
+                                        value={customerInfo.name || ''}
+                                        onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
+                                        className="w-full text-xs font-black text-[#181511] outline-none placeholder:text-gray-200"
+                                    />
                                 </div>
-                            ) : (
-                                <p className="text-[10px] text-[#f7951d]/60 font-medium italic">Sin datos de cliente asignados</p>
-                            )}
+                                <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-gray-100">
+                                    <span className="material-icons-round text-sm text-gray-300">phone</span>
+                                    <input
+                                        type="tel"
+                                        placeholder="Teléfono"
+                                        value={customerInfo.phone || ''}
+                                        onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                                        className="w-full text-xs font-black text-[#181511] outline-none placeholder:text-gray-200"
+                                    />
+                                </div>
+                                <div className="flex items-start gap-2 bg-white rounded-lg px-3 py-2 border border-gray-100">
+                                    <span className="material-icons-round text-sm text-gray-300 mt-0.5">location_on</span>
+                                    <textarea
+                                        placeholder="Dirección Completa (Calle, #, Colonia, Ref)"
+                                        value={customerInfo.address || ''}
+                                        onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
+                                        rows={2}
+                                        className="w-full text-xs font-black text-[#181511] outline-none placeholder:text-gray-200 resize-none"
+                                    />
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -2240,6 +2387,11 @@ export default function CashierPage() {
                                     <p className="text-[10px] text-[#8c785f] font-bold uppercase tracking-tighter">
                                         {item.selectedSize} {item.extras && item.extras.length > 0 ? `+ ${item.extras.length} extras` : ''}
                                     </p>
+                                    {item.note && (
+                                        <p className="text-[10px] text-amber-600 font-bold italic mt-0.5 truncate" title={item.note}>
+                                            📝 {item.note}
+                                        </p>
+                                    )}
                                     <div className="flex gap-3 mt-1">
                                         <button onClick={() => updateQuantity(item.cartItemId, -1)} className="text-[10px] font-black text-red-500 hover:underline">QUITAR</button>
                                         <button onClick={() => updateQuantity(item.cartItemId, 1)} className="text-[10px] font-black text-green-600 hover:underline">AÑADIR</button>
@@ -2281,15 +2433,42 @@ export default function CashierPage() {
                     </button>
 
                     <div className="flex justify-between items-end">
-                        <span className="text-[#8c785f] font-bold text-sm">TOTAL A PAGAR</span>
+                        <span className="text-[#8c785f] font-bold text-sm uppercase tracking-tighter">Total a Pagar</span>
                         <span className="text-3xl font-black text-[#f7951d] tracking-tighter">${cartTotals.total.toFixed(2)}</span>
                     </div>
-                    <div className="flex gap-2">
-                        <button onClick={clearCart} className="w-1/4 flex-none bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-500 font-black py-4 rounded-xl shadow-sm transition-all text-xs flex items-center justify-center" title="Nueva Orden (Limpiar)">
-                            <span className="material-icons-round">delete_sweep</span>
-                        </button>
-                        <button onClick={() => setShowPaymentModal(true)} disabled={cart.length === 0} className="flex-1 bg-[#181511] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all disabled:opacity-50">PROCESAR PAGO</button>
-                    </div>
+
+                    {orderType === 'dine-in' ? (
+                        <div className="flex gap-2">
+                            <button onClick={clearCart} className="w-1/4 flex-none bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-500 font-black py-4 rounded-xl shadow-sm transition-all text-xs flex items-center justify-center" title="Nueva Orden (Limpiar)">
+                                <span className="material-icons-round">delete_sweep</span>
+                            </button>
+                            <button onClick={() => setShowPaymentModal(true)} disabled={cart.length === 0} className="flex-1 bg-[#181511] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all disabled:opacity-50">PROCESAR PAGO</button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex gap-2">
+                                <button onClick={clearCart} className="w-1/4 flex-none bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-500 font-black py-3 rounded-xl shadow-sm transition-all text-xs flex items-center justify-center" title="Nueva Orden (Limpiar)">
+                                    <span className="material-icons-round">delete_sweep</span>
+                                </button>
+                                <button 
+                                    onClick={() => handlePlaceOrder(false, 'efectivo')} 
+                                    disabled={cart.length === 0 || loading || (orderType === 'delivery' && !customerInfo.name)} 
+                                    className="flex-1 bg-[#181511] text-white font-black py-3 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
+                                >
+                                    <span className="material-icons-round text-sm">print</span>
+                                    {loading ? 'Procesando...' : 'Imprimir Ticket'}
+                                </button>
+                            </div>
+                            <button 
+                                onClick={() => handlePlaceOrder(true, 'transferencia')} 
+                                disabled={cart.length === 0 || loading || (orderType === 'delivery' && !customerInfo.name)} 
+                                className="w-full bg-blue-600 text-white font-black py-3 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
+                            >
+                                <span className="material-icons-round text-sm">account_balance</span>
+                                {loading ? 'Procesando...' : 'Pago con Transferencia'}
+                            </button>
+                        </div>
+                    )}
                 </div>
             </aside>
 
@@ -2343,7 +2522,7 @@ export default function CashierPage() {
                                                 </div>
                                                 <div>
                                                     <p className="font-black text-[#181511]">
-                                                        {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || 'Llevar')}
+                                                        {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || `PARA LLEVAR #${order.ticket_number}`)}
                                                     </p>
                                                     <p className="text-[10px] text-gray-400 font-bold uppercase">
                                                         {new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · #{order.id.toString().slice(-5)}
@@ -2386,7 +2565,15 @@ export default function CashierPage() {
                                                             price: item.unit_price,
                                                             quantity: item.quantity,
                                                             selectedSize: item.selected_size,
-                                                            extras: item.extras || [],
+                                                            extras: (function() {
+                                                                if (!item.extras) return [];
+                                                                if (typeof item.extras === 'string') {
+                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                }
+                                                                if (Array.isArray(item.extras)) return item.extras;
+                                                                return [];
+                                                            })(),
+                                                            note: item.notes || '',
                                                             cartItemId: Math.random().toString(36).substr(2, 9)
                                                         }));
                                                         setCart(loadedCart);
@@ -2414,7 +2601,15 @@ export default function CashierPage() {
                                                         price: item.unit_price,
                                                         quantity: item.quantity,
                                                         selectedSize: item.selected_size,
-                                                        extras: item.extras || [],
+                                                        extras: (function() {
+                                                            if (!item.extras) return [];
+                                                            if (typeof item.extras === 'string') {
+                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                            }
+                                                            if (Array.isArray(item.extras)) return item.extras;
+                                                            return [];
+                                                        })(),
+                                                        note: item.notes || '',
                                                         cartItemId: Math.random().toString(36).substr(2, 9)
                                                     }));
                                                     setCart(loadedCart);
@@ -2627,6 +2822,34 @@ export default function CashierPage() {
                                             })}
                                         </div>
                                     </div>
+
+                                    {/* Special Instructions Note */}
+                                    <div>
+                                        <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-2">
+                                            <span className="size-2 bg-amber-400 rounded-full"></span> Nota / Instrucciones Especiales
+                                        </h4>
+                                        <div className="relative">
+                                            <textarea
+                                                value={itemNote}
+                                                onChange={(e) => setItemNote(e.target.value)}
+                                                placeholder="Ej: sin champiñón, poco chile, orilla de gouda, quitar aceituna..."
+                                                maxLength={120}
+                                                rows={2}
+                                                className="w-full bg-amber-50 border-2 border-amber-100 rounded-xl px-4 py-3 text-sm font-medium text-[#181511] placeholder-amber-300 focus:border-amber-400 outline-none resize-none transition-all"
+                                            />
+                                            {itemNote.length > 0 && (
+                                                <span className="absolute bottom-2 right-3 text-[9px] font-bold text-amber-400">{itemNote.length}/120</span>
+                                            )}
+                                        </div>
+                                        {itemNote.length > 0 && (
+                                            <button
+                                                onClick={() => setItemNote('')}
+                                                className="mt-1 text-[10px] font-bold text-amber-500 hover:text-red-500 transition-colors"
+                                            >
+                                                ✕ Borrar nota
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Footer Actions */}
@@ -2638,7 +2861,7 @@ export default function CashierPage() {
                                     >
                                         {isHalfAndHalf ? (secondHalf ? 'Añadir Combinación' : 'Selecciona 2da Mitad') : 'Añadir a la comanda'}
                                     </button>
-                                    <button onClick={() => { setSelectedGroupedProduct(null); setIsHalfAndHalf(false); setSecondHalf(null); }} className="text-xs font-bold text-gray-400 hover:text-red-500 transition-colors uppercase tracking-widest">Cancelar</button>
+                                    <button onClick={() => { setSelectedGroupedProduct(null); setIsHalfAndHalf(false); setSecondHalf(null); setItemNote(''); }} className="text-xs font-bold text-gray-400 hover:text-red-500 transition-colors uppercase tracking-widest">Cancelar</button>
                                 </div>
                             </div>
                         </div>
@@ -2733,23 +2956,36 @@ export default function CashierPage() {
                                         </button>
                                     )}
 
-                                    <button
-                                        onClick={() => handlePlaceOrder(true)}
-                                        disabled={
-                                            loading ||
-                                            (paymentMethod === 'efectivo' && orderType !== 'delivery' && !isSufficientPayment) ||
-                                            (orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address)) ||
-                                            (orderType === 'dine-in' && !tableNumber.trim()) ||
-                                            cart.length === 0
-                                        }
-                                        className="w-full bg-[#f7951d] text-white font-black py-5 rounded-2xl shadow-xl active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                                    >
-                                        <span className="material-icons-round">{orderType === 'dine-in' ? 'check_circle' : 'receipt_long'}</span>
-                                        {loading ? 'PROCESANDO...' :
-                                            (orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address)) ? 'FALTA DATOS CLIENTE' :
-                                                (orderType === 'dine-in' && !tableNumber.trim()) ? 'FALTA MESA' :
-                                                    (orderType === 'dine-in' ? 'COBRAR MESA Y FINALIZAR' : 'FINALIZAR E IMPRIMIR')}
-                                    </button>
+                                    <div className="flex flex-col gap-2">
+                                        <button
+                                            onClick={() => handlePlaceOrder(true)}
+                                            disabled={
+                                                loading ||
+                                                (paymentMethod === 'efectivo' && orderType !== 'delivery' && !isSufficientPayment) ||
+                                                (orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address)) ||
+                                                (orderType === 'dine-in' && !tableNumber.trim()) ||
+                                                cart.length === 0
+                                            }
+                                            className="w-full bg-[#f7951d] text-white font-black py-5 rounded-2xl shadow-xl active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                                        >
+                                            <span className="material-icons-round">{orderType === 'dine-in' ? 'check_circle' : 'receipt_long'}</span>
+                                            {loading ? 'PROCESANDO...' :
+                                                (orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address)) ? 'FALTA DATOS CLIENTE' :
+                                                    (orderType === 'dine-in' && !tableNumber.trim()) ? 'FALTA MESA' :
+                                                        (orderType === 'dine-in' ? 'COBRAR MESA Y FINALIZAR' : 'FINALIZAR E IMPRIMIR')}
+                                        </button>
+
+                                        {(orderType === 'takeout' || orderType === 'delivery') && activeOrderId && (
+                                            <button
+                                                onClick={() => handlePlaceOrder(true, undefined, true)}
+                                                disabled={loading || (paymentMethod === 'efectivo' && !isSufficientPayment)}
+                                                className="w-full bg-white border-2 border-green-600 text-green-600 font-black py-3 rounded-2xl shadow-sm active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-xs uppercase"
+                                            >
+                                                <span className="material-icons-round">check_circle</span>
+                                                Marcar como Pagado (Sin Imprimir)
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address) && (

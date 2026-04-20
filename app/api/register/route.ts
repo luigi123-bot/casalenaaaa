@@ -56,7 +56,9 @@ export async function POST(request: Request) {
         // Actualizar el perfil con el rol y datos extra
         if (authData.user) {
             const updateData: any = {
-                role: role || 'cliente',
+                // If role is repartidor, we use 'cliente' for the profiles table to avoid enum crash,
+                // but we will still save them in delivery_drivers later.
+                role: role === 'repartidor' ? 'cliente' : (role || 'cliente'),
                 full_name: fullName || '',
                 email: email // Force save email
             };
@@ -102,6 +104,26 @@ export async function POST(request: Request) {
                 }
             } catch (e) {
                 console.log('Usuarios table might not exist or other error', e);
+            }
+
+            // Si el rol es repartidor, agregarlo automáticamente a la tabla de flotilla
+            if (updateData.role === 'repartidor') {
+                try {
+                    const { error: driverError } = await supabaseAdmin
+                        .from('delivery_drivers')
+                        .upsert({
+                            id: authData.user.id,
+                            full_name: updateData.full_name,
+                            vehicle_type: 'moto',
+                            status: 'disponible',
+                            is_active: true
+                        });
+                    if (driverError) {
+                        console.warn('Warning: Could not create driver profile', driverError);
+                    }
+                } catch (e) {
+                    console.error('Error creating driver profile', e);
+                }
             }
         }
 

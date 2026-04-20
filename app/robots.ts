@@ -6,7 +6,7 @@ export default function robots(): MetadataRoute.Robots {
         rules: {
             userAgent: '*',
             allow: '/',
-            disallow: ['/admin/', '/cashier/', '/cocina/'],
+            disallow: ['/admin/', '/cashier/', '/cocina/', '/repartidor/'],
         },
         sitemap: 'https://casalena.app.netlify.app/sitemap.xml',
     }

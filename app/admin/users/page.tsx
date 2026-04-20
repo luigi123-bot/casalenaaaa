@@ -521,6 +521,7 @@ export default function AdminUsersPage() {
                                     <option value="administrador">Administrador</option>
                                     <option value="cajero">Cajero</option>
                                     <option value="cocina">Cocina</option>
+                                    <option value="repartidor">Repartidor</option>
                                 </select>
                             </div>
                             <div className="flex gap-4 pt-6">

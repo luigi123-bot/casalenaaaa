@@ -47,6 +47,7 @@ export default function Sidebar() {
     const adminNavItems: NavItem[] = [
         { label: 'Dashboard', icon: 'grid_view', href: '/admin' },
         { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
+        { label: 'Envíos / Repartos', icon: 'two_wheeler', href: '/cashier/deliveries' },
         { label: 'Productos', icon: 'inventory_2', href: '/admin/productos' },
         { label: 'Órdenes', icon: 'receipt_long', href: '/admin/orders' },
         { label: 'Cierres de Caja', icon: 'history', href: '/admin/cierres' },
@@ -60,6 +61,7 @@ export default function Sidebar() {
     const cashierNavItems: NavItem[] = [
         { label: 'Dashboard', icon: 'dashboard', href: '/cashier/dashboard' },
         { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
+        { label: 'Envíos / Repartos', icon: 'two_wheeler', href: '/cashier/deliveries' },
         { label: 'Órdenes Hoy', icon: 'receipt_long', href: '/cashier/orders' },
         { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
     ];

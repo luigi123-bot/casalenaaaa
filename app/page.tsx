@@ -35,6 +35,11 @@ export default function Home() {
                     role = (session.user.user_metadata?.role || 'cliente').toLowerCase();
                 }
 
+                // If metadata has repartidor, respect it (because of UI fallback to 'cliente' in profiles)
+                if (session.user.user_metadata?.role?.toLowerCase() === 'repartidor') {
+                    role = 'repartidor';
+                }
+
                 // Redirect based on role
                 if (role === 'administrador') {
                     router.push('/admin/users');
@@ -42,6 +47,8 @@ export default function Home() {
                     router.push('/cashier');
                 } else if (role === 'cocina') {
                     router.push('/cocina');
+                } else if (role === 'repartidor') {
+                    router.push('/repartidor');
                 } else {
                     // Default for clients and others
                     router.push('/tienda');

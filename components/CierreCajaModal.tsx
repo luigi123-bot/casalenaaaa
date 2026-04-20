@@ -28,8 +28,13 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
     const [loading, setLoading] = useState(true);
     const [fondoInicial, setFondoInicial] = useState('');
     const [efectivoContado, setEfectivoContado] = useState('');
-    const [step, setStep] = useState<'summary' | 'count' | 'confirm' | 'done'>('summary');
+    const [step, setStep] = useState<'summary' | 'count' | 'gastos' | 'confirm' | 'done'>('summary');
     const [saving, setSaving] = useState(false);
+
+    // Gastos state
+    const [gastosCombustible, setGastosCombustible] = useState('');
+    const [gastosInsumoCocina, setGastosInsumoCocina] = useState('');
+    const [gastosInsumoLimpieza, setGastosInsumoLimpieza] = useState('');
 
     const fetchCierreData = useCallback(async () => {
         setLoading(true);
@@ -40,7 +45,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
             const shift = saved ? JSON.parse(saved) : null;
             
             // Si no hay apertura registrada, usar el inicio del día por defecto
-            let startTime = new Date();
+            const startTime = new Date();
             startTime.setHours(0,0,0,0);
             let start = startTime.toISOString();
             
@@ -156,6 +161,12 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
     const expectedCash = fondoNum + (data?.ventasEfectivo ?? 0);
     const diferencia = contadoNum - expectedCash;
 
+    // Gastos totals
+    const gastosCombustibleNum = parseFloat(gastosCombustible) || 0;
+    const gastosInsumoCocinaNum = parseFloat(gastosInsumoCocina) || 0;
+    const gastosInsumoLimpiezaNum = parseFloat(gastosInsumoLimpieza) || 0;
+    const totalGastos = gastosCombustibleNum + gastosInsumoCocinaNum + gastosInsumoLimpiezaNum;
+
     const handleConfirmarCierre = async () => {
         setSaving(true);
         try {
@@ -176,6 +187,10 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                 difference: diferencia,
                 notes: `Cierre del turno - ${new Date().toLocaleTimeString('es-MX')}`,
                 top_products: data?.topProductos || [],
+                gastos_combustible: gastosCombustibleNum,
+                gastos_insumo_cocina: gastosInsumoCocinaNum,
+                gastos_insumo_limpieza: gastosInsumoLimpiezaNum,
+                total_gastos: totalGastos,
                 status: 'closed',
                 closed_at: new Date().toISOString()
             };
@@ -192,7 +207,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
             // 2. Guardar en Historial (Tabla Antigua compatible)
             // IMPORTANTE: Esta tabla usa nombres en ESPAÑOL
             const legacyPayload = {
-                fecha_turno: data?.fechaTurno,
+                fecha_turno: `${data?.fechaTurno}${totalGastos > 0 ? ` | GASTOS: $${totalGastos.toFixed(2)}` : ''}`,
                 cajero: cashierName,
                 total_ordenes: metrics.total_orders,
                 total_productos: metrics.total_products,
@@ -288,7 +303,8 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                     {[
                         { key: 'summary', label: '1. Resumen' },
                         { key: 'count', label: '2. Cuadre' },
-                        { key: 'confirm', label: '3. Confirmar' },
+                        { key: 'gastos', label: '3. Gastos' },
+                        { key: 'confirm', label: '4. Confirmar' },
                     ].map(s => (
                         <div
                             key={s.key}
@@ -450,7 +466,71 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                         </div>
                     )}
 
-                    {/* STEP 3: Confirm */}
+                    {/* STEP 3: Gastos */}
+                    {step === 'gastos' && (
+                        <div className="p-6 space-y-5">
+                            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3">
+                                <span className="material-symbols-outlined text-red-400 shrink-0 mt-0.5">receipt</span>
+                                <p className="text-sm font-bold text-red-700">Registra los gastos del turno por categoría. Déjalo en $0 si no hubo gastos en esa categoría.</p>
+                            </div>
+
+                            {[
+                                {
+                                    label: 'Combustibles (Gas, Gasolina, Leña)',
+                                    icon: 'local_gas_station',
+                                    color: 'text-orange-500',
+                                    val: gastosCombustible,
+                                    set: setGastosCombustible,
+                                    hint: 'Gas LP, gasolina, leña, carbón, etc.'
+                                },
+                                {
+                                    label: 'Insumos Cocina',
+                                    icon: 'restaurant',
+                                    color: 'text-green-600',
+                                    val: gastosInsumoCocina,
+                                    set: setGastosInsumoCocina,
+                                    hint: 'Ingredientes, empaque, utensilios, etc.'
+                                },
+                                {
+                                    label: 'Insumos Limpieza',
+                                    icon: 'cleaning_services',
+                                    color: 'text-blue-500',
+                                    val: gastosInsumoLimpieza,
+                                    set: setGastosInsumoLimpieza,
+                                    hint: 'Detergentes, desinfectantes, trapos, etc.'
+                                },
+                            ].map(f => (
+                                <div key={f.label}>
+                                    <label className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">
+                                        <span className={`material-symbols-outlined text-base ${f.color}`}>{f.icon}</span>
+                                        {f.label}
+                                    </label>
+                                    <div className="relative">
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-[#8c785f] text-lg">$</span>
+                                        <input
+                                            type="number"
+                                            value={f.val}
+                                            onChange={e => f.set(e.target.value)}
+                                            placeholder="0.00"
+                                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl pl-8 pr-5 py-4 font-black text-[#181511] text-lg placeholder-gray-200 focus:border-[#F27405] outline-none transition-all"
+                                            step="0.01"
+                                            min="0"
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-gray-400 font-bold mt-1 ml-1">{f.hint}</p>
+                                </div>
+                            ))}
+
+                            {totalGastos > 0 && (
+                                <div className="bg-[#181511] rounded-2xl p-4 flex justify-between items-center">
+                                    <span className="font-black text-[10px] text-orange-400 uppercase tracking-widest">Total Gastos del Turno</span>
+                                    <span className="font-black text-white text-xl">${totalGastos.toFixed(2)}</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* STEP 4: Confirm */}
                     {step === 'confirm' && data && (
                         <div className="p-6 space-y-5">
                             <div className="text-center py-4">
@@ -474,6 +554,34 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                                     </div>
                                 ))}
                             </div>
+
+                            {totalGastos > 0 && (
+                                <div className="bg-red-50 rounded-2xl border border-red-100 divide-y divide-red-100 text-sm">
+                                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest px-5 pt-3 pb-1">Gastos del Turno</p>
+                                    {gastosCombustibleNum > 0 && (
+                                        <div className="flex justify-between px-5 py-3">
+                                            <span className="font-bold text-[#8c785f]">⛽ Combustibles</span>
+                                            <span className="font-black text-[#181511]">${gastosCombustibleNum.toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                    {gastosInsumoCocinaNum > 0 && (
+                                        <div className="flex justify-between px-5 py-3">
+                                            <span className="font-bold text-[#8c785f]">🍴 Insumos Cocina</span>
+                                            <span className="font-black text-[#181511]">${gastosInsumoCocinaNum.toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                    {gastosInsumoLimpiezaNum > 0 && (
+                                        <div className="flex justify-between px-5 py-3">
+                                            <span className="font-bold text-[#8c785f]">🧹 Insumos Limpieza</span>
+                                            <span className="font-black text-[#181511]">${gastosInsumoLimpiezaNum.toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between px-5 py-3 bg-red-50">
+                                        <span className="font-black text-red-600">Total Gastos</span>
+                                        <span className="font-black text-red-600">${totalGastos.toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -510,7 +618,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                     <div className="px-6 py-5 border-t border-[#f0ede9] flex gap-3">
                         {step !== 'summary' && (
                             <button
-                                onClick={() => setStep(step === 'confirm' ? 'count' : 'summary')}
+                                onClick={() => setStep(step === 'confirm' ? 'gastos' : step === 'gastos' ? 'count' : 'summary')}
                                 className="flex-1 py-3.5 rounded-2xl border border-gray-200 text-[#8c785f] font-black hover:bg-gray-50 transition-colors"
                             >
                                 ← Atrás
@@ -519,7 +627,8 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                         <button
                             onClick={() => {
                                 if (step === 'summary') setStep('count');
-                                else if (step === 'count') setStep('confirm');
+                                else if (step === 'count') setStep('gastos');
+                                else if (step === 'gastos') setStep('confirm');
                                 else handleConfirmarCierre();
                             }}
                             disabled={saving || loading}

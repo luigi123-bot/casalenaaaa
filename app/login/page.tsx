@@ -44,6 +44,11 @@ export default function LoginPage() {
                 role = (data.user.user_metadata?.role || 'cliente').toLowerCase();
             }
 
+            // 3. Override for 'repartidor' (since profiles table might save it as 'cliente' due to DB enum limitation)
+            if (data.user.user_metadata?.role?.toLowerCase() === 'repartidor') {
+                role = 'repartidor';
+            }
+
             console.log('👤 [Login] User role resolved:', role);
 
             // Redirect based on role
@@ -52,9 +57,9 @@ export default function LoginPage() {
             } else if (role === 'cajero') {
                 router.push('/cashier');
             } else if (role === 'cocina') {
-                // Check if cashier exists as fallback if cocina route doesn't? 
-                // For now keep the logic but lowercase
                 router.push('/cocina');
+            } else if (role === 'repartidor') {
+                router.push('/repartidor');
             } else {
                 // Default to store for clients and others
                 router.push('/tienda');

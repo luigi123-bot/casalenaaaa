@@ -65,14 +65,18 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
 
     if (!isOpen) return null;
 
-    const handleSave = async () => {
-        if (!onSaveCustomer) return;
-        setIsSaving(true);
-        try {
-            await onSaveCustomer(customerInfo);
-        } finally {
-            setIsSaving(false);
+    const handleSaveAndAccept = async () => {
+        if (onSaveCustomer && customerInfo.phone && customerInfo.name) {
+            setIsSaving(true);
+            try {
+                await onSaveCustomer(customerInfo);
+            } catch (err) {
+                console.error("Error saving customer automatically:", err);
+            } finally {
+                setIsSaving(false);
+            }
         }
+        onAccept();
     };
 
     return (
@@ -210,35 +214,26 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                     </div>
 
                     <div className="mt-6 flex flex-col gap-3">
-                        <div className="grid grid-cols-2 gap-3">
-                             <button
-                                onClick={onClear}
-                                className="bg-red-50 text-red-600 py-3 rounded-xl font-black text-[10px] uppercase hover:bg-red-100 active:scale-95 transition-all flex items-center justify-center gap-2 border border-red-100"
-                            >
-                                <span className="material-icons-round text-lg">delete_sweep</span>
-                                Limpiar
-                            </button>
-                            <button
-                                onClick={onAccept}
-                                className="bg-[#181511] text-white py-3 rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
-                            >
-                                <span className="material-icons-round text-green-400 text-lg">check_circle</span>
-                                Aceptar
-                            </button>
-                        </div>
+                        <button
+                            onClick={handleSaveAndAccept}
+                            disabled={isSaving || !customerInfo.phone || !customerInfo.name}
+                            className="w-full bg-[#181511] text-white py-4 rounded-xl font-black text-[12px] uppercase shadow-xl shadow-black/10 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                        >
+                            {isSaving ? (
+                                <span className="material-icons-round animate-spin text-lg">sync</span>
+                            ) : (
+                                <span className="material-icons-round text-green-400 text-lg">save_alt</span>
+                            )}
+                            {isSaving ? 'Guardando...' : 'Guardar Perfil y Continuar'}
+                        </button>
                         
-                        {onSaveCustomer && (
-                            <button
-                                onClick={handleSave}
-                                disabled={isSaving || !customerInfo.phone || !customerInfo.name}
-                                className="w-full bg-blue-50 text-blue-600 py-3 rounded-xl font-black text-[10px] uppercase hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 border border-blue-200"
-                            >
-                                <span className={`material-icons-round text-lg ${isSaving ? 'animate-spin' : ''}`}>
-                                    {isSaving ? 'sync' : 'auto_awesome'}
-                                </span>
-                                {isSaving ? 'Guardando...' : 'Guardar Perfil de Cliente'}
-                            </button>
-                        )}
+                        <button
+                            onClick={onClear}
+                            className="w-full text-gray-400 py-2 rounded-xl font-bold text-[9px] uppercase hover:text-red-500 transition-all flex items-center justify-center gap-2"
+                        >
+                            <span className="material-icons-round text-sm">delete_sweep</span>
+                            Limpiar datos actuales
+                        </button>
                     </div>
                 </div>
 
