@@ -43,36 +43,52 @@ export default function RegisterPage() {
         setIsLoading(true);
 
         try {
-            // 1. Create account via API (to handle profiling)
-            const response = await fetch('/api/register', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    email,
-                    password,
-                    fullName,
-                    role: 'cliente',
-                    phoneNumber,
-                    address
-                }),
+            // 1. Create account directly via Supabase Auth (Client-side, compatible with static export)
+            const { data, error: signUpError } = await supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: {
+                        full_name: fullName,
+                        role: 'cliente',
+                        phone_number: phoneNumber,
+                        address: address
+                    }
+                }
             });
 
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Error al registrar usuario');
+            if (signUpError) {
+                if (signUpError.message.includes('already registered')) throw new Error('El correo electrónico ya está registrado.');
+                throw new Error(signUpError.message || 'Error al registrar usuario');
             }
 
-            // 2. Auto-login with Supabase client
-            console.log('🔄 [Register] Auto-signing in...');
-            const { error: loginError } = await supabase.auth.signInWithPassword({
-                email,
-                password
-            });
+            // 2. Ensure profile is updated (RLS needs to allow insert/update for own UUID)
+            if (data.user) {
+                const { error: profileError } = await supabase.from('profiles').upsert({
+                    id: data.user.id,
+                    role: 'cliente',
+                    full_name: fullName,
+                    email: email,
+                    phone_number: phoneNumber,
+                    address: address
+                });
 
-            if (loginError) throw loginError;
+                if (profileError) console.warn('Error updating profile:', profileError);
+
+                try {
+                    // Sync legacy table just in case
+                    await supabase.from('usuarios').upsert({
+                        id: data.user.id,
+                        role: 'cliente',
+                        full_name: fullName,
+                        email: email,
+                        phone_number: phoneNumber,
+                        address: address
+                    });
+                } catch (e) {
+                    console.log('Legacy table sync skipped');
+                }
+            }
 
             setSuccess('¡Cuenta creada e inicio de sesión exitoso!');
 
@@ -91,6 +107,7 @@ export default function RegisterPage() {
         } catch (err: any) {
             console.error('Registration/Login error:', err);
             setError(err.message || 'Error al completar el registro');
+        } finally {
             setIsLoading(false);
         }
     };

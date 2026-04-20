@@ -98,13 +98,12 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     useEffect(() => {
         const fetchRepartidores = async () => {
             try {
-                // Fetch users with role 'repartidor' from the profiles or api
-                const response = await fetch('/api/users');
-                if (response.ok) {
-                    const allUsers = await response.json();
-                    const drivers = allUsers.filter((u: any) => u.role?.toLowerCase() === 'repartidor');
-                    setRepartidores(drivers);
-                }
+                // Load directly from delivery_drivers table
+                const { data, error } = await (await import('@/utils/supabase/client')).supabase
+                    .from('delivery_drivers')
+                    .select('*')
+                    .eq('is_active', true);
+                if (!error && data) setRepartidores(data);
             } catch (error) {
                 console.error('Error fetching repartidores:', error);
             }
@@ -112,8 +111,8 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
 
         fetchRepartidores();
         
-        if (order && (order as any).repartidor_name) {
-            setSelectedRepartidor((order as any).repartidor_name);
+        if (order && (order as any).driver_id) {
+            setSelectedRepartidor((order as any).driver_id);
         } else {
             setSelectedRepartidor('');
         }
@@ -280,18 +279,32 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
                                     <select 
                                         value={selectedRepartidor}
                                         onChange={async (e) => {
-                                            const name = e.target.value;
-                                            setSelectedRepartidor(name);
-                                            // Assign in DB (Assuming columns exist or using metadata)
+                                            const driverId = e.target.value;
+                                            setSelectedRepartidor(driverId);
+                                            if (!driverId) return;
+                                            console.log(`[OrderPanel] Asignando driver_id=${driverId} a orden ${order.id}`);
                                             try {
-                                                await supabase.from('orders').update({ repartidor_name: name }).eq('id', order.id);
+                                                const { error } = await supabase
+                                                    .from('orders')
+                                                    .update({ 
+                                                        driver_id: driverId,
+                                                        delivery_status: 'assigned',
+                                                        status: 'en_camino'
+                                                    })
+                                                    .eq('id', order.id);
+                                                if (error) {
+                                                    console.error('[OrderPanel] Error asignando repartidor:', error);
+                                                    alert(`Error: ${error.message}`);
+                                                } else {
+                                                    console.log('[OrderPanel] ✅ Repartidor asignado correctamente');
+                                                }
                                             } catch (err) { console.error(err); }
                                         }}
                                         className="w-full bg-orange-50 border border-orange-200 rounded-lg px-2 py-1 font-black text-primary outline-none text-[10px]"
                                     >
                                         <option value="">Sin asignar</option>
                                         {repartidores.map(r => (
-                                            <option key={r.id} value={r.full_name}>{r.full_name}</option>
+                                            <option key={r.id} value={r.id}>{r.full_name}</option>
                                         ))}
                                     </select>
                                 </div>

@@ -10,13 +10,21 @@ export default function DeliveriesPage() {
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
     const [schemaError, setSchemaError] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+    const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+        setToast({ msg, type });
+        setTimeout(() => setToast(null), 4000);
+    };
 
     const fetchData = async () => {
         try {
             // Fetch drivers
             const { data: driversData, error: driversError } = await supabase
                 .from('delivery_drivers')
-                .select('*');
+                .select('*')
+                .eq('is_active', true);
 
             if (driversError) {
                 if (driversError.code === '42P01') {
@@ -55,33 +63,41 @@ export default function DeliveriesPage() {
     }, []);
 
     const assignDriver = async (orderId: string, driverId: string) => {
+        if (saving) return;
+        setSaving(true);
+
+        const driverName = drivers.find(d => d.id === driverId)?.full_name || driverId;
+        console.log(`🚀 [AssignDriver] INICIANDO ASIGNACIÓN...`);
+        console.log(`📦 Orden: ${orderId} | Repartidor: ${driverName} (${driverId})`);
+
         try {
-            console.log("🚀 [AssignDriver] INICIANDO ASIGNACIÓN...");
-            console.log("📦 Datos a enviar:", { orderId, driverId });
+            console.log(`⏳ [AssignDriver] Guardando en BD: orders.driver_id = ${driverId}, delivery_status = 'assigned'`);
 
             const { data, error } = await supabase
                 .from('orders')
                 .update({ 
                     driver_id: driverId, 
-                    delivery_status: 'assigned'
+                    delivery_status: 'assigned',
+                    status: 'en_camino'
                 })
                 .eq('id', orderId)
                 .select();
 
             if (error) {
-                console.error('❌ [AssignDriver] ERROR DE SUPABASE (Órdenes):', {
+                console.error('❌ [AssignDriver] ERROR EN orders UPDATE:', {
                     code: error.code,
                     message: error.message,
                     details: error.details,
                     hint: error.hint
                 });
-                alert(`Error Supabase: ${error.message} (${error.code})`);
-                throw error;
+                showToast(`❌ Error al guardar: ${error.message} (${error.code})`, 'error');
+                return;
             }
 
-            console.log('✅ [AssignDriver] Pedido actualizado correctamente:', data);
+            console.log('✅ [AssignDriver] orders actualizada correctamente. Respuesta BD:', data);
             
             // Update driver status
+            console.log(`⏳ [AssignDriver] Actualizando estado de repartidor a 'ocupado'...`);
             const { error: driverErr } = await supabase
                 .from('delivery_drivers')
                 .update({ status: 'ocupado' })
@@ -89,14 +105,20 @@ export default function DeliveriesPage() {
 
             if (driverErr) {
                 console.error('⚠️ [AssignDriver] Error actualizando estado del repartidor:', driverErr);
+            } else {
+                console.log(`✅ [AssignDriver] Estado de repartidor actualizado a 'ocupado'`);
             }
 
             setSelectedOrder(null);
-            fetchData();
-            console.log('✨ [AssignDriver] PROCESO COMPLETADO EXITOSAMENTE');
+            await fetchData();
+            console.log(`✨ [AssignDriver] COMPLETADO: Pedido ${orderId} asignado a ${driverName}`);
+            showToast(`✅ Pedido asignado a ${driverName} y guardado en la BD`, 'success');
+
         } catch (err: any) {
-            console.error('🔥 [AssignDriver] ERROR CRÍTICO (CATCH):', err);
-            alert('Error crítico: ' + (err.message || 'Error desconocido en la asignación'));
+            console.error('🔥 [AssignDriver] ERROR CRÍTICO:', err);
+            showToast('❌ Error crítico: ' + (err.message || 'Error desconocido'), 'error');
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -130,7 +152,29 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_status TEXT DEFAULT 
     }
 
     return (
-        <div className="flex flex-col h-full bg-[#fcfbf9] p-4 lg:p-8 space-y-6 overflow-y-auto">
+        <div className="flex flex-col h-full bg-[#fcfbf9] p-4 lg:p-8 space-y-6 overflow-y-auto relative">
+
+            {/* Toast Notification */}
+            {toast && (
+                <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl font-black text-sm transition-all animate-in slide-in-from-top-4 ${
+                    toast.type === 'success' 
+                        ? 'bg-green-500 text-white' 
+                        : 'bg-red-500 text-white'
+                }`}>
+                    <span className="material-icons-round text-[20px]">
+                        {toast.type === 'success' ? 'check_circle' : 'error'}
+                    </span>
+                    {toast.msg}
+                </div>
+            )}
+
+            {/* Saving overlay indicator */}
+            {saving && (
+                <div className="fixed top-4 right-4 z-50 bg-[#181511] text-white px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow-xl">
+                    <span className="material-icons-round text-sm animate-spin">refresh</span>
+                    Guardando...
+                </div>
+            )}
             <header className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl lg:text-3xl font-black text-[#1D1D1F] tracking-tight">Envíos y Repartos</h1>
@@ -201,7 +245,14 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_status TEXT DEFAULT 
                                                 <span className="material-icons-round text-blue-500">sports_motorsports</span>
                                                 {drivers.find(d => d.id === order.driver_id)?.full_name || 'Repartidor'}
                                             </div>
-                                            <Link href={`/tracking/${order.id}`} className="bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-black transition-colors flex items-center gap-1">
+                                            <button
+                                                onClick={() => setSelectedOrder(order.id === selectedOrder?.id ? null : order)}
+                                                className="bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 px-3 py-2 rounded-xl text-sm font-black transition-colors flex items-center gap-1"
+                                            >
+                                                <span className="material-icons-round text-[18px]">swap_horiz</span>
+                                                Cambiar
+                                            </button>
+                                            <Link href={`/tracking?id=${order.id}`} className="bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-black transition-colors flex items-center gap-1">
                                                 <span className="material-icons-round text-[18px]">my_location</span>
                                                 Track
                                             </Link>
@@ -218,7 +269,7 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_status TEXT DEFAULT 
                                 </div>
                                 
                                 {/* Assignment Expanded Area */}
-                                {selectedOrder?.id === order.id && !order.driver_id && (
+                                {selectedOrder?.id === order.id && (
                                     <div className="mt-4 pt-4 border-t border-gray-100 animate-in slide-in-from-top-2 flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
                                         {drivers.filter(d => d.is_active !== false).map(driver => (
                                             <button 

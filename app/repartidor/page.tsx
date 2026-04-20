@@ -3,8 +3,11 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import DeliveryMap from '@/components/DeliveryMap';
+import { useRouter } from 'next/navigation';
 
 export default function RepartidorApp() {
+    const router = useRouter();
+    const [loadingAuth, setLoadingAuth] = useState(true);
     const [drivers, setDrivers] = useState<any[]>([]);
     const [selectedDriver, setSelectedDriver] = useState<any>(null);
     const [assignedOrder, setAssignedOrder] = useState<any>(null);
@@ -15,14 +18,60 @@ export default function RepartidorApp() {
     const watchId = useRef<number | null>(null);
     const channelRef = useRef<any>(null);
 
-    // Initial load: get drivers
+    // Initial load: authenticate driver and get peers
     useEffect(() => {
-        const fetchDrivers = async () => {
-            const { data } = await supabase.from('delivery_drivers').select('*').eq('is_active', true);
-            if (data) setDrivers(data);
+        const initAuth = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                router.push('/login');
+                return;
+            }
+
+            // Verify role matching login fallback logic
+            const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+            let role = profile?.role?.toLowerCase() || 'cliente';
+            
+            // Override because profiles table might incorrectly save it as 'cliente' due to DB enum limitation
+            if (session.user.user_metadata?.role?.toLowerCase() === 'repartidor') {
+                role = 'repartidor';
+            }
+            
+            if (role !== 'repartidor') {
+                alert('No tienes permisos de repartidor. Rol detectado: ' + role);
+                router.push('/tienda');
+                return;
+            }
+
+            // Check if driver record exists
+            let { data: driver } = await supabase.from('delivery_drivers').select('*').eq('id', session.user.id).maybeSingle();
+            
+            if (!driver) {
+                // Auto-create driver record using their auth ID
+                const fullName = profile?.full_name || session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Nuevo Repartidor';
+                const { data: newDriver, error } = await supabase.from('delivery_drivers').insert({
+                    id: session.user.id,
+                    full_name: fullName,
+                    vehicle_type: 'moto',
+                    is_active: true
+                }).select().single();
+                
+                if (error) console.error('Error creating driver record:', error);
+                if (newDriver) driver = newDriver;
+            }
+
+            if (driver) {
+                setSelectedDriver(driver);
+            }
+
+            // Fetch other active drivers for transfer feature
+            const { data: allDrivers } = await supabase.from('delivery_drivers').select('*').eq('is_active', true);
+            if (allDrivers) setDrivers(allDrivers);
+
+            setLoadingAuth(false);
         };
-        fetchDrivers();
-    }, []);
+        
+        initAuth();
+    }, [router]);
 
     // Load active order for the selected driver
     useEffect(() => {
@@ -34,7 +83,7 @@ export default function RepartidorApp() {
                 .from('orders')
                 .select('*, order_items(*)')
                 .eq('driver_id', selectedDriver.id)
-                .in('delivery_status', ['assigned', 'picked_up'])
+                .in('delivery_status', ['assigned', 'picked_up', 'en_camino'])
                 .order('created_at', { ascending: false })
                 .limit(1)
                 .maybeSingle();
@@ -181,29 +230,30 @@ export default function RepartidorApp() {
         }
     }
 
-    if (!selectedDriver) {
+    if (loadingAuth || !selectedDriver) {
         return (
-            <div className="min-h-screen bg-gray-100 flex flex-col p-6 items-center justify-center">
-                <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-xl">
-                    <img src="/logo-main.jpg" className="w-24 mx-auto rounded-full mb-6" alt="Casalena" />
-                    <h1 className="text-2xl font-black text-center mb-8 text-gray-800">Acceso Repartidores</h1>
-                    <div className="space-y-3">
-                        {drivers.length === 0 && <p className="text-center text-sm text-gray-500">No hay repartidores registrados en la BD.</p>}
-                        {drivers.map(d => (
-                            <button
-                                key={d.id}
-                                onClick={() => setSelectedDriver(d)}
-                                className="w-full bg-gray-50 border-2 border-gray-200 hover:border-orange-500 hover:bg-orange-50 text-left p-4 rounded-2xl flex items-center gap-4 transition-all"
-                            >
-                                <div className="bg-orange-100 size-12 rounded-full flex items-center justify-center text-orange-600">
-                                    <span className="material-icons-round">sports_motorsports</span>
-                                </div>
-                                <div>
-                                    <p className="font-black text-gray-800">{d.full_name}</p>
-                                    <p className="text-xs font-bold text-gray-500 uppercase">{d.vehicle_type}</p>
-                                </div>
-                            </button>
-                        ))}
+            <div className="min-h-screen bg-[#181511] flex flex-col items-center justify-center relative overflow-hidden">
+                <style dangerouslySetInnerHTML={{__html: `
+                    @keyframes pulse-slow { 0%, 100% { opacity: 0.1; } 50% { opacity: 0.2; } }
+                    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-10px); } }
+                    .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
+                    .animate-float { animation: float 4s ease-in-out infinite; }
+                `}} />
+                {/* Background effects */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-[#181511] via-[#2a251e] to-[#181511]"></div>
+                <div className="absolute inset-0 bg-[#F7941D] blur-[120px] rounded-full scale-150 animate-pulse-slow object-center" style={{ width: '100%', height: '100%' }}></div>
+                
+                <div className="z-10 flex flex-col items-center p-8 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl">
+                    <div className="relative mb-8">
+                        <div className="absolute inset-0 bg-[#F7941D] blur-xl opacity-30 rounded-full animate-pulse-slow"></div>
+                        <img src="/logo-main.jpg" className="relative w-28 h-28 rounded-3xl shadow-2xl animate-float ring-4 ring-white/10" alt="Casalena" />
+                    </div>
+                    <h1 className="text-2xl font-black text-white text-center mb-1">App de Reparto</h1>
+                    <p className="text-xs tracking-widest uppercase text-[#F7941D] font-bold mb-8">Casalena POS</p>
+                    
+                    <div className="flex items-center gap-3 bg-black/30 px-6 py-3 rounded-full border border-white/5">
+                        <div className="w-5 h-5 border-2 border-[#F7941D] border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-sm font-bold text-gray-300">Validando credenciales...</span>
                     </div>
                 </div>
             </div>
@@ -237,82 +287,146 @@ export default function RepartidorApp() {
             </header>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-                
-                {!isTracking && (
-                    <div className="bg-orange-100 border border-orange-200 p-4 rounded-2xl flex items-start gap-3">
-                        <span className="material-icons-round text-orange-500 mt-0.5">location_off</span>
-                        <div>
-                            <p className="font-black text-orange-900 text-sm">GPS Desactivado</p>
-                            <p className="text-xs text-orange-700 mt-1">Presiona "INICIAR" para que los clientes puedan rastrear su pedido y el restaurante vea tu ubicación.</p>
-                        </div>
-                    </div>
-                )}
-
-                {assignedOrder ? (
-                    <div className="bg-white border-2 border-[#f7951d] rounded-2xl shadow-xl overflow-hidden flex flex-col">
-                        <div className="bg-[#f7951d] text-white p-4">
-                            <div className="flex justify-between items-center mb-1">
-                                <span className="font-black uppercase tracking-widest text-[10px]">Pedido Activo</span>
-                                <span className="bg-black/20 px-2 py-0.5 rounded font-black text-[10px]">#{assignedOrder.id.toString().slice(-4)}</span>
-                            </div>
-                            <h2 className="text-xl font-black">{assignedOrder.customer_name}</h2>
-                        </div>
-                        
-                        <div className="p-4 flex flex-col gap-4">
-                            <a href={`https://maps.google.com/?daddr=${encodeURIComponent(assignedOrder.delivery_address)}`} target="_blank" rel="noreferrer" className="flex items-start gap-3 bg-gray-50 p-3 rounded-xl hover:bg-gray-100 transition-colors">
-                                <span className="material-icons-round text-blue-500">directions</span>
-                                <div>
-                                    <p className="font-bold text-xs text-gray-500 uppercase">Dirección de Entrega</p>
-                                    <p className="font-black text-sm text-gray-800">{assignedOrder.delivery_address}</p>
-                                </div>
-                            </a>
-
-                            <a href={`tel:${assignedOrder.phone_number}`} className="flex items-start gap-3 bg-gray-50 p-3 rounded-xl hover:bg-gray-100 transition-colors">
-                                <span className="material-icons-round text-green-500">phone</span>
-                                <div>
-                                    <p className="font-bold text-xs text-gray-500 uppercase">Teléfono</p>
-                                    <p className="font-black text-sm text-gray-800">{assignedOrder.phone_number}</p>
-                                </div>
-                            </a>
-
-                            <div className="bg-gray-50 p-3 rounded-xl">
-                                <p className="font-bold text-xs text-gray-500 uppercase mb-2">Detalle ({assignedOrder.order_items.length} items)</p>
-                                <ul className="text-xs font-medium space-y-1">
-                                    {assignedOrder.order_items.map((item:any, i:number) => (
-                                        <li key={i} className="flex justify-between">
-                                            <span>{item.quantity}x {item.product_name}</span>
-                                            <span>${(item.unit_price * item.quantity).toFixed(2)}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                                <div className="border-t border-gray-200 mt-2 pt-2 flex justify-between font-black text-sm">
-                                    <span>TOTAL A COBRAR</span>
-                                    <span className="text-[#f7951d]">${assignedOrder.total_amount.toFixed(2)}</span>
-                                </div>
+            <div className="flex-1 overflow-y-auto w-full bg-[#fcfbf9]">
+                <div className="max-w-md mx-auto w-full p-4 flex flex-col gap-4">
+                    
+                    {!isTracking && (
+                        <div className="bg-red-50 border-2 border-red-200 p-4 rounded-2xl flex items-start gap-3 shadow-sm">
+                            <span className="material-icons-round text-red-600 mt-0.5">location_off</span>
+                            <div>
+                                <p className="font-black text-red-900 text-sm">GPS Desactivado</p>
+                                <p className="text-xs text-red-800 mt-1 font-medium leading-relaxed">Presiona "INICIAR" para que el restaurante vea tu ubicación y te pueda despachar pedidos.</p>
                             </div>
                         </div>
+                    )}
 
-                        <div className="p-4 bg-gray-50 border-t border-gray-100 flex flex-col gap-2">
-                            <button onClick={markDelivered} className="w-full bg-[#181511] text-white py-4 rounded-xl font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-2">
-                                <span className="material-icons-round">check_circle</span>
-                                Marcar Entregado
-                            </button>
-                            <button onClick={() => setShowTransferModal(true)} className="w-full bg-white text-gray-700 hover:bg-gray-100 border-2 border-gray-200 py-3 rounded-xl font-bold uppercase text-xs tracking-widest transition-colors flex items-center justify-center gap-2">
-                                <span className="material-icons-round text-sm">swap_horiz</span>
-                                Transferir a otro repartidor
-                            </button>
+                    {assignedOrder ? (
+                        <div className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.08)] overflow-hidden flex flex-col border border-gray-100 relative">
+                            {/* Card Header */}
+                            <div className="bg-gradient-to-r from-[#181511] to-[#2a251e] text-white p-5">
+                                <div className="flex justify-between items-center mb-2">
+                                    <div className="flex items-center gap-2 bg-[#F7941D]/20 text-[#F7941D] px-2.5 py-1 rounded-full border border-[#F7941D]/30">
+                                        <div className="w-1.5 h-1.5 bg-[#F7941D] rounded-full animate-ping"></div>
+                                        <span className="font-black uppercase tracking-widest text-[9px]">Pedido Activo</span>
+                                    </div>
+                                    <span className="text-gray-400 font-bold text-[10px] tracking-widest uppercase">
+                                        Orden #{assignedOrder.id.toString().slice(-4)}
+                                    </span>
+                                </div>
+                                <h2 className="text-2xl font-black text-white">{assignedOrder.customer_name}</h2>
+                            </div>
+                            
+                            {/* Card Body */}
+                            <div className="p-5 flex flex-col gap-5">
+                                {/* Navigation UI */}
+                                <div className="bg-[#f8f9fa] rounded-2xl p-1 border border-gray-200 relative">
+                                    <div className="flex gap-4 p-3 relative bg-white rounded-xl shadow-[0_2px_10px_rgb(0,0,0,0.02)] mb-1 border border-gray-100">
+                                        <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
+                                            <span className="material-icons-round text-blue-600 text-[18px]">location_on</span>
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="font-bold text-[9px] text-gray-400 uppercase tracking-widest mb-1">Entregar en</p>
+                                            <p className="font-black text-sm text-gray-900 leading-snug">{assignedOrder.delivery_address}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 mt-2 px-1 pb-1">
+                                        <a 
+                                            href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(assignedOrder.delivery_address)}&travelmode=driving`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-3 rounded-xl flex items-center justify-center gap-2 shadow-md transition-transform active:scale-95"
+                                        >
+                                            <span className="material-icons-round text-lg">navigation</span>
+                                            Navegar
+                                        </a>
+                                        <a 
+                                            href={`https://maps.google.com/?q=${encodeURIComponent(assignedOrder.delivery_address)}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="bg-white text-blue-600 border-2 border-blue-100 hover:border-blue-200 font-black text-xs py-2.5 rounded-xl flex items-center justify-center gap-2 transition-transform active:scale-95"
+                                        >
+                                            <span className="material-icons-round text-lg">map</span>
+                                            Ver Mapa
+                                        </a>
+                                    </div>
+                                </div>
+
+                                {/* Contact Actions */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <a href={`tel:${assignedOrder.phone_number}`} className="flex items-center gap-3 bg-white p-3 rounded-xl border-2 border-gray-100 hover:border-gray-200 active:bg-gray-50 transition-all">
+                                        <div className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-600">
+                                            <span className="material-icons-round text-[18px]">call</span>
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-[9px] text-gray-400 uppercase tracking-widest">Llamar</p>
+                                            <p className="font-black text-xs text-gray-800 line-clamp-1">{assignedOrder.phone_number || 'Sin teléfono'}</p>
+                                        </div>
+                                    </a>
+                                    <a 
+                                        href={`https://wa.me/${(assignedOrder.phone_number || '').replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${assignedOrder.customer_name}, soy el repartidor de Casalena. Voy en camino con tu pedido.`)}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center gap-3 bg-white p-3 rounded-xl border-2 border-green-100 hover:border-green-200 active:bg-green-50 transition-all"
+                                    >
+                                        <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center text-green-600">
+                                            <span className="material-icons-round text-[18px]">chat</span>
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-[9px] text-green-700 uppercase tracking-widest">WhatsApp</p>
+                                            <p className="font-black text-xs text-green-900 line-clamp-1">Enviar Msg</p>
+                                        </div>
+                                    </a>
+                                </div>
+
+                                {/* Order Details */}
+                                <div className="bg-[#f8f9fa] p-4 rounded-2xl border border-gray-100">
+                                    <p className="font-bold text-[9px] text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1">
+                                        <span className="material-icons-round text-[14px]">receipt_long</span>
+                                        Detalle del pedido
+                                    </p>
+                                    <ul className="text-[13px] font-bold space-y-2.5 mb-4">
+                                        {(assignedOrder.order_items ?? []).map((item:any, i:number) => (
+                                            <li key={i} className="flex justify-between items-start gap-4">
+                                                <span className="flex gap-2">
+                                                    <span className="text-[#F7941D] bg-orange-50 px-1.5 py-0.5 rounded text-[11px] h-fit">{item.quantity}x</span>
+                                                    <span className="text-gray-800">{item.product_name}</span>
+                                                </span>
+                                                <span className="text-gray-900 bg-white px-2 py-0.5 rounded shadow-sm border border-gray-100 shrink-0">
+                                                    ${(item.unit_price * item.quantity).toFixed(2)}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <div className="border-t-2 border-dashed border-gray-200 pt-3 flex justify-between items-end">
+                                        <span className="font-black text-[10px] uppercase text-gray-500 tracking-widest leading-none">A Cobrar</span>
+                                        <span className="font-black text-2xl text-[#181511] leading-none">${assignedOrder.total_amount.toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Actions Footer */}
+                            <div className="p-4 bg-gray-50 border-t border-gray-100 flex flex-col gap-2 relative z-10">
+                                <button onClick={markDelivered} className="w-full bg-[#181511] hover:bg-black text-white py-4 rounded-xl font-black uppercase tracking-widest shadow-[0_8px_20px_rgba(24,21,17,0.2)] hover:shadow-[0_8px_25px_rgba(24,21,17,0.3)] transition-all active:scale-95 flex items-center justify-center gap-2">
+                                    <span className="material-icons-round">task_alt</span>
+                                    Marcar Entregado
+                                </button>
+                                <button onClick={() => setShowTransferModal(true)} className="w-full bg-white text-gray-600 hover:text-gray-900 border-2 border-gray-200 hover:border-gray-300 py-3 rounded-xl font-bold uppercase text-[10px] tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2">
+                                    <span className="material-icons-round text-[14px]">swap_horiz</span>
+                                    Transferir orden
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-300 rounded-3xl p-6 bg-white">
-                        <div className="size-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-                            <span className="material-icons-round text-4xl text-gray-300">hourglass_empty</span>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-64 text-center border-2 border-dashed border-gray-300 rounded-3xl p-6 bg-white shadow-sm">
+                            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+                                <span className="material-icons-round text-3xl text-gray-300">hourglass_empty</span>
+                            </div>
+                            <h3 className="font-black text-lg text-gray-800">Esperando Pedidos</h3>
+                            <p className="text-sm text-gray-500 mt-1 max-w-[220px]">Cuando la caja te asigne un pedido, aparecerá aquí automáticamente.</p>
                         </div>
-                        <h3 className="font-black text-lg text-gray-800">Esperando Pedidos</h3>
-                        <p className="text-sm text-gray-500 mt-1">Cuando la caja te asigne un pedido a domicilio, aparecerá aquí automáticamente.</p>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
 
             {/* Transfer Modal */}
