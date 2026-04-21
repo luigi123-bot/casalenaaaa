@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-export const dynamic = 'force-static';
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 
 const supabase = createClient(
@@ -14,16 +14,23 @@ export async function GET(request: Request) {
 
         console.log(`=== FETCHING DASHBOARD STATS (Range: ${range}) ===`);
 
-        // Obtener TODAS las órdenes (para poder filtrar en memoria rápidamente)
-        // En producción con miles de datos, esto debería filtrarse en DB.
+        // Fetch all relevant columns. Removed tax_amount as it might not be in all schemas.
         const { data: allOrders, error: ordersError } = await supabase
             .from('orders')
-            .select('id, total_amount, tax_amount, created_at, status');
+            .select('id, total_amount, created_at, status');
 
         if (ordersError) {
-            console.error('Error fetching orders:', ordersError);
-            throw ordersError;
+            console.error('❌ Supabase Order Fetch Error:', ordersError.message, ordersError.hint);
+            throw new Error(`DB Error: ${ordersError.message}`);
         }
+        
+        console.log(`📊 [DB DEBUG] Pedidos totales recuperados: ${allOrders?.length || 0}`);
+        if (allOrders && allOrders.length > 0) {
+            console.log('📝 [DB DEBUG] Primeras 3 órdenes (ejemplo):', JSON.stringify(allOrders.slice(0, 3), null, 2));
+        } else {
+            console.warn('⚠️ [DB DEBUG] No se encontraron órdenes en la tabla "orders".');
+        }
+
 
         // Definir rangos de fecha
         const now = new Date();

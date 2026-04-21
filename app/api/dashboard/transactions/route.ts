@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-export const dynamic = 'force-static';
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 
 const supabase = createClient(
@@ -13,30 +13,29 @@ export async function GET(request: Request) {
         const limit = parseInt(searchParams.get('limit') || '10');
 
         console.log('=== FETCHING RECENT TRANSACTIONS ===');
-        console.log('Limit:', limit);
-
+        
         const { data: orders, error } = await supabase
             .from('orders')
             .select(`
-        id,
-        total_amount,
-        status,
-        payment_method,
-        created_at,
-        order_items (
-          quantity,
-          product_name
-        )
-      `)
+                id,
+                total_amount,
+                status,
+                payment_method,
+                created_at,
+                order_items (
+                    quantity,
+                    product_name
+                )
+            `)
             .order('created_at', { ascending: false })
             .limit(limit);
 
         if (error) {
-            console.error('Error fetching transactions:', error);
+            console.error('❌ Transactions Fetch Error:', error.message);
             throw error;
         }
 
-        console.log('Transactions fetched:', orders?.length);
+        console.log(`✅ Transactions fetched: ${orders?.length || 0}`);
 
         // Formatear las transacciones
         const transactions = orders?.map(order => {

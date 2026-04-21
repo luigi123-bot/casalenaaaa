@@ -454,15 +454,10 @@ export default function AdminPage() {
                                     </div>
                                 </div>
                                 <div className="p-4 h-[400px] w-full relative z-0">
-                                    {/* Using single map for fleet - we'll just show the drivers as markers via driverLocation prop if possible, 
-                                        or we might need multiple markers. Let's simplify and show the most recent active driver for now,
-                                        or the first one. For a true fleet map, we'd need a multi-marker component. 
-                                        Let's assume the user wants to see the general area. */}
                                     <DeliveryMap 
                                         origin={ORIGIN}
                                         destination={null}
-                                        driverLocation={activeDrivers.length > 0 ? [activeDrivers[0].current_lat, activeDrivers[0].current_lng] : null}
-                                        driverName={activeDrivers.length > 0 ? activeDrivers[0].full_name : undefined}
+                                        drivers={activeDrivers}
                                     />
                                     {activeDrivers.length > 1 && (
                                         <div className="absolute top-6 right-6 z-[10] bg-white/90 backdrop-blur p-3 rounded-xl shadow-lg border border-gray-100 max-w-[150px]">

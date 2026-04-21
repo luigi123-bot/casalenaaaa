@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 
 function TrackingContent() {
     const searchParams = useSearchParams();
-    const orderId = searchParams.get('id');
+    let orderId = searchParams.get('id');
 
     const [order, setOrder] = useState<any>(null);
     const [driver, setDriver] = useState<any>(null);
@@ -23,7 +23,18 @@ function TrackingContent() {
 
     useEffect(() => {
         const fetchOrder = async () => {
-            if (!orderId) return;
+            // Robust parsing for common typos like ?id-270
+            if (!orderId) {
+                const rawQuery = typeof window !== 'undefined' ? window.location.search : '';
+                const match = rawQuery.match(/[?&]id[-=](\d+)+/);
+                if (match) orderId = match[1];
+            }
+
+            if (!orderId) {
+                setError('ID de pedido inválido o no proporcionado');
+                setLoading(false);
+                return;
+            }
 
             const { data: orderData, error: orderErr } = await supabase
                 .from('orders')
@@ -42,16 +53,23 @@ function TrackingContent() {
             // Attempt to silently geocode customer's address for the map destination
             if (orderData.delivery_address) {
                 const addressStr = orderData.delivery_address;
-                fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&state=Guerrero&country=Mexico&q=${encodeURIComponent(addressStr)}`)
-                    .then(res => res.json())
-                    .then((results) => {
-                        if (results && results.length > 0) {
-                            setDestination([parseFloat(results[0].lat), parseFloat(results[0].lon)]);
-                        } else {
-                            // Si no se encuentra, usar el centro de su ciudad por defecto
-                            setDestination([16.6850, -98.4100]);
-                        }
-                    }).catch(e => console.error(e));
+                const cleanAddress = addressStr.split('(')[0].split(',')[0].trim();
+
+                const fetchGeo = async (q: string) => {
+                    try {
+                        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+                        const data = await res.json();
+                        return data && data.length > 0 ? [parseFloat(data[0].lat), parseFloat(data[0].lon)] as [number, number] : null;
+                    } catch { return null; }
+                };
+
+                const startGeo = async () => {
+                    let coords = await fetchGeo(addressStr);
+                    if (!coords) coords = await fetchGeo(cleanAddress);
+                    if (!coords) coords = [16.6850, -98.4100]; // Fallback to city center
+                    setDestination(coords);
+                };
+                startGeo();
             } else {
                  setDestination([16.6850, -98.4100]); // fallback pickup
             }

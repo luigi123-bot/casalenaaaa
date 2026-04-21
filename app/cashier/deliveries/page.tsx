@@ -3,12 +3,83 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+
+const DeliveryMap = dynamic(() => import('@/components/DeliveryMap'), { ssr: false });
+
+const ORIGIN: [number, number] = [16.6853, -98.4116]; 
+
+function LiveTrackerModal({ order, onClose }: { order: any, onClose: () => void }) {
+    const [driverLocation, setDriverLocation] = useState<[number, number] | null>(null);
+    const [destination, setDestination] = useState<[number, number] | null>(null);
+    const [driver, setDriver] = useState<any>(null);
+
+    useEffect(() => {
+        if (!order || !order.driver_id) return;
+
+        const fetchOrderData = async () => {
+            const { data: driverData } = await supabase.from('delivery_drivers').select('*').eq('id', order.driver_id).single();
+            if (driverData) {
+                setDriver(driverData);
+                if (driverData.current_lat && driverData.current_lng) {
+                    setDriverLocation([driverData.current_lat, driverData.current_lng]);
+                }
+            }
+
+            if (order.delivery_address) {
+                fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&state=Guerrero&country=Mexico&q=${encodeURIComponent(order.delivery_address)}`)
+                    .then(res => res.json())
+                    .then((results) => {
+                        if (results && results.length > 0) {
+                            setDestination([parseFloat(results[0].lat), parseFloat(results[0].lon)]);
+                        }
+                    }).catch(e => console.error(e));
+            }
+        };
+
+        fetchOrderData();
+
+        const channel = supabase.channel(`admin_tracking_${order.driver_id}`);
+        channel.on('broadcast', { event: 'location_update' }, (payload) => {
+            setDriverLocation([payload.payload.lat, payload.payload.lng]);
+        }).subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [order]);
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[70vh] lg:h-[80vh]">
+                <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                    <div>
+                        <h3 className="font-black text-lg">Rastreo Pedido #{order.id.toString().slice(-5)}</h3>
+                        <p className="text-xs font-bold text-gray-500 uppercase">{driver?.full_name || 'Repartidor'}</p>
+                    </div>
+                    <button onClick={onClose} className="size-10 flex items-center justify-center rounded-xl hover:bg-gray-50 text-gray-400">
+                        <span className="material-icons-round">close</span>
+                    </button>
+                </div>
+                <div className="flex-1 relative bg-gray-100 z-0">
+                    <DeliveryMap 
+                        origin={ORIGIN}
+                        destination={destination}
+                        driverLocation={driverLocation}
+                        driverName={driver?.full_name}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+}
 
 export default function DeliveriesPage() {
     const [orders, setOrders] = useState<any[]>([]);
     const [drivers, setDrivers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+    const [trackingOrder, setTrackingOrder] = useState<any | null>(null);
     const [schemaError, setSchemaError] = useState(false);
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -252,10 +323,13 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_status TEXT DEFAULT 
                                                 <span className="material-icons-round text-[18px]">swap_horiz</span>
                                                 Cambiar
                                             </button>
-                                            <Link href={`/tracking?id=${order.id}`} className="bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-black transition-colors flex items-center gap-1">
+                                            <button 
+                                                onClick={() => setTrackingOrder(order)}
+                                                className="bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-xl text-sm font-black transition-colors flex items-center gap-1"
+                                            >
                                                 <span className="material-icons-round text-[18px]">my_location</span>
                                                 Track
-                                            </Link>
+                                            </button>
                                         </>
                                     ) : (
                                         <button 
@@ -340,6 +414,14 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_status TEXT DEFAULT 
                 </div>
                 
             </div>
+
+            {/* Tracking Modal */}
+            {trackingOrder && (
+                <LiveTrackerModal 
+                    order={trackingOrder} 
+                    onClose={() => setTrackingOrder(null)} 
+                />
+            )}
         </div>
     );
 }
