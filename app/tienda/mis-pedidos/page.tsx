@@ -1,8 +1,73 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+
+// Dynamic import for map to avoid SSR issues
+const DeliveryMap = dynamic(() => import('@/components/DeliveryMap'), { ssr: false });
+
+const ORIGIN: [number, number] = [16.6853, -98.4116]; 
+
+function OrderTracker({ order }: { order: any }) {
+    const [driverLocation, setDriverLocation] = useState<[number, number] | null>(null);
+    const [destination, setDestination] = useState<[number, number] | null>(null);
+    const [driver, setDriver] = useState<any>(null);
+
+    useEffect(() => {
+        if (order.delivery_address) {
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&state=Guerrero&country=Mexico&q=${encodeURIComponent(order.delivery_address)}`)
+                .then(res => res.json())
+                .then((results) => {
+                    if (results && results.length > 0) {
+                        setDestination([parseFloat(results[0].lat), parseFloat(results[0].lon)]);
+                    }
+                }).catch(e => console.error(e));
+        }
+
+        if (order.driver_id) {
+            const fetchDriver = async () => {
+                const { data } = await supabase.from('delivery_drivers').select('*').eq('id', order.driver_id).single();
+                if (data) {
+                    setDriver(data);
+                    if (data.current_lat && data.current_lng) {
+                        setDriverLocation([data.current_lat, data.current_lng]);
+                    }
+                }
+            };
+            fetchDriver();
+
+            const channel = supabase.channel(`tracking_driver_${order.driver_id}`);
+            channel.on('broadcast', { event: 'location_update' }, (payload) => {
+                setDriverLocation([payload.payload.lat, payload.payload.lng]);
+            }).subscribe();
+
+            return () => {
+                supabase.removeChannel(channel);
+            };
+        }
+    }, [order.driver_id, order.delivery_address]);
+
+    if (order.order_type !== 'delivery') return null;
+
+    return (
+        <div className="mt-4 rounded-2xl overflow-hidden border border-gray-100 h-[200px] relative z-0">
+            <DeliveryMap 
+                origin={ORIGIN}
+                destination={destination}
+                driverLocation={driverLocation}
+                driverName={driver?.full_name || 'Tu repartidor'}
+            />
+            {driver && (
+                <div className="absolute top-3 right-3 z-[10] bg-white/90 backdrop-blur px-2 py-1 rounded-lg shadow-sm border border-gray-100 flex items-center gap-2">
+                    <div className="size-1.5 bg-green-500 rounded-full animate-ping"></div>
+                    <span className="text-[9px] font-black uppercase text-gray-700">{driver.full_name.split(' ')[0]} en camíno</span>
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function MisPedidosPage() {
     const [orders, setOrders] = useState<any[]>([]);
@@ -98,6 +163,8 @@ export default function MisPedidosPage() {
                 return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-purple-100 text-purple-700">Listo</span>;
             case 'preparando':
                 return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-orange-100 text-orange-700 animate-pulse border border-orange-200">En Cocina</span>;
+            case 'en_camino':
+                return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-blue-600 text-white animate-pulse">En Camino 🛵</span>;
             case 'confirmado':
                 return <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-blue-100 text-blue-700">Confirmado</span>;
             case 'cancelado':
@@ -107,7 +174,7 @@ export default function MisPedidosPage() {
         }
     };
 
-    const activeOrders = orders.filter(o => ['pendiente', 'confirmado', 'preparando', 'listo'].includes(o.status));
+    const activeOrders = orders.filter(o => ['pendiente', 'confirmado', 'preparando', 'listo', 'en_camino'].includes(o.status));
     const historyOrders = orders.filter(o => ['entregado', 'completado', 'cancelado'].includes(o.status));
     const displayedOrders = activeTab === 'active' ? activeOrders : historyOrders;
 
@@ -192,7 +259,13 @@ export default function MisPedidosPage() {
                                                 {order.status === 'confirmado' && "🔥 ¡Aceptado! Tu orden está en fila."}
                                                 {order.status === 'preparando' && "🍳 Tu pedido está en el horno."}
                                                 {order.status === 'listo' && "🛵 ¡Listo para entrega o salida!"}
+                                                {order.status === 'en_camino' && "🛵 ¡Tu pedido va en camino!"}
                                             </p>
+                                            
+                                            {/* Live Tracking Map Integrated */}
+                                            {order.order_type === 'delivery' && (order.status === 'en_camino' || order.status === 'listo') && (
+                                                <OrderTracker order={order} />
+                                            )}
                                         </div>
                                     )}
 

@@ -76,6 +76,11 @@ export async function POST(request: Request) {
 
         const typeLabel = orderType === 'delivery' ? '🛵 DOMICILIO' : '🏃 PICK UP';
 
+        // Create tracking link
+        const host = request.headers.get('host') || 'casalenapizza.com';
+        const protocol = request.headers.get('x-forwarded-proto') || 'https';
+        const trackingLink = `${protocol}://${host}/tracking?id=${order.id}`;
+
         const restaurantMsg = [
             `🔔 *NUEVO PEDIDO ONLINE #${order.id}*`,
             ``,
@@ -90,6 +95,7 @@ export async function POST(request: Request) {
             ``,
             `💰 *TOTAL: $${totalAmount.toFixed(2)}*`,
             ``,
+            orderType === 'delivery' ? `📍 *Link Rastreo en Vivo:*\n${trackingLink}\n` : '',
             `_Pedido realizado desde el menú web_`,
         ].filter(Boolean).join('\n');
 
@@ -107,6 +113,7 @@ export async function POST(request: Request) {
             itemsList,
             `💰 *Total: $${totalAmount.toFixed(2)}*`,
             ``,
+            orderType === 'delivery' ? `📍 *Sigue tu pedido en vivo (Mapeo Rapido):*\n${trackingLink}\n` : '',
             `En breve nos ponemos en contacto contigo para confirmarlo. ¡Gracias! 🔥`,
         ].filter(Boolean).join('\n');
 

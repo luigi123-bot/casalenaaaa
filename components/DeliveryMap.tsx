@@ -30,7 +30,7 @@ if (typeof window !== 'undefined') {
 // Map Component Props
 interface DeliveryMapProps {
     origin: [number, number];
-    destination: [number, number];
+    destination: [number, number] | null;
     driverLocation: [number, number] | null;
     driverName?: string;
 }
@@ -67,66 +67,69 @@ export default function DeliveryMap({ origin, destination, driverLocation, drive
     });
 
     // Simple bounds calculation
-    const bounds = L.latLngBounds([origin, destination]);
+    const bounds = L.latLngBounds([]);
+    if (origin) bounds.extend(origin);
+    if (destination) bounds.extend(destination);
     if (driverLocation) bounds.extend(driverLocation);
 
-    const mapCenter = driverLocation || origin;
+    // Fallback if no bounds
+    const defaultCenter = [19.4326, -99.1332]; // CDMX center default if absolutely nothing is known
+    
+    // Si no hay limites validos, no pasamos `bounds` sino un center estático.
+    const hasValidBounds = !!origin || !!destination || !!driverLocation;
 
     return (
-        <div className="w-full h-full relative z-0 rounded-2xl overflow-hidden shadow-inner border border-gray-200">
-            <MapContainer 
-                bounds={bounds} 
-                zoom={14} 
-                scrollWheelZoom={true} 
-                className="w-full h-full"
-                boundsOptions={{ padding: [50, 50] }}
-            >
-                <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-                
-                {/* Store Marker */}
-                <Marker position={origin} icon={restaurantIcon}>
-                    <Popup>
-                        <div className="font-black text-sm">Restaurante Orig.</div>
-                    </Popup>
-                </Marker>
-
-                {/* Customer Marker */}
-                <Marker position={destination} icon={destinationIcon}>
-                    <Popup>
-                        <div className="font-black text-sm">Destino Cliente</div>
-                    </Popup>
-                </Marker>
-
-                {/* Driver Marker */}
-                {driverLocation && (
-                    <Marker position={driverLocation} icon={driverIcon}>
-                        <Popup>
-                            <div className="font-black text-sm">{driverName || 'Tu repartidor'}</div>
-                            <div className="text-xs text-gray-500">En camino...</div>
-                        </Popup>
-                    </Marker>
-                )}
-
-                {/* Drawn route line between points (Simplified straight line since we don't have OSRM set up) */}
-                <Polyline 
-                    positions={[origin, destination]} 
-                    color="#f7951d" 
-                    dashArray="5, 10"
-                    weight={3}
-                    opacity={0.5}
-                />
-                
-                {driverLocation && (
-                    <Polyline 
-                        positions={[driverLocation, destination]} 
-                        color="#10b981" 
-                        weight={4}
+        <div className="w-full h-full min-h-[250px] relative z-0 rounded-2xl overflow-hidden shadow-inner border border-gray-200">
+            {hasValidBounds ? (
+                <MapContainer 
+                    bounds={bounds} 
+                    zoom={14} 
+                    scrollWheelZoom={true} 
+                    className="w-full h-full z-0"
+                    boundsOptions={{ padding: [50, 50] }}
+                >
+                    <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
-                )}
-            </MapContainer>
+                    
+                    {/* Store Marker */}
+                    {origin && (
+                        <Marker position={origin} icon={restaurantIcon}>
+                            <Popup><div className="font-black text-sm">Restaurante</div></Popup>
+                        </Marker>
+                    )}
+
+                    {/* Customer Marker */}
+                    {destination && (
+                        <Marker position={destination} icon={destinationIcon}>
+                            <Popup><div className="font-black text-sm">Destino Cliente</div></Popup>
+                        </Marker>
+                    )}
+
+                    {/* Driver Marker */}
+                    {driverLocation && (
+                        <Marker position={driverLocation} icon={driverIcon}>
+                            <Popup>
+                                <div className="font-black text-sm">{driverName || 'Tu ubicación'}</div>
+                                <div className="text-xs text-gray-500">En ruta...</div>
+                            </Popup>
+                        </Marker>
+                    )}
+
+                    {origin && destination && (
+                        <Polyline positions={[origin, destination]} color="#f7951d" dashArray="5, 10" weight={3} opacity={0.5} />
+                    )}
+                    
+                    {driverLocation && destination && (
+                        <Polyline positions={[driverLocation, destination]} color="#10b981" weight={4} />
+                    )}
+                </MapContainer>
+            ) : (
+                <div className="w-full h-full bg-gray-100 flex items-center justify-center font-bold text-gray-400">
+                    Buscando señal GPS...
+                </div>
+            )}
         </div>
     );
 }

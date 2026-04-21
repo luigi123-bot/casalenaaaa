@@ -19,7 +19,7 @@ function TrackingContent() {
     // Hardcoded restaurant origin for Casalena
     const ORIGIN: [number, number] = [16.6853, -98.4116]; 
     // Realistic fallback customer location (near the origin) if geocoding is missing
-    const [destination, setDestination] = useState<[number, number]>([16.6800, -98.4100]); 
+    const [destination, setDestination] = useState<[number, number] | null>(null); 
 
     useEffect(() => {
         const fetchOrder = async () => {
@@ -39,6 +39,23 @@ function TrackingContent() {
 
             setOrder(orderData);
 
+            // Attempt to silently geocode customer's address for the map destination
+            if (orderData.delivery_address) {
+                const addressStr = orderData.delivery_address;
+                fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&state=Guerrero&country=Mexico&q=${encodeURIComponent(addressStr)}`)
+                    .then(res => res.json())
+                    .then((results) => {
+                        if (results && results.length > 0) {
+                            setDestination([parseFloat(results[0].lat), parseFloat(results[0].lon)]);
+                        } else {
+                            // Si no se encuentra, usar el centro de su ciudad por defecto
+                            setDestination([16.6850, -98.4100]);
+                        }
+                    }).catch(e => console.error(e));
+            } else {
+                 setDestination([16.6850, -98.4100]); // fallback pickup
+            }
+
             if (orderData.driver_id) {
                 const { data: driverData } = await supabase
                     .from('delivery_drivers')
@@ -47,6 +64,11 @@ function TrackingContent() {
                     .single();
                 
                 if (driverData) setDriver(driverData);
+
+                // Fetch initial static location directly from table just in case broadcast is asleep
+                if (driverData?.current_lat && driverData?.current_lng) {
+                     setDriverLocation([driverData.current_lat, driverData.current_lng]);
+                }
 
                 // Subscribe to Driver Location updates via Channels
                 const channel = supabase.channel(`tracking_driver_${orderData.driver_id}`);
@@ -57,11 +79,13 @@ function TrackingContent() {
                     
                     // Simple ETA: calculate straight-line distance, assume 30km/h
                     // 1 deg is roughly 111km.
-                    const distDeg = Math.sqrt(Math.pow(lat - destination[0], 2) + Math.pow(lng - destination[1], 2));
-                    const distKm = distDeg * 111;
-                    const speedKmph = 30; // 30 km/h avg in city
-                    const timeHours = distKm / speedKmph;
-                    setEtaSeconds(Math.max(60, Math.floor(timeHours * 3600))); // Min 1 minute
+                    if (destination) {
+                        const distDeg = Math.sqrt(Math.pow(lat - destination[0], 2) + Math.pow(lng - destination[1], 2));
+                        const distKm = distDeg * 111;
+                        const speedKmph = 30; // 30 km/h avg in city
+                        const timeHours = distKm / speedKmph;
+                        setEtaSeconds(Math.max(60, Math.floor(timeHours * 3600))); // Min 1 minute
+                    }
                 }).subscribe();
 
                 return () => {

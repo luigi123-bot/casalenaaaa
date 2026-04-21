@@ -385,10 +385,8 @@ export default function CashierPage() {
     };
 
     useEffect(() => {
-        if (showCustomerModal) {
-            fetchClientsForDropdown();
-        }
-    }, [showCustomerModal]);
+        fetchClientsForDropdown();
+    }, []);
 
     // BROWSER NOTIFICATIONS SYSTEM
     const handleAcceptOrder = async (orderId: number | string) => {
@@ -2559,6 +2557,18 @@ export default function CashierPage() {
                                                     } else {
                                                         setTableNumber('');
                                                         setActiveOrderId(order.id);
+                                                        
+                                                        if (order.order_type !== 'dine-in') {
+                                                            setCustomerInfo({
+                                                                name: order.customer_name || '',
+                                                                phone: order.phone_number || '',
+                                                                address: order.delivery_address || '',
+                                                                street: (order.delivery_address || '').split(',')[0] || '',
+                                                                neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                                reference: ''
+                                                            });
+                                                        }
+
                                                         const loadedCart = (order.order_items || []).map((item: any) => ({
                                                             id: item.product_id || 0,
                                                             name: item.product_name,
@@ -2593,6 +2603,17 @@ export default function CashierPage() {
                                                     else setTableNumber('');
                                                     
                                                     setActiveOrderId(order.id);
+                                                    
+                                                    if (order.order_type !== 'dine-in') {
+                                                        setCustomerInfo({
+                                                            name: order.customer_name || '',
+                                                            phone: order.phone_number || '',
+                                                            address: order.delivery_address || '',
+                                                            street: (order.delivery_address || '').split(',')[0] || '',
+                                                            neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                            reference: ''
+                                                        });
+                                                    }
                                                     
                                                     // ALWAYS load items into cart so the payment modal sees the total
                                                     const loadedCart = (order.order_items || []).map((item: any) => ({

@@ -1,7 +1,10 @@
+'use client';
+
 import { useRef, useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import TicketPrintModal from './TicketPrintModal';
 import { TicketData } from './Ticket58mm';
+import DeliveryMap from './DeliveryMap';
 
 interface OrderItem {
     id: number;
@@ -28,7 +31,7 @@ interface Order {
     order_type?: string;
     delivery_address?: string;
     phone_number?: string;
-    user_id?: string; // Agregado para gamificación
+    user_id?: string;
 }
 
 interface OrderDetailsPanelProps {
@@ -45,17 +48,52 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     const [ticketData, setTicketData] = useState<TicketData | null>(null);
     const [repartidores, setRepartidores] = useState<any[]>([]);
     const [selectedRepartidor, setSelectedRepartidor] = useState<string>('');
+    const [driverLocation, setDriverLocation] = useState<[number, number] | null>(null);
+    const [destinationCoords, setDestinationCoords] = useState<[number, number] | null>(null);
+    const ORIGIN: [number, number] = [16.6853, -98.4116]; 
+
+    useEffect(() => {
+        if (!order || !selectedRepartidor || order.order_type !== 'delivery') {
+            setDriverLocation(null);
+            return;
+        }
+        const channel = supabase.channel(`admin_tracking_${selectedRepartidor}`);
+        const fetchInitialLoc = async () => {
+            const { data } = await supabase.from('delivery_drivers').select('current_lat, current_lng').eq('id', selectedRepartidor).single();
+            if (data?.current_lat && data?.current_lng) {
+                setDriverLocation([data.current_lat, data.current_lng]);
+            }
+        };
+        fetchInitialLoc();
+        channel.on('broadcast', { event: 'location_update' }, (payload) => {
+            if (payload.payload.lat && payload.payload.lng) {
+                setDriverLocation([payload.payload.lat, payload.payload.lng]);
+            }
+        }).subscribe();
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [selectedRepartidor, order]);
+
+    useEffect(() => {
+        if (!order?.delivery_address || order.order_type !== 'delivery') {
+            setDestinationCoords(null);
+            return;
+        }
+        fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(order.delivery_address)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.length > 0) {
+                    setDestinationCoords([parseFloat(data[0].lat), parseFloat(data[0].lon)]);
+                }
+            }).catch(e => console.error(e));
+    }, [order?.delivery_address, order?.order_type]);
 
     const handlePrintTicket = () => {
         if (!order) return;
-
         const data: TicketData = {
-            atendido_por: localStorage.getItem('cached_cashier_name') || 'CAJERO',
-            comercio: {
-                nombre: "Casalena Pizza & Grill",
-                telefono: "741-101-1595",
-                direccion: "Blvd. Juan N Alvarez, CP 41706"
-            },
+            atendido_por: typeof window !== 'undefined' ? localStorage.getItem('cached_cashier_name') || 'CAJERO' : 'CAJERO',
+            comercio: { nombre: "Casalena Pizza & Grill", telefono: "741-101-1595", direccion: "Blvd. Juan N Alvarez, CP 41706" },
             pedido: {
                 id: order.id.toString(),
                 tipo: order.order_type || 'Comedor',
@@ -66,51 +104,29 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
                 pago_con: order.total_amount,
                 cambio: 0,
             },
-            productos: order.order_items.map(it => {
-                let extrasNames: string[] = [];
-                if (Array.isArray(it.extras)) {
-                    extrasNames = it.extras.map((ex: any) => {
-                        if (typeof ex === 'string') return ex;
-                        if (ex && typeof ex === 'object') return ex.name || ex.id || ex.type || '';
-                        return '';
-                    }).filter(Boolean);
-                }
-
-                return {
-                    cantidad: it.quantity,
-                    nombre: (it as any).product_name || it.products?.name || 'Producto',
-                    precio: it.unit_price,
-                    detalle: it.selected_size || '',
-                    extras: extrasNames.length > 0 ? extrasNames : undefined
-                };
-            }),
+            productos: order.order_items.map(it => ({
+                cantidad: it.quantity,
+                nombre: (it as any).product_name || it.products?.name || 'Producto',
+                precio: it.unit_price,
+                detalle: it.selected_size || '',
+                extras: Array.isArray(it.extras) ? it.extras.map((ex: any) => typeof ex === 'string' ? ex : (ex?.name || ex?.id || '')).filter(Boolean) : undefined
+            })),
             cliente: order.order_type === 'delivery' ? {
                 nombre: order.customer_name || 'Cliente',
                 telefono: order.phone_number || '',
                 direccion: order.delivery_address || ''
             } : undefined
         };
-
         setTicketData(data);
         setShowTicketModal(true);
     };
 
     useEffect(() => {
         const fetchRepartidores = async () => {
-            try {
-                // Load directly from delivery_drivers table
-                const { data, error } = await (await import('@/utils/supabase/client')).supabase
-                    .from('delivery_drivers')
-                    .select('*')
-                    .eq('is_active', true);
-                if (!error && data) setRepartidores(data);
-            } catch (error) {
-                console.error('Error fetching repartidores:', error);
-            }
+            const { data } = await supabase.from('delivery_drivers').select('*').eq('is_active', true);
+            if (data) setRepartidores(data);
         };
-
         fetchRepartidores();
-        
         if (order && (order as any).driver_id) {
             setSelectedRepartidor((order as any).driver_id);
         } else {
@@ -133,229 +149,111 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     const handleUpdateStatus = async (newStatus: string) => {
         if (updating) return;
         setUpdating(true);
-        console.log(`[OrderAction] Attempting to update order ${order.id} to status: ${newStatus}`);
-
         try {
-            // Use and await the update with a select() to verify it actually happened
-            const { data, error } = await supabase
-                .from('orders')
-                .update({ status: newStatus })
-                .eq('id', order.id)
-                .select();
-
-            if (error) {
-                console.error('[OrderAction] DB Error:', error);
-                throw error;
-            }
-
-            if (!data || data.length === 0) {
-                console.warn('[OrderAction] No rows updated. This usually means a policy (RLS) blocked the action.');
-                throw new Error('No tienes permisos suficientes para actualizar esta orden.');
-            }
-
-            console.log('[OrderAction] Update successful:', data[0]);
-
+            await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
             if (onStatusChange) onStatusChange();
             onClose();
-
         } catch (error: any) {
-            console.error('[OrderAction] Exception:', error);
-            alert(`No se pudo actualizar el pedido: ${error.message || 'Error de conexión'}`);
+            alert(`Error: ${error.message}`);
         } finally {
             setUpdating(false);
-            console.log('[OrderAction] Process finished');
         }
     };
 
     const handleDeleteOrder = async () => {
-        if (!confirm('¿CONFIRMAR CANCELACIÓN? Se eliminará de la base de datos y se notificará al cliente.')) return;
+        if (!confirm('¿CONFIRMAR CANCELACIÓN?')) return;
         setUpdating(true);
-
         try {
-            // 1. Delete via API
-            const response = await fetch('/api/orders/cancel', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orderId: order.id })
-            });
-
-            if (!response.ok) throw new Error('Error al eliminar');
-
-            // 2. Notify Customer via WhatsApp
-            if (order.phone_number) {
-                const cleanPhone = order.phone_number.replace(/\D/g, '');
-                const message = `Hola ${order.customer_name || 'Cliente'}, lamentamos informarle que su pedido #${order.id} ha sido cancelado.`;
-                const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
-                window.open(whatsappUrl, '_blank');
-            }
-
+            await fetch('/api/orders/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: order.id }) });
             onClose();
             if (onStatusChange) onStatusChange();
-
         } catch (error: any) {
-            console.error(error);
-            alert('Error al cancelar pedido: ' + error.message);
+            alert('Error: ' + error.message);
         } finally {
             setUpdating(false);
         }
     };
 
     const StatusConfig: Record<string, { label: string, color: string, icon: string, nextStatus?: string, nextLabel?: string, nextColor?: string, nextIcon?: string }> = {
-        'pendiente': {
-            label: 'Pendiente', color: 'bg-yellow-50 border-yellow-200 text-yellow-800', icon: 'hourglass_empty',
-            nextStatus: 'confirmado', nextLabel: 'Confirmar Pedido', nextColor: 'bg-[#0c4e36] hover:bg-[#083a27]', nextIcon: 'check_circle'
-        },
-        'confirmado': {
-            label: 'Confirmado', color: 'bg-blue-50 border-blue-200 text-blue-800', icon: 'thumb_up',
-            nextStatus: 'preparando', nextLabel: 'Empezar a Preparar', nextColor: 'bg-[#F27405] hover:bg-[#d66503]', nextIcon: 'cooking'
-        },
-        'preparando': {
-            label: 'Preparando', color: 'bg-orange-50 border-orange-200 text-orange-800', icon: 'cooking',
-            nextStatus: 'listo', nextLabel: 'Pedido Listo', nextColor: 'bg-indigo-600 hover:bg-indigo-700', nextIcon: 'restaurant'
-        },
-        'listo': {
-            label: 'Listo', color: 'bg-purple-50 border-purple-200 text-purple-800', icon: 'room_service',
-            nextStatus: 'entregado', nextLabel: 'Marcar como Entregado', nextColor: 'bg-gray-900 hover:bg-black', nextIcon: 'task_alt'
-        },
-        'entregado': {
-            label: 'Entregado', color: 'bg-green-50 border-green-200 text-green-800', icon: 'check_circle'
-        },
-        'cancelado': {
-            label: 'Cancelado', color: 'bg-red-50 border-red-200 text-red-800', icon: 'cancel'
-        }
+        'pendiente': { label: 'Pendiente', color: 'bg-yellow-50 text-yellow-800', icon: 'hourglass_empty', nextStatus: 'confirmado', nextLabel: 'Confirmar Pedido', nextColor: 'bg-[#0c4e36]', nextIcon: 'check_circle' },
+        'confirmado': { label: 'Confirmado', color: 'bg-blue-50 text-blue-800', icon: 'thumb_up', nextStatus: 'preparando', nextLabel: 'Empezar a Preparar', nextColor: 'bg-[#F27405]', nextIcon: 'cooking' },
+        'preparando': { label: 'Preparando', color: 'bg-orange-50 text-orange-800', icon: 'cooking', nextStatus: 'listo', nextLabel: 'Pedido Listo', nextColor: 'bg-indigo-600', nextIcon: 'restaurant' },
+        'listo': { label: 'Listo', color: 'bg-purple-50 text-purple-800', icon: 'room_service', nextStatus: 'entregado', nextLabel: 'Marcar como Entregado', nextColor: 'bg-gray-900', nextIcon: 'task_alt' },
+        'entregado': { label: 'Entregado', color: 'bg-green-50 text-green-800', icon: 'check_circle' },
+        'cancelado': { label: 'Cancelado', color: 'bg-red-50 text-red-800', icon: 'cancel' }
     };
-
     const currentStatus = StatusConfig[order.status] || { label: order.status, color: 'bg-gray-50', icon: 'info' };
 
     return (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-sm">
             <iframe ref={iframeRef} className="absolute w-0 h-0 border-none" title="Receipt" />
-
-
-            <div ref={panelRef} className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+            <div ref={panelRef} className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col">
                 <div className="p-6 border-b border-[#e6e1db] flex items-center justify-between">
                     <div>
                         <h2 className="text-2xl font-black text-[#181511]">Orden #{order.id}</h2>
-                        <p className="text-sm font-bold text-[#F27405] mt-1">{order.customer_name || 'Luis Gotopo'}</p>
+                        <p className="text-sm font-bold text-[#F27405] mt-1">{order.customer_name || 'Cliente'}</p>
                     </div>
-                    <button onClick={onClose} className="size-8 flex items-center justify-center rounded-full hover:bg-[#f5f2f0] text-[#8c785f]"><span className="material-symbols-outlined">close</span></button>
+                    <button onClick={onClose} className="size-8 flex items-center justify-center rounded-full hover:bg-gray-100"><span className="material-symbols-outlined">close</span></button>
                 </div>
-
                 <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-[#fcfbf9]">
-                    <div className={`rounded-2xl p-4 border-2 flex items-center justify-between ${currentStatus.color}`}>
-                        <div className="flex items-center gap-3 font-black uppercase tracking-widest text-xs">
-                            <span className="material-symbols-outlined text-xl">{currentStatus.icon}</span>
+                    <div className={`rounded-2xl p-4 border flex items-center justify-between ${currentStatus.color}`}>
+                        <div className="flex items-center gap-3 font-black uppercase text-xs">
+                            <span className="material-symbols-outlined">{currentStatus.icon}</span>
                             Estado: {currentStatus.label}
                         </div>
                     </div>
-
                     <div className="space-y-4">
-                        <h3 className="text-xs font-bold text-[#8c785f] uppercase tracking-wider mb-2 border-b border-[#e6e1db] pb-2">Contenido</h3>
+                        <h3 className="text-xs font-bold text-[#8c785f] uppercase tracking-wider border-b pb-2">Contenido</h3>
                         {order.order_items?.map((item) => (
-                            <div key={item.id} className="flex justify-between items-start">
-                                <div className="flex gap-3">
-                                    <span className="font-black text-primary">{item.quantity}x</span>
-                                    <span className="font-bold text-[#181511] text-sm">{(item as any).product_name || item.products?.name}</span>
-                                </div>
-                                <span className="font-bold text-[#181511] text-sm">${item.unit_price.toFixed(2)}</span>
+                            <div key={item.id} className="flex justify-between items-start text-sm font-bold">
+                                <span>{item.quantity}x {(item as any).product_name || item.products?.name}</span>
+                                <span>${(item.unit_price ?? 0).toFixed(2)}</span>
                             </div>
                         ))}
                     </div>
-
                     <div className="bg-white rounded-2xl p-4 border border-[#e6e1db] space-y-4">
-                        <div className="grid grid-cols-2 gap-4 text-[11px] border-b border-gray-100 pb-3">
-                            <div><p className="text-gray-400 font-bold uppercase mb-1">Tipo</p><p className="font-bold text-[#181511]">{order.order_type === 'delivery' ? 'Domicilio' : 'Comedor (' + (order.table_number || 'S/N') + ')'}</p></div>
-                            <div><p className="text-gray-400 font-bold uppercase mb-1">Pago</p><p className="font-bold text-[#181511]">{order.payment_method || 'Efectivo'}</p></div>
+                        <div className="grid grid-cols-2 gap-4 text-[11px] border-b pb-3">
+                            <div><p className="text-gray-400 font-bold uppercase">Tipo</p><p className="font-bold">{order.order_type === 'delivery' ? 'Domicilio' : 'Comedor'}</p></div>
+                            <div><p className="text-gray-400 font-bold uppercase">Pago</p><p className="font-bold">{order.payment_method}</p></div>
                         </div>
-                        
                         <div className="grid grid-cols-2 gap-4 text-[11px]">
-                            <div>
-                                <p className="text-gray-400 font-bold uppercase mb-1">Tomado por</p>
-                                <p className="font-bold text-primary">{(order as any).cashier_name || 'Cajero'}</p>
-                            </div>
+                            <div><p className="text-gray-400 font-bold uppercase">Tomado por</p><p className="font-bold text-primary">{(order as any).cashier_name || 'Web'}</p></div>
                             {order.order_type === 'delivery' && (
                                 <div>
-                                    <p className="text-gray-400 font-bold uppercase mb-1">Repartidor</p>
-                                    <select 
-                                        value={selectedRepartidor}
-                                        onChange={async (e) => {
-                                            const driverId = e.target.value;
-                                            setSelectedRepartidor(driverId);
-                                            if (!driverId) return;
-                                            console.log(`[OrderPanel] Asignando driver_id=${driverId} a orden ${order.id}`);
-                                            try {
-                                                const { error } = await supabase
-                                                    .from('orders')
-                                                    .update({ 
-                                                        driver_id: driverId,
-                                                        delivery_status: 'assigned',
-                                                        status: 'en_camino'
-                                                    })
-                                                    .eq('id', order.id);
-                                                if (error) {
-                                                    console.error('[OrderPanel] Error asignando repartidor:', error);
-                                                    alert(`Error: ${error.message}`);
-                                                } else {
-                                                    console.log('[OrderPanel] ✅ Repartidor asignado correctamente');
-                                                }
-                                            } catch (err) { console.error(err); }
-                                        }}
-                                        className="w-full bg-orange-50 border border-orange-200 rounded-lg px-2 py-1 font-black text-primary outline-none text-[10px]"
-                                    >
+                                    <p className="text-gray-400 font-bold uppercase">Repartidor</p>
+                                    <select value={selectedRepartidor} onChange={(e) => setSelectedRepartidor(e.target.value)} className="w-full bg-orange-50 border border-orange-200 rounded-lg px-2 py-1 outline-none text-[10px]">
                                         <option value="">Sin asignar</option>
-                                        {repartidores.map(r => (
-                                            <option key={r.id} value={r.id}>{r.full_name}</option>
-                                        ))}
+                                        {repartidores.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
                                     </select>
                                 </div>
                             )}
                         </div>
+                        {order.order_type === 'delivery' && (
+                            <div className="space-y-3 pt-4 border-t">
+                                <h3 className="text-xs font-bold text-[#8c785f] uppercase">Rastreo en Vivo</h3>
+                                <div className="h-[200px] w-full rounded-2xl overflow-hidden relative z-0 border">
+                                    <DeliveryMap origin={ORIGIN} destination={destinationCoords} driverLocation={driverLocation} driverName="Moto" />
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
-
-                <div className="p-6 bg-white border-t border-[#e6e1db] space-y-4 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
+                <div className="p-6 bg-white border-t border-[#e6e1db] space-y-4 shadow-lg">
                     <div className="flex justify-between items-end">
-                        <span className="text-xl font-black text-[#181511]">Total</span>
-                        <span className="text-3xl font-black text-primary">${order.total_amount.toFixed(2)}</span>
+                        <span className="text-xl font-black">Total</span>
+                        <span className="text-3xl font-black text-primary">${(order.total_amount ?? 0).toFixed(2)}</span>
                     </div>
-
                     <div className="flex flex-col gap-3">
                         {currentStatus.nextStatus && (
-                            <button
-                                onClick={() => handleUpdateStatus(currentStatus.nextStatus!)}
-                                disabled={updating}
-                                className={`w-full ${currentStatus.nextColor} text-white font-black py-5 rounded-2xl transition-all flex items-center justify-center gap-3 shadow-lg disabled:opacity-50`}
-                            >
-                                {updating ? <span className="material-symbols-outlined animate-spin">refresh</span> :
-                                    <span className="material-symbols-outlined text-2xl">{currentStatus.nextIcon}</span>}
+                            <button onClick={() => handleUpdateStatus(currentStatus.nextStatus!)} disabled={updating} className={`w-full ${currentStatus.nextColor} text-white font-black py-5 rounded-2xl shadow-lg`}>
                                 {currentStatus.nextLabel}
                             </button>
                         )}
-
-                        <button
-                            onClick={handlePrintTicket}
-                            disabled={updating}
-                            className="w-full bg-[#181511] text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-lg hover:bg-black transition-all disabled:opacity-50"
-                        >
-                            <span className="material-symbols-outlined text-2xl">print</span>
-                            Imprimir Ticket
-                        </button>
-
-                        <button
-                            onClick={handleDeleteOrder}
-                            disabled={updating}
-                            className="w-full text-red-500 font-bold py-2 hover:bg-red-50 rounded-xl transition-all flex items-center justify-center gap-2 text-xs"
-                        >
-                            <span className="material-symbols-outlined text-sm">delete</span> Eliminar Orden
-                        </button>
+                        <button onClick={handlePrintTicket} className="w-full bg-[#181511] text-white font-black py-4 rounded-2xl">Imprimir Ticket</button>
+                        <button onClick={handleDeleteOrder} className="w-full text-red-500 font-bold py-2 text-xs">Eliminar Orden</button>
                     </div>
                 </div>
-
-                <TicketPrintModal
-                    isOpen={showTicketModal}
-                    onClose={() => setShowTicketModal(false)}
-                    data={ticketData}
-                />
+                <TicketPrintModal isOpen={showTicketModal} onClose={() => setShowTicketModal(false)} data={ticketData} />
             </div>
         </div>
     );

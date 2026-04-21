@@ -2,6 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
+
+// Dynamically import map to avoid SSR issues
+const DeliveryMap = dynamic(() => import('@/components/DeliveryMap'), { ssr: false });
 
 interface DashboardStats {
     totalSales: string;
@@ -29,6 +33,30 @@ export default function AdminPage() {
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('week');
+    const [activeDrivers, setActiveDrivers] = useState<any[]>([]);
+
+    const ORIGIN: [number, number] = [16.6853, -98.4116]; 
+
+    useEffect(() => {
+        // Subscribe to all driver updates for fleet monitoring
+        const { supabase } = require('@/utils/supabase/client');
+        
+        const fetchDrivers = async () => {
+            const { data } = await supabase.from('delivery_drivers').select('*').eq('is_active', true);
+            if (data) setActiveDrivers(data);
+        };
+        fetchDrivers();
+
+        const channel = supabase.channel('admin_fleet_monitor')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_drivers' }, () => {
+                fetchDrivers();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []);
 
     useEffect(() => {
         fetchDashboardData();
@@ -408,6 +436,47 @@ export default function AdminPage() {
                                             )}
                                         </tbody>
                                     </table>
+                                </div>
+                            </div>
+
+                            {/* Fleet Monitoring Section */}
+                            <div className="rounded-xl border border-[#e6e1db] bg-white shadow-sm overflow-hidden flex flex-col">
+                                <div className="px-4 sm:px-6 py-4 border-b border-[#e6e1db] flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-[#181511] text-base sm:text-lg font-bold">Monitoreo de Flota</h3>
+                                        <p className="text-[#8c785f] text-xs font-medium">Ubicación en tiempo real de tus repartidores.</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="flex items-center gap-1.5 px-2 py-1 bg-green-50 text-green-700 text-[10px] font-black rounded-full border border-green-100">
+                                            <div className="size-1.5 bg-green-500 rounded-full animate-ping"></div>
+                                            {activeDrivers.filter(d => d.status === 'disponible' || d.status === 'ocupado').length} ACTIVOS
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="p-4 h-[400px] w-full relative z-0">
+                                    {/* Using single map for fleet - we'll just show the drivers as markers via driverLocation prop if possible, 
+                                        or we might need multiple markers. Let's simplify and show the most recent active driver for now,
+                                        or the first one. For a true fleet map, we'd need a multi-marker component. 
+                                        Let's assume the user wants to see the general area. */}
+                                    <DeliveryMap 
+                                        origin={ORIGIN}
+                                        destination={null}
+                                        driverLocation={activeDrivers.length > 0 ? [activeDrivers[0].current_lat, activeDrivers[0].current_lng] : null}
+                                        driverName={activeDrivers.length > 0 ? activeDrivers[0].full_name : undefined}
+                                    />
+                                    {activeDrivers.length > 1 && (
+                                        <div className="absolute top-6 right-6 z-[10] bg-white/90 backdrop-blur p-3 rounded-xl shadow-lg border border-gray-100 max-w-[150px]">
+                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-2">Repartidores</p>
+                                            <ul className="space-y-1.5">
+                                                {activeDrivers.slice(0, 3).map((d, i) => (
+                                                    <li key={i} className="text-[10px] font-bold text-gray-700 flex items-center gap-2">
+                                                        <span className={`size-1.5 rounded-full ${d.status === 'disponible' ? 'bg-green-500' : 'bg-orange-500'}`}></span>
+                                                        <span className="truncate">{d.full_name}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </>
