@@ -70,10 +70,13 @@ export default function NotificationPanel({
                 schema: 'public',
                 table: 'orders'
             }, (payload) => {
+                // Ignorar órdenes creadas internamente por el cajero (las cuales tienen user_id)
+                if (payload.new.user_id) return;
+
                 addNotification({
                     id: crypto.randomUUID(),
                     type: 'order',
-                    title: '🔔 Nueva Orden',
+                    title: '🔔 Nueva Orden Online',
                     message: `Orden #${payload.new.id} - ${payload.new.order_type || 'Pedido'}`,
                     timestamp: new Date(),
                     read: false,
