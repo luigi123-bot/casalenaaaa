@@ -206,6 +206,44 @@ export default function CashierPage() {
     const [systemSettings, setSystemSettings] = useState<any>(null);
     const [isAdmin, setIsAdmin] = useState(false);
 
+    // --- Persistencia Local (LocalStorage) ---
+    const [isStateRestored, setIsStateRestored] = useState(false);
+
+    useEffect(() => {
+        try {
+            const savedCart = localStorage.getItem('caja_cart');
+            if (savedCart) setCart(JSON.parse(savedCart));
+
+            const savedOrderType = localStorage.getItem('caja_orderType');
+            if (savedOrderType) setOrderType(savedOrderType as OrderType);
+
+            const savedTableNumber = localStorage.getItem('caja_tableNumber');
+            if (savedTableNumber) setTableNumber(savedTableNumber);
+
+            const savedCustomerInfo = localStorage.getItem('caja_customerInfo');
+            if (savedCustomerInfo) setCustomerInfo(JSON.parse(savedCustomerInfo));
+
+            const savedActiveOrderId = localStorage.getItem('caja_activeOrderId');
+            if (savedActiveOrderId) setActiveOrderId(savedActiveOrderId);
+        } catch (e) {
+            console.error('Error restoring state from localStorage:', e);
+        } finally {
+            setIsStateRestored(true);
+        }
+    }, []);
+
+    useEffect(() => { if (isStateRestored) localStorage.setItem('caja_cart', JSON.stringify(cart)); }, [cart, isStateRestored]);
+    useEffect(() => { if (isStateRestored) localStorage.setItem('caja_orderType', orderType); }, [orderType, isStateRestored]);
+    useEffect(() => { if (isStateRestored) localStorage.setItem('caja_tableNumber', tableNumber); }, [tableNumber, isStateRestored]);
+    useEffect(() => { if (isStateRestored) localStorage.setItem('caja_customerInfo', JSON.stringify(customerInfo)); }, [customerInfo, isStateRestored]);
+    useEffect(() => { 
+        if (isStateRestored) {
+            if (activeOrderId) localStorage.setItem('caja_activeOrderId', activeOrderId); 
+            else localStorage.removeItem('caja_activeOrderId');
+        }
+    }, [activeOrderId, isStateRestored]);
+    // -----------------------------------------
+
     useEffect(() => {
         let isMounted = true;
         let timeoutId: NodeJS.Timeout;
