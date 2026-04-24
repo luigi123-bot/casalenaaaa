@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
+import { useSessionKeepAlive } from '@/hooks/useSessionKeepAlive';
 import NotificationPanel from '@/components/NotificationPanel';
 import CashierSupportChat from '@/components/CashierSupportChat';
 import TicketPrintModal from '@/components/TicketPrintModal';
@@ -64,6 +65,33 @@ type OrderType = 'dine-in' | 'takeout' | 'delivery';
 export default function CashierPage() {
     const router = useRouter();
     const { isOnline, isSyncing, pendingCount, saveOrderOffline } = useOfflineSync();
+
+    // ── SESIÓN KEEP-ALIVE ────────────────────────────────────────────────────────
+    // Refresca el token JWT de Supabase cada 45 min y al recuperar foco/visibilidad.
+    // Evita que la página se "cuelgue" después de inactividad.
+    useSessionKeepAlive(useCallback(() => {
+        // Si la sesión se pierde completamente, redirigir al login
+        console.warn('[CashierPage] Sesión expirada definitivamente. Redirigiendo al login...');
+        window.location.href = '/login';
+    }, []));
+
+    /**
+     * Garantiza que haya una sesión activa antes de cualquier operación Supabase.
+     * Si el token expiró, intenta refrescarlo. Si no hay sesión, lanza un error claro.
+     */
+    const ensureSession = async () => {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error || !session) {
+            // Último intento de refresh
+            const { data: refreshed } = await supabase.auth.refreshSession();
+            if (!refreshed.session) {
+                throw new Error('Tu sesión ha expirado. Por favor recarga la página e inicia sesión nuevamente.');
+            }
+            return refreshed.session;
+        }
+        return session;
+    };
+
     // Data State
     const [products, setProducts] = useState<Product[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
@@ -1250,8 +1278,17 @@ export default function CashierPage() {
         setLoading(true);
 
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            const userId = user?.id || null;
+            // ── GARANTIZAR SESIÓN ACTIVA ────────────────────────────────────────
+            // Evita que la acción se cuelgue si el token JWT expiró por inactividad.
+            let userId: string | null = null;
+            try {
+                const session = await ensureSession();
+                userId = session.user?.id || null;
+            } catch (sessionErr: any) {
+                setLoading(false);
+                alert(`⚠️ ${sessionErr.message || 'Error de sesión. Por favor recarga la página.'}`);
+                return;
+            }
 
             // Get Daily Ticket Number (Only for new orders)
             let dailySequence = 1;
@@ -1518,8 +1555,21 @@ export default function CashierPage() {
     };
 
     const fetchRecentOrders = async (showLoading = true) => {
-        // Validate session before fetching to avoid RLS/Auth errors
-        const { data: { session } } = await supabase.auth.getSession();
+        // Validar y refrescar sesión antes de queries para evitar errores RLS/Auth
+        // Si la sesión expiró (pestaña inactiva), intentar recuperarla automáticamente.
+        let session;
+        try {
+            const { data } = await supabase.auth.getSession();
+            session = data.session;
+            if (!session) {
+                // Intentar refrescar una sola vez
+                const { data: refreshed } = await supabase.auth.refreshSession();
+                session = refreshed.session;
+            }
+        } catch (sessionErr) {
+            console.warn('[Cashier] ⚠️ Error al verificar sesión en fetchRecentOrders:', sessionErr);
+        }
+
         if (!session) {
             console.log('⏳ [Cashier] Sin sesión activa, saltando fetch de órdenes.');
             return;

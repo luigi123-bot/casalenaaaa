@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 
 export default function RepartidorApp() {
     const router = useRouter();
-    const ORIGIN: [number, number] = [16.6853, -98.4116]; 
+    const ORIGIN: [number, number] = [16.6853, -98.4116];
     const [loadingAuth, setLoadingAuth] = useState(true);
     const [drivers, setDrivers] = useState<any[]>([]);
     const [selectedDriver, setSelectedDriver] = useState<any>(null);
@@ -17,14 +17,14 @@ export default function RepartidorApp() {
     const [showTransferModal, setShowTransferModal] = useState(false);
     const [destinationCoords, setDestinationCoords] = useState<[number, number] | null>(null);
     const [isGeocoding, setIsGeocoding] = useState(false);
-    
+    const [showOrderItems, setShowOrderItems] = useState(false);
+
     const watchId = useRef<number | null>(null);
     const channelRef = useRef<any>(null);
     const lastPosRef = useRef<[number, number] | null>(null);
     const lastUpdateRef = useRef<number>(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
-    // Audio setup for new order notifications
     useEffect(() => {
         audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
     }, []);
@@ -32,37 +32,17 @@ export default function RepartidorApp() {
     useEffect(() => {
         const initAuth = async () => {
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                router.push('/login');
-                return;
-            }
-
+            if (!session) { router.push('/login'); return; }
             const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
             let role = profile?.role?.toLowerCase() || 'cliente';
-            
-            if (session.user.user_metadata?.role?.toLowerCase() === 'repartidor') {
-                role = 'repartidor';
-            }
-            
-            if (role !== 'repartidor') {
-                alert('No tienes permisos de repartidor. Rol detectado: ' + role);
-                router.push('/tienda');
-                return;
-            }
-
+            if (session.user.user_metadata?.role?.toLowerCase() === 'repartidor') role = 'repartidor';
+            if (role !== 'repartidor') { alert('No tienes permisos de repartidor.'); router.push('/tienda'); return; }
             let { data: driver } = await supabase.from('delivery_drivers').select('*').eq('id', session.user.id).maybeSingle();
-            
             if (!driver) {
-                const fullName = profile?.full_name || session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Nuevo Repartidor';
-                const { data: newDriver } = await supabase.from('delivery_drivers').insert({
-                    id: session.user.id,
-                    full_name: fullName,
-                    vehicle_type: 'moto',
-                    is_active: true
-                }).select().single();
+                const fullName = profile?.full_name || session.user.email?.split('@')[0] || 'Repartidor';
+                const { data: newDriver } = await supabase.from('delivery_drivers').insert({ id: session.user.id, full_name: fullName, vehicle_type: 'moto', is_active: true }).select().single();
                 if (newDriver) driver = newDriver;
             }
-
             if (driver) setSelectedDriver(driver);
             const { data: allDrivers } = await supabase.from('delivery_drivers').select('*').eq('is_active', true);
             if (allDrivers) setDrivers(allDrivers);
@@ -71,93 +51,53 @@ export default function RepartidorApp() {
         initAuth();
     }, [router]);
 
-    // Enhanced order fetching with sound alerts
     useEffect(() => {
         if (!selectedDriver) return;
-        
         const checkOrder = async (isUpdate = false) => {
-            const { data } = await supabase
-                .from('orders')
-                .select('*, order_items(*)')
-                .eq('driver_id', selectedDriver.id)
-                .in('delivery_status', ['assigned', 'picked_up', 'en_camino'])
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
+            const { data } = await supabase.from('orders').select('*, order_items(*)').eq('driver_id', selectedDriver.id).in('delivery_status', ['assigned', 'picked_up', 'en_camino']).order('created_at', { ascending: false }).limit(1).maybeSingle();
             if (data) {
-                // If it's a real-time update and we didn't have this order before
                 if (isUpdate && (!assignedOrder || assignedOrder.id !== data.id)) {
-                    audioRef.current?.play().catch(() => console.log('Waiting for interaction'));
-                    if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
+                    audioRef.current?.play().catch(() => {});
+                    if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
                 }
                 setAssignedOrder(data);
             } else {
                 setAssignedOrder(null);
             }
         };
-
         checkOrder();
         const sub = supabase.channel('driver-updates-' + selectedDriver.id)
-            .on('postgres_changes', { 
-                event: 'UPDATE', 
-                schema: 'public', 
-                table: 'orders', 
-                filter: `driver_id=eq.${selectedDriver.id}` 
-            }, () => {
-                checkOrder(true);
-            })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `driver_id=eq.${selectedDriver.id}` }, () => checkOrder(true))
             .subscribe();
         return () => { supabase.removeChannel(sub); };
     }, [selectedDriver, assignedOrder?.id]);
 
-    // Optimized GPS tracking: moving threshold + temporal throttling
     useEffect(() => {
         if (!selectedDriver || !isTracking) {
             if (watchId.current) { navigator.geolocation.clearWatch(watchId.current); watchId.current = null; }
             if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
             return;
         }
-
         const channel = supabase.channel(`tracking_driver_${selectedDriver.id}`, { config: { broadcast: { ack: false } } });
         channel.subscribe();
         channelRef.current = channel;
-
-        if ("geolocation" in navigator) {
+        if ('geolocation' in navigator) {
             watchId.current = navigator.geolocation.watchPosition(
                 async (position) => {
                     const { latitude, longitude } = position.coords;
                     const now = Date.now();
                     const coords: [number, number] = [latitude, longitude];
-
-                    // Smooth Broadcast for live maps
-                    channel.send({
-                        type: 'broadcast',
-                        event: 'location_update',
-                        payload: { lat: latitude, lng: longitude, timestamp: new Date().toISOString() },
-                    });
+                    channel.send({ type: 'broadcast', event: 'location_update', payload: { lat: latitude, lng: longitude, timestamp: new Date().toISOString() } });
                     setCurrentLocation(coords);
-
-                    // Efficiency logic for Database updates
-                    let shouldUpdateDB = false;
-                    if (!lastPosRef.current) {
-                        shouldUpdateDB = true;
-                    } else {
+                    let shouldUpdateDB = !lastPosRef.current;
+                    if (lastPosRef.current) {
                         const dist = Math.sqrt(Math.pow(latitude - lastPosRef.current[0], 2) + Math.pow(longitude - lastPosRef.current[1], 2));
-                        // ~0.0001 deg is approx 11m
                         if (dist > 0.0001) shouldUpdateDB = true;
                     }
-
-                    const timePassed = now - lastUpdateRef.current;
-
-                    if (shouldUpdateDB && timePassed > 20000) { // Update DB every 20s minimum if moved
+                    if (shouldUpdateDB && (now - lastUpdateRef.current) > 20000) {
                         lastPosRef.current = coords;
                         lastUpdateRef.current = now;
-                        supabase.from('delivery_drivers').update({
-                            current_lat: latitude,
-                            current_lng: longitude,
-                            last_location_update: new Date().toISOString()
-                        }).eq('id', selectedDriver.id).then();
+                        supabase.from('delivery_drivers').update({ current_lat: latitude, current_lng: longitude, last_location_update: new Date().toISOString() }).eq('id', selectedDriver.id).then();
                     }
                 },
                 (err) => console.error(err),
@@ -174,28 +114,18 @@ export default function RepartidorApp() {
         if (!assignedOrder?.delivery_address) return;
         setIsGeocoding(true);
         try {
-            // Clean address: remove common notes like "(casa azul)" or text after commas if it looks like a note
             let cleanAddress = assignedOrder.delivery_address.split('(')[0].split(',')[0].trim();
-            
             const fetchGeo = async (query: string) => {
                 const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
                 const data = await response.json();
-                return data && data.length > 0 ? [parseFloat(data[0].lat), parseFloat(data[0].lon)] as [number, number] : null;
+                return data?.length > 0 ? [parseFloat(data[0].lat), parseFloat(data[0].lon)] as [number, number] : null;
             };
-
             let coords = await fetchGeo(assignedOrder.delivery_address);
             if (!coords) coords = await fetchGeo(cleanAddress);
-            if (!coords) {
-                // Fallback to city/region if street fails
-                coords = await fetchGeo("Ometepec, Guerrero, Mexico"); 
-            }
-
-            if (coords) {
-                setDestinationCoords(coords);
-            } else {
-                alert('No se pudo encontrar la ubicación. Intenta abrir Google Maps manualmente.');
-            }
-        } catch(e) { console.error(e); }
+            if (!coords) coords = await fetchGeo('Ometepec, Guerrero, Mexico');
+            if (coords) setDestinationCoords(coords);
+            else alert('No se pudo encontrar la ubicación.');
+        } catch (e) { console.error(e); }
         finally { setIsGeocoding(false); }
     };
 
@@ -207,9 +137,8 @@ export default function RepartidorApp() {
             await supabase.from('delivery_drivers').update({ status: 'disponible' }).eq('id', selectedDriver.id);
             setAssignedOrder(null);
             setDestinationCoords(null);
-            alert('¡Entrega registrada!');
-        } catch(e) { alert('Error al registrar entrega'); }
-    }
+        } catch { alert('Error al registrar entrega'); }
+    };
 
     const transferOrder = async (newDriverId: string) => {
         if (!assignedOrder || !selectedDriver) return;
@@ -219,234 +148,287 @@ export default function RepartidorApp() {
             await supabase.from('delivery_drivers').update({ status: 'ocupado' }).eq('id', newDriverId);
             setAssignedOrder(null);
             setShowTransferModal(false);
-            alert('✅ Pedido transferido.');
-        } catch(e) { alert('❌ Error al transferir'); }
-    }
+        } catch { alert('Error al transferir'); }
+    };
 
     const handleLogout = async () => {
-        if (assignedOrder) {
-            alert('⚠️ No puedes cerrar sesión con un pedido activo.');
-            return;
-        }
+        if (assignedOrder) { alert('No puedes cerrar sesión con un pedido activo.'); return; }
         await supabase.auth.signOut();
         router.push('/login');
     };
 
+    const googleMapsUrl = assignedOrder
+        ? destinationCoords
+            ? `https://www.google.com/maps/dir/?api=1&destination=${destinationCoords[0]},${destinationCoords[1]}&travelmode=driving`
+            : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(assignedOrder.delivery_address)}&travelmode=driving`
+        : '#';
+
     if (loadingAuth || !selectedDriver) {
-        return <div className="h-screen bg-[#181511] flex items-center justify-center text-white font-outfit">Cargando aplicación...</div>;
+        return (
+            <div className="h-screen bg-[#0D0D0F] flex flex-col items-center justify-center gap-4">
+                <div className="w-16 h-16 rounded-full border-4 border-[#F7951D] border-t-transparent animate-spin" />
+                <p className="text-white/50 font-bold text-sm uppercase tracking-widest">Cargando...</p>
+            </div>
+        );
     }
 
     return (
-        <div className="flex flex-col h-screen bg-[#fcfbf9] overflow-hidden font-outfit">
-            {/* Header - Native App Style */}
-            <header className="bg-[#181511] text-white px-4 py-3 flex items-center justify-between shadow-md z-30 shrink-0">
-                <div className="flex items-center gap-2">
-                    <button onClick={handleLogout} className="size-9 bg-red-500/10 text-red-400 rounded-xl flex items-center justify-center active:scale-95 transition-all">
-                        <span className="material-icons-round text-[20px]">logout</span>
+        <div className="flex flex-col h-screen bg-[#0D0D0F] overflow-hidden" style={{ fontFamily: "'Outfit', sans-serif" }}>
+
+            {/* ── HEADER ── */}
+            <header className="shrink-0 z-30 px-4 pt-4 pb-3 flex items-center justify-between bg-[#0D0D0F]/95 backdrop-blur-xl border-b border-white/5">
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={handleLogout}
+                        className="w-10 h-10 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-red-400 active:scale-90 transition-all"
+                    >
+                        <span className="material-icons-round text-[18px]">logout</span>
                     </button>
-                    <div className="leading-tight">
-                        <h1 className="font-black text-sm truncate max-w-[120px]">{selectedDriver.full_name}</h1>
-                        <div className="flex items-center gap-1.5">
-                            <span className={`size-1.5 rounded-full ${isTracking ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
+                    <div>
+                        <p className="text-white font-black text-sm truncate max-w-[140px] uppercase tracking-tight">{selectedDriver.full_name}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${isTracking ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`} />
+                            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: isTracking ? '#34d399' : '#f87171' }}>
                                 {isTracking ? 'En línea' : 'Desconectado'}
                             </p>
                         </div>
                     </div>
                 </div>
-                <button 
-                    onClick={() => setIsTracking(!isTracking)}
-                    className={`h-10 px-5 rounded-xl font-black text-[11px] uppercase shadow-lg transition-all active:scale-95 flex items-center gap-2 ${
-                        isTracking ? 'bg-red-500' : 'bg-green-500'
-                    }`}
+
+                {/* Toggle GPS */}
+                <button
+                    onClick={() => setIsTracking(t => !t)}
+                    className={`relative flex items-center gap-2 px-4 h-11 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-95 ${isTracking ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400' : 'bg-white/5 border border-white/10 text-white/40'}`}
                 >
-                    <span className="material-icons-round text-lg">{isTracking ? 'power_settings_new' : 'sensors'}</span>
-                    {isTracking ? 'OFF' : 'ON'}
+                    <span className={`w-2 h-2 rounded-full ${isTracking ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
+                    {isTracking ? 'GPS ON' : 'GPS OFF'}
                 </button>
             </header>
 
-            {/* Main Content Area - Responsive Grid */}
-            <div className="flex-1 overflow-y-auto w-full flex flex-col lg:flex-row lg:overflow-hidden bg-gray-50/30">
-                
-                {/* Map Section - Persistently visible */}
-                <div className="w-full h-[40vh] lg:h-full lg:w-1/2 relative z-10 shrink-0 shadow-lg border-b lg:border-b-0 lg:border-r border-gray-100 bg-white">
-                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[20] w-full px-6 pointer-events-none">
-                        {!isTracking && (
-                            <div className="bg-red-600/90 backdrop-blur-md p-3 rounded-2xl flex items-center justify-center gap-2 shadow-xl border border-red-500/50 animate-in zoom-in-95 duration-300 pointer-events-auto">
-                                <span className="material-icons-round text-white text-lg">location_off</span>
-                                <p className="text-[10px] text-white font-black uppercase tracking-wider text-center line-clamp-1">GPS APAGADO - TOCA "ON" ARRIBA</p>
-                            </div>
-                        )}
-                        {isTracking && (
-                            <div className="bg-green-600/80 backdrop-blur-md py-1.5 px-4 rounded-full flex items-center justify-center gap-2 shadow-lg border border-green-500/50 mx-auto w-fit animate-in slide-in-from-top-4 pointer-events-auto">
-                                <div className="size-1.5 bg-white rounded-full animate-ping" />
-                                <p className="text-[9px] text-white font-black uppercase tracking-widest">Transmitiendo ubicación</p>
-                            </div>
-                        )}
-                    </div>
-                    
-                    <DeliveryMap 
-                        origin={ORIGIN}
-                        destination={destinationCoords}
-                        driverLocation={currentLocation}
-                        driverName={selectedDriver.full_name}
-                    />
-                </div>
+            {/* ── MAP ── */}
+            <div className="relative shrink-0" style={{ height: '42vh' }}>
+                <DeliveryMap
+                    origin={ORIGIN}
+                    destination={destinationCoords}
+                    driverLocation={currentLocation}
+                    driverName={selectedDriver.full_name}
+                />
 
-                {/* Details and Actions Section */}
-                <div className="flex-1 overflow-y-auto p-5 pb-24 lg:pb-12 scrollbar-hide">
-                    <div className="max-w-2xl mx-auto -mt-10 lg:mt-0 relative z-20">
-                        {assignedOrder ? (
-                            <div className="bg-white rounded-[2.5rem] lg:rounded-[2rem] shadow-2xl lg:shadow-xl border border-gray-100 overflow-hidden flex flex-col animate-in slide-in-from-bottom-8 duration-500">
-                                <div className="bg-[#181511] text-white p-6">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="bg-[#f7951d] text-white text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest">Pedido Activo</span>
-                                        <span className="text-gray-500 font-bold text-[10px] tracking-tighter">ORDEN #{assignedOrder.id.toString().slice(-6)}</span>
-                                    </div>
-                                    <h2 className="text-2xl font-black truncate">{assignedOrder.customer_name}</h2>
-                                    <div className="flex items-center gap-2 mt-2 text-gray-400">
-                                        <span className="material-icons-round text-[18px]">location_on</span>
-                                        <p className="text-xs font-bold truncate line-clamp-1">{assignedOrder.delivery_address}</p>
-                                    </div>
-                                </div>
-                                
-                                <div className="p-6 flex flex-col gap-6">
-                                    {/* Large touch-friendly navigation buttons */}
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <button 
-                                            onClick={handleInternalNavigation} 
-                                            disabled={isGeocoding} 
-                                            className="bg-[#f7951d] text-white font-black text-xs h-16 rounded-2xl flex flex-col items-center justify-center gap-0.5 active:scale-95 transition-all shadow-lg shadow-orange-100"
-                                        >
-                                            <span className="material-icons-round text-2xl">navigation</span>
-                                            {isGeocoding ? 'Cargando...' : 'En App'}
-                                        </button>
-                                        <a 
-                                            href={destinationCoords 
-                                                ? `https://www.google.com/maps/dir/?api=1&destination=${destinationCoords[0]},${destinationCoords[1]}&travelmode=driving`
-                                                : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(assignedOrder.delivery_address)}&travelmode=driving`
-                                            } 
-                                            target="_blank" 
-                                            rel="noreferrer" 
-                                            className="bg-white border-2 border-gray-100 text-[#181511] font-black text-xs h-16 rounded-2xl flex flex-col items-center justify-center gap-0.5 shadow-sm active:scale-95 transition-all"
-                                        >
-                                            <span className="material-icons-round text-2xl text-red-500">directions_car</span>
-                                            Navegar
-                                        </a>
-                                    </div>
-
-                                    {/* Quick Contact Buttons */}
-                                    <div className="flex gap-3">
-                                        <a href={`tel:${assignedOrder.phone_number}`} className="flex-1 flex items-center justify-center h-14 gap-2 bg-blue-50 text-blue-600 rounded-2xl font-black text-xs active:scale-95 transition-all">
-                                            <span className="material-icons-round text-xl">call</span> Llamar
-                                        </a>
-                                        <a href={`https://wa.me/${(assignedOrder.phone_number || '').replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center h-14 gap-2 bg-green-50 text-green-600 rounded-2xl font-black text-xs active:scale-95 transition-all">
-                                            <span className="material-icons-round text-xl">chat</span> WhatsApp
-                                        </a>
-                                    </div>
-
-                                    {/* Order Summary box */}
-                                    <div className="bg-[#fcfbf9] p-5 rounded-3xl border border-[#eceae7]">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Resumen de Orden</span>
-                                            <span className="text-xl font-black text-[#181511]">${(assignedOrder.total_amount || 0).toFixed(2)}</span>
-                                        </div>
-                                        <ul className="space-y-3">
-                                            {(assignedOrder.order_items || []).map((it:any, i:number) => (
-                                                <li key={i} className="flex items-center gap-3">
-                                                    <span className="size-6 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0">{it.quantity}</span>
-                                                    <span className="text-xs font-bold text-[#181511] truncate">{it.product_name || it.products?.name}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-
-                                    {/* Primary Delivery Action */}
-                                    <div className="space-y-4 pt-2">
-                                        <button 
-                                            onClick={markDelivered} 
-                                            className="w-full bg-[#181511] text-white h-20 rounded-3xl font-black uppercase tracking-widest shadow-2xl shadow-gray-200 active:scale-95 transition-all flex items-center justify-center gap-3"
-                                        >
-                                            <div className="size-8 bg-white/20 rounded-full flex items-center justify-center">
-                                                <span className="material-icons-round text-lg">check_circle</span>
-                                            </div>
-                                            Registrar Entrega
-                                        </button>
-                                        <button 
-                                            onClick={() => setShowTransferModal(true)} 
-                                            className="w-full py-2 text-gray-400 font-black text-[10px] uppercase tracking-widest hover:text-red-500 transition-colors"
-                                        >
-                                            ¿Algún problema? Transferir pedido
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="bg-white rounded-[2.5rem] shadow-xl border-2 border-dashed border-gray-100 p-12 lg:p-20 flex flex-col items-center justify-center text-center animate-in fade-in zoom-in-95 duration-500 mt-10 lg:mt-0">
-                                 <div className="size-24 lg:size-32 bg-gray-50 rounded-full flex items-center justify-center mb-4 relative">
-                                    <span className="material-icons-round text-5xl lg:text-7xl text-gray-200 animate-pulse">moped</span>
-                                    <div className="absolute top-0 right-0 size-6 lg:size-8 bg-[#f7951d] rounded-full border-4 border-white animate-bounce" />
-                                 </div>
-                                 <h3 className="font-black text-[#181511] text-lg lg:text-xl uppercase tracking-tight">Esperando Pedido</h3>
-                                 <p className="text-[11px] lg:text-xs font-bold text-gray-400 mt-1 max-w-[200px] lg:max-w-xs">Mantente cerca del restaurante para recibir nuevas órdenes.</p>
-                            </div>
-                        )}
-                    </div>
+                {/* GPS overlay badge */}
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+                    {!isTracking && (
+                        <div className="bg-red-500/90 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2 shadow-xl">
+                            <span className="material-icons-round text-white text-[16px]">location_off</span>
+                            <p className="text-[10px] text-white font-black uppercase tracking-wider">GPS apagado</p>
+                        </div>
+                    )}
+                    {isTracking && (
+                        <div className="bg-emerald-500/20 backdrop-blur-md border border-emerald-500/40 px-4 py-1.5 rounded-full flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" />
+                            <p className="text-[10px] text-emerald-300 font-black uppercase tracking-widest">Transmitiendo ubicación</p>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Transfer Modal - Bottom Sheet Style */}
-            {showTransferModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end justify-center animate-in fade-in duration-200" onClick={() => setShowTransferModal(false)}>
-                    <div className="bg-white rounded-t-[3rem] w-full max-w-lg pb-12 pt-6 px-6 animate-in slide-in-from-bottom duration-500" onClick={e => e.stopPropagation()}>
-                         <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-8" />
-                         <div className="flex justify-between items-center mb-8">
-                             <div>
-                                 <h3 className="font-black text-2xl text-[#181511]">Transferir Pedido</h3>
-                                 <p className="text-xs font-bold text-gray-500">Elige un compañero disponible</p>
-                             </div>
-                             <button onClick={() => setShowTransferModal(false)} className="size-12 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-center active:scale-90 transition-all font-black text-gray-400">
-                                 <span className="material-icons-round">close</span>
-                             </button>
-                         </div>
-                         <div className="grid grid-cols-1 gap-3 max-h-[50vh] overflow-y-auto px-1 custom-scrollbar pb-6">
-                            {drivers.filter(d => d.id !== selectedDriver.id && d.is_active).map(d => (
-                                <button 
-                                    key={d.id} 
-                                    onClick={() => transferOrder(d.id)} 
-                                    className="w-full p-6 rounded-3xl border border-gray-100 bg-gray-50 active:bg-orange-50 active:border-orange-200 text-left flex items-center justify-between transition-all shadow-sm"
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <div className="size-12 bg-white rounded-2xl border border-gray-100 flex items-center justify-center shadow-inner">
-                                            <span className="material-icons-round text-[#181511] text-3xl">account_circle</span>
+            {/* ── BOTTOM SHEET ── */}
+            <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+                {assignedOrder ? (
+                    <div className="px-4 pt-4 pb-24 space-y-3">
+
+                        {/* Order Badge */}
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full" style={{ background: 'rgba(247,149,29,0.15)', color: '#F7951D', border: '1px solid rgba(247,149,29,0.3)' }}>
+                                🔥 Pedido Activo
+                            </span>
+                            <span className="text-[10px] text-white/30 font-bold">#{assignedOrder.id?.toString().slice(-6).toUpperCase()}</span>
+                        </div>
+
+                        {/* Customer Card */}
+                        <div className="rounded-3xl overflow-hidden border border-white/8" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                            <div className="p-5">
+                                <h2 className="text-2xl font-black text-white uppercase tracking-tight truncate">{assignedOrder.customer_name}</h2>
+                                <div className="flex items-start gap-2 mt-2">
+                                    <span className="material-icons-round text-[16px] mt-0.5 shrink-0" style={{ color: '#F7951D' }}>location_on</span>
+                                    <p className="text-sm text-white/60 font-bold leading-snug">{assignedOrder.delivery_address}</p>
+                                </div>
+                                <div className="mt-4 flex items-center justify-between border-t border-white/8 pt-4">
+                                    <span className="text-xs text-white/40 font-bold uppercase tracking-wider">Total a cobrar</span>
+                                    <span className="text-2xl font-black text-white">${(assignedOrder.total_amount || 0).toFixed(2)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Navigation Buttons */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                onClick={handleInternalNavigation}
+                                disabled={isGeocoding}
+                                className="h-16 rounded-2xl flex flex-col items-center justify-center gap-1 font-black text-[11px] uppercase tracking-wider active:scale-95 transition-all disabled:opacity-50"
+                                style={{ background: 'rgba(247,149,29,0.15)', border: '1px solid rgba(247,149,29,0.35)', color: '#F7951D' }}
+                            >
+                                <span className="material-icons-round text-2xl">{isGeocoding ? 'hourglass_empty' : 'navigation'}</span>
+                                {isGeocoding ? 'Cargando...' : 'Ver en Mapa'}
+                            </button>
+                            <a
+                                href={googleMapsUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="h-16 rounded-2xl flex flex-col items-center justify-center gap-1 font-black text-[11px] uppercase tracking-wider active:scale-95 transition-all"
+                                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }}
+                            >
+                                <span className="material-icons-round text-2xl text-red-400">directions_car</span>
+                                Google Maps
+                            </a>
+                        </div>
+
+                        {/* Contact Buttons */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <a
+                                href={`tel:${assignedOrder.phone_number}`}
+                                className="h-14 rounded-2xl flex items-center justify-center gap-2 font-black text-sm active:scale-95 transition-all"
+                                style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)', color: '#60a5fa' }}
+                            >
+                                <span className="material-icons-round text-xl">call</span>
+                                Llamar
+                            </a>
+                            <a
+                                href={`https://wa.me/${(assignedOrder.phone_number || '').replace(/\D/g, '')}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="h-14 rounded-2xl flex items-center justify-center gap-2 font-black text-sm active:scale-95 transition-all"
+                                style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)', color: '#4ade80' }}
+                            >
+                                <span className="material-icons-round text-xl">chat</span>
+                                WhatsApp
+                            </a>
+                        </div>
+
+                        {/* Order Items Collapsible */}
+                        <div className="rounded-2xl overflow-hidden border border-white/8" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                            <button
+                                onClick={() => setShowOrderItems(v => !v)}
+                                className="w-full flex items-center justify-between px-5 py-4"
+                            >
+                                <span className="text-[11px] font-black text-white/40 uppercase tracking-widest">Productos ({(assignedOrder.order_items || []).length})</span>
+                                <span className="material-icons-round text-white/30 text-lg">{showOrderItems ? 'expand_less' : 'expand_more'}</span>
+                            </button>
+                            {showOrderItems && (
+                                <div className="px-5 pb-4 space-y-3 border-t border-white/6">
+                                    {(assignedOrder.order_items || []).map((it: any, i: number) => (
+                                        <div key={i} className="flex items-center gap-3">
+                                            <span className="w-7 h-7 rounded-xl flex items-center justify-center text-[11px] font-black text-white shrink-0" style={{ background: 'rgba(247,149,29,0.2)', color: '#F7951D' }}>
+                                                {it.quantity}
+                                            </span>
+                                            <span className="text-sm font-bold text-white/70 truncate">{it.product_name}</span>
                                         </div>
-                                        <div className="flex flex-col">
-                                            <span className="font-black text-base text-[#181511]">{d.full_name}</span>
-                                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{d.vehicle_type || 'Moto'}</span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Deliver Button */}
+                        <button
+                            onClick={markDelivered}
+                            className="w-full h-20 rounded-3xl font-black text-base uppercase tracking-widest text-white active:scale-95 transition-all shadow-2xl flex items-center justify-center gap-3"
+                            style={{ background: 'linear-gradient(135deg, #F7951D 0%, #e07d0a 100%)', boxShadow: '0 8px 32px rgba(247,149,29,0.4)' }}
+                        >
+                            <span className="material-icons-round text-2xl">check_circle</span>
+                            Registrar Entrega
+                        </button>
+
+                        <button
+                            onClick={() => setShowTransferModal(true)}
+                            className="w-full py-3 text-white/25 font-black text-[11px] uppercase tracking-widest hover:text-red-400 transition-colors text-center"
+                        >
+                            ¿Problema? Transferir pedido →
+                        </button>
+                    </div>
+                ) : (
+                    /* Empty State */
+                    <div className="flex flex-col items-center justify-center h-full px-6 py-16 text-center">
+                        <div className="relative mb-6">
+                            <div className="w-28 h-28 rounded-full flex items-center justify-center" style={{ background: 'rgba(247,149,29,0.08)', border: '1px solid rgba(247,149,29,0.15)' }}>
+                                <span className="material-icons-round text-6xl" style={{ color: 'rgba(247,149,29,0.4)' }}>moped</span>
+                            </div>
+                            <div className="absolute -top-1 -right-1 w-7 h-7 rounded-full bg-[#F7951D] border-4 border-[#0D0D0F] animate-bounce" />
+                        </div>
+                        <h3 className="text-xl font-black text-white uppercase tracking-tight">Sin pedidos</h3>
+                        <p className="text-sm text-white/30 font-bold mt-2 max-w-xs leading-relaxed">
+                            Mantente cerca del restaurante. Te avisaremos cuando haya un domicilio.
+                        </p>
+                        {!isTracking && (
+                            <button
+                                onClick={() => setIsTracking(true)}
+                                className="mt-8 px-8 h-12 rounded-2xl font-black text-[11px] uppercase tracking-widest text-white active:scale-95 transition-all"
+                                style={{ background: 'linear-gradient(135deg, #F7951D, #e07d0a)' }}
+                            >
+                                Activar GPS
+                            </button>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* ── TRANSFER MODAL ── */}
+            {showTransferModal && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-end justify-center"
+                    style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}
+                    onClick={() => setShowTransferModal(false)}
+                >
+                    <div
+                        className="w-full max-w-lg rounded-t-[2.5rem] pt-4 pb-12 px-5"
+                        style={{ background: '#161618', border: '1px solid rgba(255,255,255,0.08)' }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-6" />
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h3 className="text-xl font-black text-white">Transferir Pedido</h3>
+                                <p className="text-xs text-white/40 font-bold mt-0.5">Elige un compañero disponible</p>
+                            </div>
+                            <button
+                                onClick={() => setShowTransferModal(false)}
+                                className="w-10 h-10 rounded-xl flex items-center justify-center active:scale-90 transition-all"
+                                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                            >
+                                <span className="material-icons-round text-white/50">close</span>
+                            </button>
+                        </div>
+
+                        <div className="space-y-3 max-h-[45vh] overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+                            {drivers.filter(d => d.id !== selectedDriver.id && d.is_active).map(d => (
+                                <button
+                                    key={d.id}
+                                    onClick={() => transferOrder(d.id)}
+                                    className="w-full p-4 rounded-2xl flex items-center justify-between active:scale-95 transition-all"
+                                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(247,149,29,0.12)' }}>
+                                            <span className="material-icons-round text-2xl" style={{ color: '#F7951D' }}>account_circle</span>
+                                        </div>
+                                        <div className="text-left">
+                                            <p className="font-black text-white text-sm">{d.full_name}</p>
+                                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{d.vehicle_type || 'Moto'}</p>
                                         </div>
                                     </div>
-                                    <span className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-full tracking-widest border ${
-                                        d.status === 'disponible' ? 'bg-green-500 text-white border-green-600' : 'bg-orange-500 text-white border-orange-600'
-                                    }`}>
+                                    <span className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-full tracking-widest ${d.status === 'disponible' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
                                         {d.status}
                                     </span>
                                 </button>
                             ))}
-                            {drivers.length <= 1 && (
-                                <div className="text-center py-12 flex flex-col items-center gap-3">
-                                    <span className="material-icons-round text-4xl text-gray-100">group_off</span>
-                                    <p className="text-xs font-bold text-gray-400">No hay otros repartidores activos ahora.</p>
+                            {drivers.filter(d => d.id !== selectedDriver.id).length === 0 && (
+                                <div className="text-center py-10">
+                                    <span className="material-icons-round text-4xl text-white/10">group_off</span>
+                                    <p className="text-xs font-bold text-white/30 mt-2">No hay otros repartidores activos.</p>
                                 </div>
                             )}
-                         </div>
+                        </div>
                     </div>
                 </div>
             )}
-            
-            <style jsx global>{`
-                .scrollbar-hide::-webkit-scrollbar { display: none; }
-                .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-            `}</style>
         </div>
     );
 }
