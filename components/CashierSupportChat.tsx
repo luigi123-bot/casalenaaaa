@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 
 interface Message {
     id: number;
@@ -112,6 +113,12 @@ export default function CashierSupportChat({ onClose }: { onClose: () => void })
             return subscribeToMessages();
         }
     }, [sessionId, fetchMessages, subscribeToMessages]);
+
+    useAutoRefresh(() => {
+        if (sessionId) {
+            fetchMessages();
+        }
+    });
 
     const sendMessage = async () => {
         if (!newMessage.trim() || !sessionId) return;

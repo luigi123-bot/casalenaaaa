@@ -105,9 +105,20 @@ export function useStoreStatus() {
         // Polling interaction for automatic schedule time changes
         interval = setInterval(checkStatus, 60000);
 
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                checkStatus();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', checkStatus);
+
         return () => {
             clearInterval(interval);
             supabase.removeChannel(channel);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', checkStatus);
         };
     }, []);
 

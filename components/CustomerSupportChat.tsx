@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/utils/supabase/client';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 
 interface Message {
     id: number;
@@ -99,6 +100,12 @@ export default function CustomerSupportChat() {
             clearInterval(pollInterval);
         };
     }, [userId]);
+
+    useAutoRefresh(() => {
+        if (userId) {
+            fetchMessages(userId);
+        }
+    });
 
     const fetchMessages = async (uid: string) => {
         const { data, error } = await supabase

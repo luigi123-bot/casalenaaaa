@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import OrderDetailsPanel from './OrderDetailsPanel';
 import AdminChatPanel from './AdminChatPanel';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 
 export default function OrdersView() {
     const [orders, setOrders] = useState<any[]>([]);
@@ -28,6 +29,10 @@ export default function OrdersView() {
             supabase.removeChannel(channel);
         };
     }, []);
+
+    useAutoRefresh(() => {
+        fetchOrders();
+    });
 
     useEffect(() => {
         filterOrders();

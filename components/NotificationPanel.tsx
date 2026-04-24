@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 
 interface Notification {
     id: string;
@@ -123,6 +124,10 @@ export default function NotificationPanel({
             supabase.removeChannel(whatsappChannel);
         };
     }, [loadExistingNotifications, addNotification]);
+
+    useAutoRefresh(() => {
+        loadExistingNotifications();
+    });
 
     const markAsRead = (id: string) => {
         setNotifications(prev =>

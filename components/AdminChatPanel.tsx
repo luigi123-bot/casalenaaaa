@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/utils/supabase/client';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 
 interface ChatMessage {
     id: number;
@@ -96,6 +97,13 @@ export default function AdminChatPanel({ onClose, preselectedUserId }: { onClose
             supabase.removeChannel(channel);
         };
     }, []);
+
+    useAutoRefresh(() => {
+        fetchConversations();
+        if (selectedUserId) {
+            loadConversation(selectedUserId);
+        }
+    });
 
     const fetchConversations = async (isRetry = false) => {
         console.log(`=== ADMIN CHAT: FETCHING CONVERSATIONS (Attempt ${retryCountRef.current + 1}) ===`);
