@@ -299,6 +299,25 @@ export default function CashierPage() {
                         return true;
                     }
                 }
+
+                // Búsqueda extendida: por si el turno empezó ayer pero sigue abierto
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key?.startsWith('caja_casalena_')) {
+                        const val = localStorage.getItem(key);
+                        if (val) {
+                            const s = JSON.parse(val);
+                            if (s.openedAt && !s.closedAt) {
+                                const ageHours = (new Date().getTime() - new Date(s.openedAt).getTime()) / (1000 * 3600);
+                                if (ageHours < 24) {
+                                    console.log('[Shift] ✅ Turno antiguo encontrado y sigue abierto (<24h).');
+                                    if (isEffectActive) setShiftState('open');
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
             } catch (e) {}
             return false;
         };
@@ -310,9 +329,13 @@ export default function CashierPage() {
                 const endOfDay = new Date();
                 endOfDay.setHours(23,59,59,999);
 
-                // 1. DETERMINAR ROL Y NOMBRE
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!isEffectActive) return; // componente desmontado, abortar silenciosamente
+                // 1. DETERMINAR ROL Y NOMBRE (con timeout para no colgar el arranque)
+                const { data: { user } } = await Promise.race([
+                    supabase.auth.getUser(),
+                    new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000))
+                ]);
+
+                if (!isEffectActive) return;
                 if (!user) {
                     setShiftState('closed');
                     return;
@@ -375,7 +398,7 @@ export default function CashierPage() {
         // PASO 2 — Safety fallback: si en 8s no resolvió y no hay localStorage
         const safetyId = setTimeout(() => {
             if (isEffectActive) setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
-        }, 8000);
+        }, 5000); // Reducido a 5s para mejor UX
 
         // PASO 3 — Verificación con Supabase en background
         if (!alreadyOpen) {
@@ -3203,7 +3226,10 @@ export default function CashierPage() {
             )}
 
             {shiftState === 'checking' && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#f8f7f5]"><span className="material-icons-round animate-spin text-4xl text-[#F27405]">progress_activity</span></div>
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#f8f7f5] flex-col gap-4">
+                    <span className="material-icons-round animate-spin text-4xl text-[#F27405]">progress_activity</span>
+                    <p className="text-xs font-bold text-gray-400 animate-pulse">Verificando sesión...</p>
+                </div>
             )}
 
 

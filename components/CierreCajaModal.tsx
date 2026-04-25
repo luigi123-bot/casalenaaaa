@@ -59,11 +59,16 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
 
             // Buscamos órdenes que hayan sido ACTUALIZADAS durante el turno.
             // Usamos updated_at ya que closed_at no existe en el esquema actual.
-            const { data: orders, error } = await supabase
-                .from('orders')
-                .select('*, order_items(product_name, quantity, unit_price, selected_size)')
-                .gte('updated_at', start)
-                .in('status', validStatuses);
+            // ── CONSULTA OPTIMIZADA ─────────────────────────────────────────────
+            // Solo traemos las columnas necesarias para el cálculo para mayor velocidad.
+            const { data: orders, error } = await Promise.race([
+                supabase
+                    .from('orders')
+                    .select('id, total_amount, payment_method, order_type, updated_at, order_items(product_name, quantity)')
+                    .gte('updated_at', start)
+                    .in('status', validStatuses),
+                new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Timeout en consulta de base de datos')), 12000))
+            ]);
 
             if (error) throw error;
             
@@ -87,7 +92,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
             const productMap: Record<string, number> = {};
             const tipoMap: Record<string, { count: number; total: number }> = {};
 
-            orders?.forEach(order => {
+            orders?.forEach((order: any) => {
                 const total = order.total_amount ?? 0;
                 cierre.totalVentas += total;
 
@@ -197,10 +202,10 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
 
             // 1. Actualizar Sesión (Nueva Tabla)
             if (shift && shift.sessionId) {
-                 await supabase
-                    .from('cashier_sessions')
-                    .update(metrics)
-                    .eq('id', shift.sessionId);
+                 await Promise.race([
+                    supabase.from('cashier_sessions').update(metrics).eq('id', shift.sessionId),
+                    new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout al actualizar base de datos')), 8000))
+                 ]);
                 console.log('✅ [Shift] Sesión actualizada exitosamente en cashier_sessions.');
             }
 
@@ -223,15 +228,46 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                 top_productos: metrics.top_products
             };
 
+            const controller = new AbortController();
+            const tId = setTimeout(() => controller.abort(), 10000);
+
             const res = await fetch('/api/admin/closures', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(legacyPayload)
+                body: JSON.stringify(legacyPayload),
+                signal: controller.signal
             });
+            clearTimeout(tId);
 
             if (!res.ok) {
                 const errData = await res.json();
                 throw new Error(errData.error || 'Error en la respuesta del servidor');
+            }
+
+            // 3. Marcar como cerrado en LocalStorage para evitar re-aperturas fantasma
+            try {
+                const dateStr = new Date().toLocaleDateString('sv-SE');
+                const key = `caja_casalena_${dateStr}`;
+                const current = localStorage.getItem(key);
+                if (current) {
+                    const parsed = JSON.parse(current);
+                    localStorage.setItem(key, JSON.stringify({ ...parsed, closedAt: new Date().toISOString() }));
+                }
+                // Limpiar cualquier otra sesión abierta vieja
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k?.startsWith('caja_casalena_')) {
+                        const val = localStorage.getItem(k);
+                        if (val) {
+                            const s = JSON.parse(val);
+                            if (!s.closedAt) {
+                                localStorage.setItem(k, JSON.stringify({ ...s, closedAt: new Date().toISOString() }));
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[Cierre] No se pudo actualizar localStorage, pero la DB sí se actualizó.');
             }
 
             setStep('done');
