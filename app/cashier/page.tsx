@@ -67,29 +67,28 @@ export default function CashierPage() {
     const { isOnline, isSyncing, pendingCount, saveOrderOffline } = useOfflineSync();
 
     // ── SESIÓN KEEP-ALIVE ────────────────────────────────────────────────────────
-    // Refresca el token JWT de Supabase cada 45 min y al recuperar foco/visibilidad.
-    // Evita que la página se "cuelgue" después de inactividad.
+    // El cliente Supabase ya tiene autoRefreshToken: true — renueva solo.
+    // Este hook añade una capa extra de defensa: refresca al volver a la pestaña,
+    // al recuperar foco, y cada 20 minutos en background.
+    // onSessionLost: solo mostramos un warning, NO redirigimos — el cajero
+    // puede seguir cobrando en modo offline y la sesión se recuperará sola.
     useSessionKeepAlive(useCallback(() => {
-        // Si la sesión se pierde completamente, redirigir al login
-        console.warn('[CashierPage] Sesión expirada definitivamente. Redirigiendo al login...');
-        window.location.href = '/login';
+        console.warn('[CashierPage] Token expirado. El auto-refresh intentará renovarlo en el siguiente foco/visibilidad.');
+        // No redirigimos: la caja debe seguir funcionando en modo offline.
     }, []));
 
     /**
-     * Garantiza que haya una sesión activa antes de cualquier operación Supabase.
-     * Si el token expiró, intenta refrescarlo. Si no hay sesión, lanza un error claro.
+     * Obtiene el userId de la sesión actual de forma no bloqueante.
+     * Si la sesión expiró temporalmente, devuelve null (la orden se guarda offline).
+     * NUNCA lanza excepción.
      */
-    const ensureSession = async () => {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error || !session) {
-            // Último intento de refresh
-            const { data: refreshed } = await supabase.auth.refreshSession();
-            if (!refreshed.session) {
-                throw new Error('Tu sesión ha expirado. Por favor recarga la página e inicia sesión nuevamente.');
-            }
-            return refreshed.session;
+    const getUserIdSafe = async (): Promise<string | null> => {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            return session?.user?.id ?? null;
+        } catch {
+            return null;
         }
-        return session;
     };
 
     // Data State
@@ -1316,39 +1315,38 @@ export default function CashierPage() {
         setLoading(true);
 
         try {
-            // ── GARANTIZAR SESIÓN ACTIVA ────────────────────────────────────────
-            // Evita que la acción se cuelgue si el token JWT expiró por inactividad.
-            let userId: string | null = null;
-            let forceOffline = false;
-            try {
-                if (isOnline) {
-                    const session = await ensureSession();
-                    userId = session.user?.id || null;
-                }
-            } catch (sessionErr: any) {
-                console.warn('⚠️ [Cashier] Error de sesión o red:', sessionErr);
-                // En lugar de bloquear la venta y no imprimir, forzamos el modo offline.
-                // El cajero podrá imprimir el ticket y la orden se sincronizará cuando recargue la página.
-                forceOffline = true;
-            }
+            // ── SESIÓN: obtener userId de forma no bloqueante ────────────────────
+            // Si la sesión está expirada, userId será null y la orden se guardará
+            // offline. El cajero SIEMPRE puede cobrar e imprimir.
+            const userId = await getUserIdSafe();
+            const forceOffline = isOnline && userId === null; // Sin sesión → offline
 
-            // Get Daily Ticket Number (Only for new orders)
+            // ── NÚMERO DE TICKET DIARIO ──────────────────────────────────────────
+            // Con timeout de 3s para no bloquear si la red está lenta.
             let dailySequence = 1;
             if (!activeOrderId) {
-                const today = new Date().toLocaleDateString('en-CA');
-                
-                // Get the maximum ticket number for orders created today
-                const { data: maxOrder } = await supabase
-                    .from('orders')
-                    .select('ticket_number')
-                    .gte('created_at', today + 'T00:00:00')
-                    .lte('created_at', today + 'T23:59:59')
-                    .order('ticket_number', { ascending: false })
-                    .limit(1)
-                    .single();
-                
-                if (maxOrder && maxOrder.ticket_number) {
-                    dailySequence = Number(maxOrder.ticket_number) + 1;
+                try {
+                    const today = new Date().toLocaleDateString('en-CA');
+                    const ticketPromise = supabase
+                        .from('orders')
+                        .select('ticket_number')
+                        .gte('created_at', today + 'T00:00:00')
+                        .lte('created_at', today + 'T23:59:59')
+                        .order('ticket_number', { ascending: false })
+                        .limit(1)
+                        .single();
+
+                    const timeoutPromise = new Promise<null>(resolve =>
+                        setTimeout(() => resolve(null), 3000)
+                    );
+
+                    const result = await Promise.race([ticketPromise, timeoutPromise]);
+                    if (result && 'data' in result && result.data?.ticket_number) {
+                        dailySequence = Number(result.data.ticket_number) + 1;
+                    }
+                } catch {
+                    // Si falla la consulta, usar 1 como fallback. No bloquear.
+                    console.warn('[Cashier] ⚠️ No se pudo obtener número de ticket, usando fallback.');
                 }
             }
 
@@ -1597,23 +1595,17 @@ export default function CashierPage() {
     };
 
     const fetchRecentOrders = async (showLoading = true) => {
-        // Validar y refrescar sesión antes de queries para evitar errores RLS/Auth
-        // Si la sesión expiró (pestaña inactiva), intentar recuperarla automáticamente.
-        let session;
+        // Verificación de sesión no bloqueante: si no hay sesión, saltamos silenciosamente.
+        // El autoRefreshToken del cliente Supabase se encargará de renovarla en background.
+        // NO hacemos refreshSession() aquí para evitar cuelgues por red lenta.
         try {
             const { data } = await supabase.auth.getSession();
-            session = data.session;
-            if (!session) {
-                // Intentar refrescar una sola vez
-                const { data: refreshed } = await supabase.auth.refreshSession();
-                session = refreshed.session;
+            if (!data.session) {
+                console.log('[Cashier] ℹ️ Sin sesión activa, saltando fetch de órdenes (se renovará sola).');
+                return;
             }
-        } catch (sessionErr) {
-            console.warn('[Cashier] ⚠️ Error al verificar sesión en fetchRecentOrders:', sessionErr);
-        }
-
-        if (!session) {
-            console.log('⏳ [Cashier] Sin sesión activa, saltando fetch de órdenes.');
+        } catch {
+            // Error de red — simplemente ignorar, el siguiente ciclo de polling lo reintentará.
             return;
         }
 
