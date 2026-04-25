@@ -1319,13 +1319,17 @@ export default function CashierPage() {
             // ── GARANTIZAR SESIÓN ACTIVA ────────────────────────────────────────
             // Evita que la acción se cuelgue si el token JWT expiró por inactividad.
             let userId: string | null = null;
+            let forceOffline = false;
             try {
-                const session = await ensureSession();
-                userId = session.user?.id || null;
+                if (isOnline) {
+                    const session = await ensureSession();
+                    userId = session.user?.id || null;
+                }
             } catch (sessionErr: any) {
-                setLoading(false);
-                alert(`⚠️ ${sessionErr.message || 'Error de sesión. Por favor recarga la página.'}`);
-                return;
+                console.warn('⚠️ [Cashier] Error de sesión o red:', sessionErr);
+                // En lugar de bloquear la venta y no imprimir, forzamos el modo offline.
+                // El cajero podrá imprimir el ticket y la orden se sincronizará cuando recargue la página.
+                forceOffline = true;
             }
 
             // Get Daily Ticket Number (Only for new orders)
@@ -1398,7 +1402,7 @@ export default function CashierPage() {
 
             let createdOrder = null;
 
-            if (isOnline) {
+            if (isOnline && !forceOffline) {
                 try {
                     if (activeOrderId) {
                         // ACTUALIZAR MESA ABIERTA
