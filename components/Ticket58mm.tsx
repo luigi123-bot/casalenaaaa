@@ -116,11 +116,15 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                 )}
             </div>
 
-            {/* 3. RECUADRO DE DIRECCIÓN */}
-            {isDelivery && data.cliente && (
+            {/* 3. RECUADRO DE DIRECCIÓN / CLIENTE */}
+            {data.cliente && (
                 <div className="w-full px-2 my-1.5">
                     <div className="border border-black p-1.5 text-[11px] font-black text-center min-h-[36px] flex flex-col justify-center leading-tight">
-                        <span className="uppercase break-words">{data.cliente.direccion}</span>
+                        <span className="uppercase font-black text-[12px]">{data.cliente.nombre}</span>
+                        {data.cliente.telefono && <span className="text-[11px]">{data.cliente.telefono}</span>}
+                        {isDelivery && data.cliente.direccion && (
+                            <span className="uppercase break-words mt-0.5 opacity-80">{data.cliente.direccion}</span>
+                        )}
                     </div>
                 </div>
             )}

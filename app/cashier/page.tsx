@@ -2419,76 +2419,19 @@ export default function CashierPage() {
                         </div>
                     )}
 
-                    {(orderType === 'takeout' || orderType === 'dine-in') && (
-                        <div className="bg-white/50 rounded-xl p-2 border border-gray-100 animate-in fade-in slide-in-from-top-2 mb-2">
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-2 bg-white rounded-lg px-2 py-1 border border-gray-100">
-                                    <span className="material-icons-round text-xs text-gray-300">person</span>
-                                    <input
-                                        type="text"
-                                        placeholder="Nombre del cliente (Opcional)"
-                                        value={customerInfo.name || ''}
-                                        onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
-                                        onKeyDown={(e) => e.key === 'Enter' && searchCustomerByTerm(customerInfo.name)}
-                                        className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-200"
-                                    />
+                    {(orderType === 'takeout' || orderType === 'delivery') && (
+                        <div className="bg-white/50 rounded-xl p-2.5 border border-gray-100 animate-in fade-in slide-in-from-top-2 mb-2">
+                            <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-[9px] font-black text-[#8c785f] uppercase tracking-widest">{orderType === 'delivery' ? 'Datos de Entrega' : 'Información Pickup'}</span>
+                                {(!customerInsights && customerInfo.phone.length >= 7 && customerInfo.name) && (
                                     <button 
-                                        onClick={() => searchCustomerByTerm(customerInfo.name)}
-                                        className="p-1 hover:bg-gray-100 rounded text-[#f7941d] active:scale-90 transition-all"
-                                        title="Buscar cliente por nombre"
+                                        onClick={() => handleSaveCustomer(customerInfo)}
+                                        className="flex items-center gap-1 bg-green-500 text-white px-1.5 py-0.5 rounded-lg hover:bg-green-600 transition-all active:scale-95"
                                     >
-                                        <span className="material-icons-round text-xs">download</span>
+                                        <span className="material-icons-round text-[10px]">person_add</span>
+                                        <span className="text-[7px] font-black uppercase">Guardar</span>
                                     </button>
-                                </div>
-                                <div className="flex items-center gap-2 bg-white rounded-lg px-2 py-1 border border-gray-100">
-                                    <span className="material-icons-round text-xs text-gray-300">phone</span>
-                                    <input
-                                        type="tel"
-                                        placeholder="Teléfono (Opcional)"
-                                        value={customerInfo.phone || ''}
-                                        onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-                                        onKeyDown={(e) => e.key === 'Enter' && searchCustomerByTerm()}
-                                        className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-200"
-                                    />
-                                    <button 
-                                        onClick={() => searchCustomerByTerm()}
-                                        className="p-1 hover:bg-gray-100 rounded text-[#f7941d] active:scale-90 transition-all"
-                                        title="Buscar cliente por teléfono"
-                                    >
-                                        <span className="material-icons-round text-xs">download</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {orderType === 'delivery' && (
-                        <div className="bg-orange-50 rounded-xl p-2.5 border border-orange-100 animate-in fade-in slide-in-from-top-2 mb-2">
-                            <div className="flex justify-between items-center mb-2">
-                                <div className="flex flex-col gap-0.5">
-                                    <span className="text-[9px] font-black text-[#f7951d] uppercase tracking-widest">Datos de Entrega</span>
-                                    {!customerInsights && customerInfo.phone.length >= 7 && (
-                                        <div className="flex items-center gap-1">
-                                            <div className="size-1 bg-green-500 rounded-full animate-pulse"></div>
-                                            <span className="text-[7px] font-black text-green-600 uppercase">Nuevo Cliente</span>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="flex gap-2">
-                                    {(!customerInsights && customerInfo.phone.length >= 7 && customerInfo.name) && (
-                                        <button 
-                                            onClick={() => handleSaveCustomer(customerInfo)}
-                                            className="flex items-center gap-1 bg-green-500 text-white px-1.5 py-0.5 rounded-lg hover:bg-green-600 transition-all active:scale-95"
-                                        >
-                                            <span className="material-icons-round text-[10px]">person_add</span>
-                                            <span className="text-[7px] font-black uppercase">Guardar</span>
-                                        </button>
-                                    )}
-                                    <button onClick={() => setShowCustomerModal(true)} className="flex items-center gap-1 group">
-                                        <span className="material-icons-round text-xs text-[#f7951d] group-hover:scale-110 transition-transform">search</span>
-                                        <span className="text-[9px] font-black text-[#181511] uppercase tracking-widest hover:underline underline-offset-2">Buscar</span>
-                                    </button>
-                                </div>
+                                )}
                             </div>
                             <div className="space-y-1">
                                 <div className="flex items-center gap-2 bg-white rounded-lg px-2 py-1 border border-gray-100">
@@ -2526,16 +2469,18 @@ export default function CashierPage() {
                                         <span className="material-icons-round text-xs">download</span>
                                     </button>
                                 </div>
-                                <div className="flex items-start gap-2 bg-white rounded-lg px-2 py-1 border border-gray-100">
-                                    <span className="material-icons-round text-xs text-gray-300 mt-0.5">location_on</span>
-                                    <textarea
-                                        placeholder="Dirección Completa"
-                                        value={customerInfo.address || ''}
-                                        onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
-                                        rows={1}
-                                        className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-200 resize-none"
-                                    />
-                                </div>
+                                {orderType === 'delivery' && (
+                                    <div className="flex items-start gap-2 bg-white rounded-lg px-2 py-1 border border-gray-100">
+                                        <span className="material-icons-round text-xs text-gray-300 mt-0.5">location_on</span>
+                                        <textarea
+                                            placeholder="Dirección Completa"
+                                            value={customerInfo.address || ''}
+                                            onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
+                                            rows={1}
+                                            className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-200 resize-none"
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -2667,12 +2612,6 @@ export default function CashierPage() {
 
                         {/* List */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                            {/* DEBUG INFO — remove after fixing */}
-                            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-[10px] font-mono text-yellow-800">
-                                <p className="font-black">DEBUG: recentOrders total: {recentOrders.length}</p>
-                                <p>Con status &apos;abierta&apos;: {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length}</p>
-                                <p>Statuses: {[...new Set(recentOrders.map(o => o.status))].join(', ') || '(ninguno)'}</p>
-                            </div>
                             {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full opacity-20 gap-4">
                                     <span className="material-icons-round text-6xl">receipt_long</span>
