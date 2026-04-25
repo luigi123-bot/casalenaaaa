@@ -35,7 +35,7 @@ export default function AperturaCajaModal({ cashierName, onOpen }: AperturaCajaM
                     </div>
                     <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest relative z-10">¡Hora de abrir!</p>
                     <h2 className="text-2xl font-black text-white relative z-10">Apertura de Caja</h2>
-                    <p className="text-gray-400 text-xs mt-1 relative z-10">Cajero: {cashierName}</p>
+                    <p className="text-gray-400 text-xs mt-1 relative z-10">Cajero: {cashierName || 'Cargando...'}</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">

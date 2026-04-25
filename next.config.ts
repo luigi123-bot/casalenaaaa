@@ -2,8 +2,8 @@ import type { NextConfig } from "next";
 
 const withPWA = require("@ducanh2912/next-pwa").default({
   dest: "public",
-  cacheOnFrontEndNav: true,
-  aggressiveFrontEndNavCaching: true,
+  cacheOnFrontEndNav: false,
+  aggressiveFrontEndNavCaching: false,
   reloadOnOnline: true,
   swcMinify: true,
   // We keep disable: process.env.NODE_ENV === "development" typically, but user wants to test. 
@@ -55,7 +55,7 @@ const withPWA = require("@ducanh2912/next-pwa").default({
             maxEntries: 30,
             maxAgeSeconds: 24 * 60 * 60, // 24 hours
           },
-          networkTimeoutSeconds: 10,
+          networkTimeoutSeconds: 3,
         },
       },
       {
@@ -144,7 +144,7 @@ const withPWA = require("@ducanh2912/next-pwa").default({
             maxEntries: 16,
             maxAgeSeconds: 24 * 60 * 60, // 24 hours
           },
-          networkTimeoutSeconds: 10,
+          networkTimeoutSeconds: 3,
         },
       },
       {
@@ -156,7 +156,7 @@ const withPWA = require("@ducanh2912/next-pwa").default({
             maxEntries: 32,
             maxAgeSeconds: 24 * 60 * 60, // 24 hours
           },
-          networkTimeoutSeconds: 10,
+          networkTimeoutSeconds: 3,
         },
       },
     ],

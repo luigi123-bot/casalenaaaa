@@ -107,23 +107,27 @@ export default function MonitoringSystem() {
     useEffect(() => {
         if (isVisible) {
             const fetchLogs = async () => {
-                const { data } = await supabase
-                    .from('user_activity_logs')
-                    .select('*')
-                    .order('last_seen', { ascending: false });
+                try {
+                    const { data } = await supabase
+                        .from('user_activity_logs')
+                        .select('*')
+                        .order('last_seen', { ascending: false });
 
-                if (data) {
-                    const formatted = data.map(d => ({
-                        userId: d.user_id,
-                        userName: d.full_name,
-                        email: d.email,
-                        loginTime: d.login_time,
-                        lastSeen: d.last_seen,
-                        clicks: d.clicks,
-                        pagesVisited: d.pages_visited || [],
-                        userAgent: d.user_agent
-                    }));
-                    setLogs(formatted);
+                    if (data) {
+                        const formatted = data.map(d => ({
+                            userId: d.user_id,
+                            userName: d.full_name,
+                            email: d.email,
+                            loginTime: d.login_time,
+                            lastSeen: d.last_seen,
+                            clicks: d.clicks,
+                            pagesVisited: d.pages_visited || [],
+                            userAgent: d.user_agent
+                        }));
+                        setLogs(formatted);
+                    }
+                } catch (err) {
+                    console.error('Monitoring Fetch Error:', err);
                 }
             };
             fetchLogs();

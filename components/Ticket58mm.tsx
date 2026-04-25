@@ -73,28 +73,28 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
     const isDelivery = data.pedido.tipo.toLowerCase().includes('domicilio') || data.pedido.tipo.toLowerCase().includes('delivery');
 
     return (
-        <div className="w-full bg-white text-black font-mono text-[12px] leading-[1.15] mx-auto px-0 py-2 flex flex-col items-center">
+        <div className="w-full bg-white text-black font-sans text-[14px] leading-[1.3] mx-auto px-0 py-2 flex flex-col items-center">
 
             {/* 1. LOGO Y DATOS DE CONTACTO */}
             <div className="flex flex-col items-center w-full mb-3">
                 <img src="/icon.png" alt="Logo" className="w-28 grayscale mb-2" />
-                <h1 className="font-black text-3xl tracking-tighter uppercase mb-1">CASALEÑA</h1>
-                <div className="text-center font-bold text-[10px] uppercase leading-tight space-y-0 text-gray-800">
+                <h1 className="font-black text-4xl tracking-tighter uppercase mb-1">CASALEÑA</h1>
+                <div className="text-center font-black text-[12px] uppercase leading-tight space-y-0 text-black">
                     <p>Boulevard Juan N Alvarez</p>
                     <p>Col. Sentimientos de la Nación</p>
                     <p>Ometepec Guerrero CP 41706</p>
                 </div>
-                <div className="mt-1 font-bold leading-tight text-center">
-                    <p className="text-[12px]">Tel {data.comercio.telefono}</p>
-                    <p className="text-[14px] font-black mt-0.5 border-y border-dashed border-gray-400 py-0.5 inline-block">WhatsApp 741-107-5056</p>
-                    <p className="text-[10px] mt-1 italic text-gray-600 tracking-tight">Lun a Dom de 1:00pm a 9:30pm</p>
+                <div className="mt-1 font-black leading-tight text-center">
+                    <p className="text-[14px]">Tel {data.comercio.telefono}</p>
+                    <p className="text-[16px] font-black mt-0.5 border-y border-dashed border-black py-0.5 inline-block">WhatsApp 741-107-5056</p>
+                    <p className="text-[12px] mt-1 italic text-black tracking-tight">Lun a Dom de 1:00pm a 9:30pm</p>
                 </div>
             </div>
 
             <div className="w-full my-1 border-b border-dashed border-black"></div>
 
             {/* 2. INFO DEL PEDIDO */}
-            <div className="w-full px-2 space-y-0.5 font-bold text-[11px]">
+            <div className="w-full px-2 space-y-0.5 font-black text-[13px]">
                 <div className="flex justify-between">
                     <span>FECHA: {dateStr}</span>
                     <span>HORA: {timeStr}</span>
@@ -136,7 +136,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
 
             {/* 5. TABLA DE PRODUCTOS */}
             <div className="w-full mt-2">
-                <div className="grid grid-cols-[1.5rem_1fr_3rem] gap-1 font-black text-[11px] border-b border-black pb-1 mb-1 px-2 uppercase">
+                <div className="grid grid-cols-[1.5rem_1fr_3rem] gap-1 font-black text-[13px] border-b border-black pb-1 mb-1 px-2 uppercase">
                     <div className="text-left">Cant</div>
                     <div className="text-left">Descripción</div>
                     <div className="text-right">Total</div>

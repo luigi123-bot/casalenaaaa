@@ -43,6 +43,9 @@ interface CustomerDeliveryModalProps {
     onAccept: () => void;
     onClear: () => void;
     onSaveCustomer?: (info: CustomerInfo) => Promise<void>;
+    searchTerm: string;
+    onSearchChange: (term: string) => void;
+    onSearchByPhone?: () => void;
 }
 
 const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
@@ -58,7 +61,10 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
     handleClientSelect,
     onAccept,
     onClear,
-    onSaveCustomer
+    onSaveCustomer,
+    searchTerm,
+    onSearchChange,
+    onSearchByPhone
 }) => {
     const [showHistory, setShowHistory] = React.useState(true);
     const [isSaving, setIsSaving] = React.useState(false);
@@ -119,7 +125,7 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                     </div>
 
                     {/* PHONE FIELD - COMPACT */}
-                    <div className="mb-4 bg-[#f8f7f5] rounded-xl p-3 border border-transparent focus-within:border-[#f7941d]/30 focus-within:bg-white focus-within:shadow-md transition-all">
+                    <div className="mb-4 bg-[#f8f7f5] rounded-xl p-3 border border-transparent focus-within:border-[#f7941d]/30 focus-within:bg-white focus-within:shadow-md transition-all relative">
                         <div className="flex justify-between items-center mb-1">
                             <span className="text-[9px] font-black text-[#f7941d] uppercase tracking-widest">Teléfono</span>
                             {isSearchingCustomer && <span className="material-icons-round animate-spin text-[#f7951d] text-xs">sync</span>}
@@ -133,13 +139,42 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                                 className="bg-transparent border-none p-0 text-xl font-black text-[#181511] focus:ring-0 outline-none w-full placeholder:text-gray-200"
                                 placeholder="741 000 0000"
                             />
+                            {onSearchByPhone && (
+                                <button 
+                                    onClick={onSearchByPhone}
+                                    className="bg-[#181511] text-white p-2 rounded-lg hover:bg-black active:scale-90 transition-all flex items-center justify-center"
+                                    title="Cargar datos de este teléfono"
+                                >
+                                    <span className="material-icons-round text-sm">download</span>
+                                </button>
+                            )}
                         </div>
+                        {customerInsights && (
+                            <div className="absolute -bottom-2 right-2 bg-amber-500 text-white text-[8px] font-black px-2 py-0.5 rounded-md uppercase animate-in fade-in zoom-in-90">
+                                Cliente Registrado
+                            </div>
+                        )}
                     </div>
 
                     <div className="space-y-4">
+                        {/* BUSCADOR DE CLIENTES */}
+                        <div>
+                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Buscar Cliente (Nombre o Tel)</label>
+                            <div className="relative">
+                                <span className="material-icons-round absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">search</span>
+                                <input
+                                    type="text"
+                                    value={searchTerm}
+                                    onChange={(e) => onSearchChange(e.target.value)}
+                                    className="w-full bg-[#f8f7f5] border border-transparent rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold focus:bg-white focus:border-[#f7951d] outline-none transition-all"
+                                    placeholder="Nombre o teléfono..."
+                                />
+                            </div>
+                        </div>
+
                         {/* SELECTOR COMPACTO */}
                         <div>
-                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Autocompletar</label>
+                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Resultados de búsqueda</label>
                             <div className="relative">
                                 <select
                                     onChange={handleClientSelect}
@@ -224,7 +259,7 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                             ) : (
                                 <span className="material-icons-round text-green-400 text-lg">save_alt</span>
                             )}
-                            {isSaving ? 'Guardando...' : 'Guardar Perfil y Continuar'}
+                            {isSaving ? 'Guardando...' : 'Confirmar y Continuar al Pago'}
                         </button>
                         
                         <button

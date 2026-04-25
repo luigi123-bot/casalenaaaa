@@ -38,124 +38,42 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
     const [gastosInsumoLimpieza, setGastosInsumoLimpieza] = useState('');
 
     const fetchCierreData = useCallback(async () => {
+        console.log('🚀 [Cierre] Iniciando proceso de cálculo de ventas...');
         setLoading(true);
         setError(null);
         try {
             // Recuperar el momento exacto en que se abrió la caja desde localStorage
             const dateStr = new Date().toLocaleDateString('sv-SE');
             const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
-            const shift = saved ? JSON.parse(saved) : null;
+            console.log('📡 [Cierre] Consultando resumen al servidor (API)...');
             
-            // Si no hay apertura registrada, usar el inicio del día por defecto
-            const startTime = new Date();
-            startTime.setHours(0,0,0,0);
-            let start = startTime.toISOString();
-            
-            if (shift && shift.openedAt) {
-                // Seguridad: si la apertura registrada es de hace más de 24h, 
-                // probablemente es basura o un error. Limitamos a 24h.
-                const openTime = new Date(shift.openedAt).getTime();
-                const nowTime = new Date().getTime();
-                if (nowTime - openTime < 24 * 60 * 60 * 1000) {
-                    start = shift.openedAt;
-                }
-                console.log('🔍 [Cierre] Consultando pedidos desde:', start);
+            const res = await Promise.race([
+                fetch('/api/cashier/closure-summary'),
+                new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))
+            ]);
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || 'Error al obtener el resumen del servidor');
             }
 
-            // Statuses que significan venta cerrada/cobrada
-            const validStatuses = ['entregado', 'completado', 'listo', 'finalizado', 'confirmado'];
-
-            // Buscamos órdenes que hayan sido ACTUALIZADAS durante el turno.
-            // Usamos updated_at ya que closed_at no existe en el esquema actual.
-            // ── CONSULTA OPTIMIZADA CON ABORT SIGNAL ───────────────────────────
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-            const { data: orders, error } = await supabase
-                .from('orders')
-                .select('id, total_amount, payment_method, order_type, updated_at, order_items(product_name, quantity)')
-                .gte('updated_at', start)
-                .in('status', validStatuses)
-                .abortSignal(controller.signal);
+            const cierre = await res.json();
+            console.log('✅ [Cierre] Resumen recibido del servidor:', cierre);
             
-            clearTimeout(timeoutId);
-
-            if (error) throw error;
-            
-            console.log(`📊 [Cierre] Análisis de pagos desde ${start}:`, orders?.length || 0);
-
-            const cierre: CierreData = {
-                fechaTurno: new Date().toLocaleDateString('es-MX', {
-                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-                }),
-                totalOrdenes: orders?.length ?? 0,
-                totalVentas: 0,
-                ventasEfectivo: 0,
-                ventasTarjeta: 0,
-                ventasOtro: 0,
-                totalProductos: 0,
-                topProductos: [],
-                ordenesPorTipo: [],
-                ticketPromedio: 0,
-            };
-
-            const productMap: Record<string, number> = {};
-            const tipoMap: Record<string, { count: number; total: number }> = {};
-
-            orders?.forEach((order: any) => {
-                const total = order.total_amount ?? 0;
-                cierre.totalVentas += total;
-
-                // Mapeo preciso de formas de pago
-                const method = (order.payment_method || 'otro').toLowerCase().trim();
-                
-                if (method === 'efectivo' || method.includes('efe')) {
-                    cierre.ventasEfectivo += total;
-                } else if (method === 'tarjeta' || method.includes('tar') || method.includes('deb') || method.includes('cred')) {
-                    cierre.ventasTarjeta += total;
-                } else if (method === 'transferencia' || method.includes('trans')) {
-                    // Podemos poner transferencia en "Otro" o crear una columna si fuera necesario
-                    cierre.ventasOtro += total;
-                } else {
-                    cierre.ventasOtro += total;
-                }
-
-                const tipo = order.order_type === 'delivery' ? 'Domicilio'
-                    : order.order_type === 'takeout' ? 'Pick Up'
-                    : 'Comedor';
-                    
-                if (!tipoMap[tipo]) tipoMap[tipo] = { count: 0, total: 0 };
-                tipoMap[tipo].count += 1;
-                tipoMap[tipo].total += total;
-
-                (order.order_items as any[])?.forEach((item: any) => {
-                    const key = item.product_name || 'Sin nombre';
-                    productMap[key] = (productMap[key] || 0) + (item.quantity || 1);
-                    cierre.totalProductos += item.quantity || 1;
-                });
-            });
-
-            cierre.topProductos = Object.entries(productMap)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 5)
-                .map(([name, qty]) => ({ name, qty }));
-
-            cierre.ordenesPorTipo = Object.entries(tipoMap)
-                .map(([tipo, v]) => ({ tipo, count: v.count, total: v.total }));
-
-            cierre.ticketPromedio = cierre.totalOrdenes > 0
-                ? cierre.totalVentas / cierre.totalOrdenes : 0;
-
             setData(cierre);
         } catch (err: any) {
-            console.error('[CierreCaja] Error calculando totales:', err);
-            setError(err.message || 'Error al conectar con la base de datos');
+            if (err.name === 'AbortError') {
+                setError('La conexión es lenta. El servidor no respondió a tiempo. Reintenta por favor.');
+            } else {
+                setError(err.message || 'Error al conectar con la base de datos');
+            }
         } finally {
             setLoading(false);
         }
     }, []);
 
     useEffect(() => {
+        console.log('🔄 [Cierre] Montando componente / Re-ejecutando useEffect');
         const loadInitialShiftInfo = () => {
             const dateStr = new Date().toLocaleDateString('sv-SE');
             const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
@@ -170,22 +88,22 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
         loadInitialShiftInfo();
         fetchCierreData(); 
 
-        // Respaldo final: si después de 15s sigue cargando, forzar cierre del loader
-        const finalSafety = setTimeout(() => setLoading(false), 15000);
+        // Respaldo final: si después de 40s sigue cargando, forzar cierre del loader
+        const finalSafety = setTimeout(() => setLoading(false), 40000);
         return () => clearTimeout(finalSafety);
     }, [fetchCierreData]);
-
-    // Calculated difference
-    const fondoNum = parseFloat(fondoInicial) || 0;
-    const contadoNum = parseFloat(efectivoContado) || 0;
-    const expectedCash = fondoNum + (data?.ventasEfectivo ?? 0);
-    const diferencia = contadoNum - expectedCash;
 
     // Gastos totals
     const gastosCombustibleNum = parseFloat(gastosCombustible) || 0;
     const gastosInsumoCocinaNum = parseFloat(gastosInsumoCocina) || 0;
     const gastosInsumoLimpiezaNum = parseFloat(gastosInsumoLimpieza) || 0;
     const totalGastos = gastosCombustibleNum + gastosInsumoCocinaNum + gastosInsumoLimpiezaNum;
+
+    // Calculated difference
+    const fondoNum = parseFloat(fondoInicial) || 0;
+    const contadoNum = parseFloat(efectivoContado) || 0;
+    const expectedCash = fondoNum + (data?.ventasEfectivo ?? 0) - totalGastos;
+    const diferencia = contadoNum - expectedCash;
 
     const handleConfirmarCierre = async () => {
         setSaving(true);
@@ -240,23 +158,27 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                 efectivo_esperado: metrics.expected_cash,
                 efectivo_contado: metrics.final_cash,
                 diferencia: metrics.difference,
-                top_productos: metrics.top_products
+                top_productos: metrics.top_products,
+                gastos_combustible: metrics.gastos_combustible,
+                gastos_insumo_cocina: metrics.gastos_insumo_cocina,
+                gastos_insumo_limpieza: metrics.gastos_insumo_limpieza,
+                total_gastos: metrics.total_gastos
             };
 
-            const controller = new AbortController();
-            const tId = setTimeout(() => controller.abort(), 10000);
-
-            const res = await fetch('/api/admin/closures', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(legacyPayload),
-                signal: controller.signal
-            });
-            clearTimeout(tId);
+            const res = await Promise.race([
+                fetch('/api/admin/closures', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(legacyPayload)
+                }),
+                new Promise<any>((_, rej) => setTimeout(() => rej(new Error('TIMEOUT_API')), 10000))
+            ]);
 
             if (!res.ok) {
                 const errData = await res.json();
-                throw new Error(errData.error || 'Error en la respuesta del servidor');
+                setError(errData.error || 'Error en la respuesta del servidor');
+                setSaving(false);
+                return;
             }
 
             // 3. Marcar como cerrado en LocalStorage para evitar re-aperturas fantasma
@@ -297,38 +219,110 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
 
     const handlePrint = () => {
         if (!data) return;
-        const lines = [
-            `CIERRE DE CAJA — CASALEÑA`,
-            `Fecha: ${data.fechaTurno}`,
-            `Cajero: ${cashierName}`,
-            `${'─'.repeat(32)}`,
-            `ÓRDENES HOY: ${data.totalOrdenes}`,
-            `PRODUCTOS VENDIDOS: ${data.totalProductos}`,
-            `TICKET PROMEDIO: $${data.ticketPromedio.toFixed(2)}`,
-            `${'─'.repeat(32)}`,
-            `VENTAS POR FORMA DE PAGO`,
-            `Efectivo:   $${data.ventasEfectivo.toFixed(2)}`,
-            `Tarjeta:    $${data.ventasTarjeta.toFixed(2)}`,
-            `Otro:       $${data.ventasOtro.toFixed(2)}`,
-            `TOTAL:      $${data.totalVentas.toFixed(2)}`,
-            `${'─'.repeat(32)}`,
-            `CUADRE DE CAJA`,
-            `Fondo inicial:     $${fondoNum.toFixed(2)}`,
-            `Efectivo esperado: $${expectedCash.toFixed(2)}`,
-            `Efectivo contado:  $${contadoNum.toFixed(2)}`,
-            `DIFERENCIA:        $${diferencia.toFixed(2)}`,
-            `${'─'.repeat(32)}`,
-            `TOP PRODUCTOS:`,
-            ...data.topProductos.map((p, i) => `  ${i + 1}. ${p.name} (${p.qty})`),
-            `${'─'.repeat(32)}`,
-            `Cierre generado: ${new Date().toLocaleString('es-MX')}`,
-        ].join('\n');
 
-        const win = window.open('', '_blank', 'width=400,height=700');
+        const ticketHtml = `
+            <html>
+                <head>
+                    <title>Cierre de Caja - Casaleña</title>
+                    <style>
+                        body { 
+                            font-family: 'Courier New', Courier, monospace; 
+                            width: 80mm; 
+                            margin: 0; 
+                            padding: 10px; 
+                            font-size: 12px;
+                            color: #000;
+                        }
+                        .header { text-align: center; margin-bottom: 20px; }
+                        .header h1 { margin: 0; font-size: 18px; text-transform: uppercase; }
+                        .header p { margin: 2px 0; font-size: 10px; }
+                        .divider { border-top: 1px dashed #000; margin: 10px 0; }
+                        .section-title { font-weight: bold; text-align: center; text-transform: uppercase; margin: 10px 0 5px 0; background: #eee; padding: 2px; }
+                        .row { display: flex; justify-content: space-between; margin: 3px 0; }
+                        .row.total { font-weight: bold; font-size: 14px; margin-top: 5px; }
+                        .row.diff { border: 1px solid #000; padding: 5px; margin-top: 5px; font-weight: bold; text-align: center; display: block; }
+                        .footer { text-align: center; margin-top: 20px; font-size: 9px; }
+                        @media print {
+                            body { width: 80mm; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h1>CASALEÑA</h1>
+                        <p>Cierre de Caja Diario</p>
+                        <p>${data.fechaTurno}</p>
+                        <p>Cajero: ${cashierName}</p>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="section-title">Resumen de Ventas</div>
+                    <div class="row"><span>Órdenes:</span> <span>${data.totalOrdenes}</span></div>
+                    <div class="row"><span>Productos:</span> <span>${data.totalProductos}</span></div>
+                    <div class="row"><span>Ticket Prom.:</span> <span>$${data.ticketPromedio.toFixed(2)}</span></div>
+                    
+                    <div class="divider"></div>
+
+                    <div class="section-title">Formas de Pago</div>
+                    <div class="row"><span>Efectivo:</span> <span>$${data.ventasEfectivo.toFixed(2)}</span></div>
+                    <div class="row"><span>Tarjeta:</span> <span>$${data.ventasTarjeta.toFixed(2)}</span></div>
+                    <div class="row"><span>Otro/Transf:</span> <span>$${data.ventasOtro.toFixed(2)}</span></div>
+                    <div class="row total"><span>TOTAL VENTAS:</span> <span>$${data.totalVentas.toFixed(2)}</span></div>
+
+                    <div class="divider"></div>
+
+                    <div class="section-title">Gastos del Turno</div>
+                    <div class="row"><span>Combustible:</span> <span>$${gastosCombustibleNum.toFixed(2)}</span></div>
+                    <div class="row"><span>Insumos Cocina:</span> <span>$${gastosInsumoCocinaNum.toFixed(2)}</span></div>
+                    <div class="row"><span>Insumos Limpieza:</span> <span>$${gastosInsumoLimpiezaNum.toFixed(2)}</span></div>
+                    <div class="row total"><span>TOTAL GASTOS:</span> <span>$${totalGastos.toFixed(2)}</span></div>
+
+                    <div class="divider"></div>
+
+                    <div class="section-title">Cuadre de Caja</div>
+                    <div class="row"><span>Fondo Inicial:</span> <span>$${fondoNum.toFixed(2)}</span></div>
+                    <div class="row"><span>(+) Ventas Efectivo:</span> <span>$${data.ventasEfectivo.toFixed(2)}</span></div>
+                    <div class="row"><span>(-) Gastos:</span> <span>$${totalGastos.toFixed(2)}</span></div>
+                    <div class="divider"></div>
+                    <div class="row"><span>Efectivo Esperado:</span> <span>$${expectedCash.toFixed(2)}</span></div>
+                    <div class="row"><span>Efectivo Contado:</span> <span>$${contadoNum.toFixed(2)}</span></div>
+                    
+                    <div class="row diff">
+                        DIFERENCIA: $${diferencia.toFixed(2)}
+                        <br/>
+                        <small>${diferencia === 0 ? 'CAJA CUADRADA' : diferencia > 0 ? 'SOBRANTE' : 'FALTANTE'}</small>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="section-title">Top Productos</div>
+                    ${data.topProductos.map((p, i) => `
+                        <div class="row">
+                            <span>${i + 1}. ${p.name}</span>
+                            <span>${p.qty}</span>
+                        </div>
+                    `).join('')}
+
+                    <div class="footer">
+                        <p>Documento de Control Interno</p>
+                        <p>Generado: ${new Date().toLocaleString('es-MX')}</p>
+                    </div>
+
+                    <script>
+                        window.onload = () => {
+                            window.print();
+                            window.onafterprint = () => window.close();
+                        };
+                    </script>
+                </body>
+            </html>
+        `;
+
+        const win = window.open('', '_blank', 'width=450,height=800');
         if (win) {
-            win.document.write(`<pre style="font-family:monospace;font-size:12px;padding:20px;">${lines}</pre>`);
+            win.document.write(ticketHtml);
             win.document.close();
-            win.print();
         }
     };
 
@@ -339,7 +333,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                 {/* Header */}
                 <div className="flex items-center justify-between px-7 py-5 border-b border-[#f0ede9] bg-[#181511] rounded-t-3xl">
                     <div>
-                        <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Cajero: {cashierName}</p>
+                        <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Cajero: {cashierName || 'Cargando...'}</p>
                         <h2 className="text-xl font-black text-white">Cierre de Caja</h2>
                     </div>
                     {!mustClose && step !== 'done' && (
@@ -507,6 +501,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                                     {[
                                         { l: 'Fondo inicial', v: fondoNum },
                                         { l: 'Ventas efectivo', v: data.ventasEfectivo },
+                                        { l: 'Gastos totales', v: -totalGastos },
                                         { l: 'Efectivo esperado', v: expectedCash },
                                         { l: 'Efectivo contado', v: contadoNum },
                                     ].map(r => (
