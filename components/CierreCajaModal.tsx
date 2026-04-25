@@ -30,6 +30,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
     const [efectivoContado, setEfectivoContado] = useState('');
     const [step, setStep] = useState<'summary' | 'count' | 'gastos' | 'confirm' | 'done'>('summary');
     const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     // Gastos state
     const [gastosCombustible, setGastosCombustible] = useState('');
@@ -38,6 +39,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
 
     const fetchCierreData = useCallback(async () => {
         setLoading(true);
+        setError(null);
         try {
             // Recuperar el momento exacto en que se abrió la caja desde localStorage
             const dateStr = new Date().toLocaleDateString('sv-SE');
@@ -50,8 +52,14 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
             let start = startTime.toISOString();
             
             if (shift && shift.openedAt) {
-                start = shift.openedAt;
-                console.log('🔍 [Cierre] Consultando pedidos desde la apertura del turno:', start);
+                // Seguridad: si la apertura registrada es de hace más de 24h, 
+                // probablemente es basura o un error. Limitamos a 24h.
+                const openTime = new Date(shift.openedAt).getTime();
+                const nowTime = new Date().getTime();
+                if (nowTime - openTime < 24 * 60 * 60 * 1000) {
+                    start = shift.openedAt;
+                }
+                console.log('🔍 [Cierre] Consultando pedidos desde:', start);
             }
 
             // Statuses que significan venta cerrada/cobrada
@@ -59,16 +67,18 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
 
             // Buscamos órdenes que hayan sido ACTUALIZADAS durante el turno.
             // Usamos updated_at ya que closed_at no existe en el esquema actual.
-            // ── CONSULTA OPTIMIZADA ─────────────────────────────────────────────
-            // Solo traemos las columnas necesarias para el cálculo para mayor velocidad.
-            const { data: orders, error } = await Promise.race([
-                supabase
-                    .from('orders')
-                    .select('id, total_amount, payment_method, order_type, updated_at, order_items(product_name, quantity)')
-                    .gte('updated_at', start)
-                    .in('status', validStatuses),
-                new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Timeout en consulta de base de datos')), 12000))
-            ]);
+            // ── CONSULTA OPTIMIZADA CON ABORT SIGNAL ───────────────────────────
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            const { data: orders, error } = await supabase
+                .from('orders')
+                .select('id, total_amount, payment_method, order_type, updated_at, order_items(product_name, quantity)')
+                .gte('updated_at', start)
+                .in('status', validStatuses)
+                .abortSignal(controller.signal);
+            
+            clearTimeout(timeoutId);
 
             if (error) throw error;
             
@@ -137,8 +147,9 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                 ? cierre.totalVentas / cierre.totalOrdenes : 0;
 
             setData(cierre);
-        } catch (err) {
+        } catch (err: any) {
             console.error('[CierreCaja] Error calculando totales:', err);
+            setError(err.message || 'Error al conectar con la base de datos');
         } finally {
             setLoading(false);
         }
@@ -158,6 +169,10 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
         };
         loadInitialShiftInfo();
         fetchCierreData(); 
+
+        // Respaldo final: si después de 15s sigue cargando, forzar cierre del loader
+        const finalSafety = setTimeout(() => setLoading(false), 15000);
+        return () => clearTimeout(finalSafety);
     }, [fetchCierreData]);
 
     // Calculated difference
@@ -358,6 +373,20 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                                 <div className="flex flex-col items-center py-12 gap-4">
                                     <div className="size-10 border-4 border-orange-100 border-t-[#F27405] rounded-full animate-spin" />
                                     <p className="text-sm font-bold text-gray-400">Calculando el día...</p>
+                                </div>
+                            ) : error ? (
+                                <div className="flex flex-col items-center py-12 gap-4 text-center">
+                                    <span className="material-symbols-outlined text-red-500 text-5xl">error</span>
+                                    <div>
+                                        <p className="text-sm font-black text-gray-900">No se pudo cargar la información</p>
+                                        <p className="text-xs text-gray-500 mt-1 max-w-[280px]">{error}</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => fetchCierreData()}
+                                        className="mt-2 px-6 py-2 bg-gray-900 text-white text-xs font-black rounded-xl hover:bg-black transition-all"
+                                    >
+                                        REINTENTAR
+                                    </button>
                                 </div>
                             ) : data && (
                                 <>
