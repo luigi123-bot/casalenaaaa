@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
-import { useOfflineSync } from '@/hooks/useOfflineSync';
+
 import { useSessionKeepAlive } from '@/hooks/useSessionKeepAlive';
 import NotificationPanel from '@/components/NotificationPanel';
 import CashierSupportChat from '@/components/CashierSupportChat';
@@ -66,7 +66,10 @@ type OrderType = 'dine-in' | 'takeout' | 'delivery';
 
 export default function CashierPage() {
     const router = useRouter();
-    const { isOnline, isSyncing, pendingCount, saveOrderOffline } = useOfflineSync();
+    // Removed offline sync per user request
+    const isOnline = true; // Placeholder or use navigator.onLine if needed, but per request we skip offline handling logic
+    const pendingCount = 0;
+    const isSyncing = false;
     const { user } = useAuth();
     const cashierName = user?.full_name || 'CAJERO';
 
@@ -405,17 +408,16 @@ export default function CashierPage() {
 
                 if (hasActiveDbSession || locallyOpen) {
                     if (shiftState !== 'open') {
-                         console.log(`[Shift] ✅ Sesión detectada (DB: ${hasActiveDbSession}, Local: ${locallyOpen}). Entrando...`);
+                         console.log(`[Shift] ✅ Sesión detectada. Entrando...`);
                          setShiftState('open');
                     }
-                } else {
-                    if (shiftState !== 'must_open' && shiftState !== 'checking') {
-                        console.log('[Shift] ℹ️ No se detectó sesión activa. Requiere apertura.');
-                        setShiftState('must_open');
-                    } else if (shiftState === 'checking') {
-                         setShiftState('must_open');
-                    }
+                } else if (shiftState === 'checking') {
+                    // Solo pedimos abrir si es la primera comprobación y no hay nada
+                    console.log('[Shift] ℹ️ No se detectó sesión activa. Requiere apertura.');
+                    setShiftState('must_open');
                 }
+                // Si ya estaba 'open', no lo regresamos a 'must_open' automáticamente 
+                // para evitar que pida la caja de nuevo por errores de red temporales.
             } catch (err: any) {
                 // Ignorar silenciosamente errores de abort (desmonte del componente / StrictMode)
                 if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('signal')) {
@@ -1327,141 +1329,107 @@ export default function CashierPage() {
             return;
         }
 
-        console.log(`🚀 [Cashier] Iniciar proceso de ${isFinalPayment ? 'PAGO' : 'GUARDADO'} de pedido...`);
-        setLoading(true);
-        isProcessingOrder.current = true;
+            setLoading(true);
+            isProcessingOrder.current = true;
 
-        try {
-            // ── SESIÓN: obtener userId de forma no bloqueante ────────────────────
-            // Si la sesión está expirada, userId será null y la orden se guardará
-            // offline. El cajero SIEMPRE puede cobrar e imprimir.
-            const userId = await getUserIdSafe();
-            const forceOffline = isOnline && userId === null; // Sin sesión → offline
+            try {
+                const userId = await getUserIdSafe();
 
-            // ── NÚMERO DE TICKET DIARIO ──────────────────────────────────────────
-            // Con timeout de 3s para no bloquear si la red está lenta.
-            let dailySequence = 1;
-            if (!activeOrderId) {
-                try {
-                    const today = new Date().toLocaleDateString('en-CA');
-                    const ticketPromise = supabase
-                        .from('orders')
-                        .select('ticket_number')
-                        .gte('created_at', today + 'T00:00:00')
-                        .lte('created_at', today + 'T23:59:59')
-                        .order('ticket_number', { ascending: false })
-                        .limit(1)
-                        .single();
-
-                    const timeoutPromise = new Promise<null>(resolve =>
-                        setTimeout(() => resolve(null), 3000)
-                    );
-
-                    // Race against timeout and catch any AbortErrors (signal aborted)
-                    const result = await Promise.race([
-                        Promise.resolve(ticketPromise).catch((err: any) => {
-                            console.warn('[Cashier] ⚠️ Error obteniendo ticket (abortado?):', err?.message);
-                            return null;
-                        }), 
-                        timeoutPromise
-                    ]);
-                    
-                    if (result && 'data' in result && result.data?.ticket_number) {
-                        dailySequence = Number(result.data.ticket_number) + 1;
+                // ── NÚMERO DE TICKET DIARIO ──────────────────────────────────────────
+                let dailySequence = 1;
+                if (!activeOrderId) {
+                    try {
+                        const today = new Date().toLocaleDateString('en-CA');
+                        const { data: ticketData } = await supabase
+                            .from('orders')
+                            .select('ticket_number')
+                            .gte('created_at', today + 'T00:00:00')
+                            .lte('created_at', today + 'T23:59:59')
+                            .order('ticket_number', { ascending: false })
+                            .limit(1)
+                            .single();
+                        
+                        if (ticketData?.ticket_number) {
+                            dailySequence = Number(ticketData.ticket_number) + 1;
+                        }
+                    } catch (ticketErr) {
+                        console.warn('[Cashier] Fallback en número de ticket:', ticketErr);
                     }
-                } catch (ticketErr) {
-                    console.warn('[Cashier] ⚠️ Fallback en número de ticket:', ticketErr);
-                }
-            }
-
-            // El status es 'pendiente' si es pre-ticket, sino el status normal
-            const finalStatus = isFinalPayment ? (orderType === 'delivery' ? 'confirmado' : 'entregado') : 'pendiente';
-
-            const orderPayload: any = {
-                user_id: userId,
-                status: finalStatus,
-                total_amount: cartTotals.total,
-                tax_amount: cartTotals.tax,
-                order_type: orderType,
-                payment_method: (overridePaymentMethod || paymentMethod).toLowerCase().trim(),
-                customer_name: orderType === 'delivery' ? customerInfo.name : (orderType === 'takeout' ? customerInfo.name : null),
-                phone_number: orderType === 'delivery' ? customerInfo.phone : (orderType === 'takeout' ? customerInfo.phone : null),
-                delivery_address: orderType === 'delivery' ? customerInfo.address : null,
-                table_number: orderType === 'dine-in' ? tableNumber : null,
-                updated_at: new Date().toISOString(),
-                // Metadata for tracking
-                cashier_name: cashierName,
-                ticket_number: dailySequence
-            };
-
-            // Solo incluimos created_at si es nueva orden
-            if (!activeOrderId) {
-                orderPayload.created_at = new Date().toISOString();
-            }
-
-            const orderItemsPayload = cart.map(item => {
-                const extrasData: any[] = [...(item.extras || [])];
-                if (item.isHalfAndHalf && item.secondHalfVariant) {
-                    extrasData.push({
-                        type: 'half_and_half',
-                        second_half_id: item.secondHalfVariant.id,
-                        second_half_name: item.secondHalfVariant.name,
-                        second_half_price: item.secondHalfVariant.price
-                    });
                 }
 
-                return {
-                    product_id: item.id,
-                    product_name: item.name,
-                    quantity: item.quantity,
-                    unit_price: item.price,
-                    total_price: item.price * item.quantity,
-                    selected_size: item.selectedSize,
-                    extras: extrasData.length > 0 ? extrasData : null,
-                    notes: item.note || null
+                // El status es 'pendiente' si es pre-ticket.
+                // Para llevar -> 'preparando' para que siga en Cuentas Abiertas.
+                // Domicilio -> 'confirmado'.
+                // Mesa -> 'entregado' (ya que se consume ahí).
+                const finalStatus = isFinalPayment 
+                    ? (orderType === 'delivery' ? 'confirmado' : (orderType === 'takeout' ? 'preparando' : 'entregado')) 
+                    : 'pendiente';
+
+                const orderPayload: any = {
+                    user_id: userId,
+                    status: finalStatus,
+                    total_amount: cartTotals.total,
+                    tax_amount: cartTotals.tax,
+                    order_type: orderType,
+                    payment_method: (overridePaymentMethod || paymentMethod).toLowerCase().trim(),
+                    customer_name: orderType === 'dine-in' ? null : customerInfo.name,
+                    phone_number: orderType === 'dine-in' ? null : customerInfo.phone,
+                    delivery_address: orderType === 'delivery' ? customerInfo.address : null,
+                    table_number: orderType === 'dine-in' ? tableNumber : null,
+                    updated_at: new Date().toISOString(),
+                    cashier_name: cashierName,
+                    ticket_number: dailySequence
                 };
-            });
 
-            console.log('📦 [Cashier] Payload de Orden:', JSON.stringify(orderPayload, null, 2));
-            console.log('🛒 [Cashier] Payload de Items:', JSON.stringify(orderItemsPayload, null, 2));
+                if (!activeOrderId) {
+                    orderPayload.created_at = new Date().toISOString();
+                }
 
-            let createdOrder = null;
-
-            if (isOnline && !forceOffline) {
-                try {
-                    // USAR NUEVA API CONSOLIDADA (Incluye upsert de cliente automático)
-                    const response = await fetch('/api/cashier/save-order', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            order: { ...orderPayload, id: activeOrderId },
-                            items: orderItemsPayload
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const errData = await response.json();
-                        throw new Error(errData.error || 'Error en el servidor al guardar la orden');
+                const orderItemsPayload = cart.map(item => {
+                    const extrasData: any[] = [...(item.extras || [])];
+                    if (item.isHalfAndHalf && item.secondHalfVariant) {
+                        extrasData.push({
+                            type: 'half_and_half',
+                            second_half_id: item.secondHalfVariant.id,
+                            second_half_name: item.secondHalfVariant.name,
+                            second_half_price: item.secondHalfVariant.price
+                        });
                     }
 
-                    const result = await response.json();
-                    createdOrder = result.order;
-                    console.log(`✅ [Cashier] ORDEN GUARDADA EN SERVIDOR (ID: ${createdOrder?.id})`);
+                    return {
+                        product_id: item.id,
+                        product_name: item.name,
+                        quantity: item.quantity,
+                        unit_price: item.price,
+                        total_price: item.price * item.quantity,
+                        selected_size: item.selectedSize,
+                        extras: extrasData.length > 0 ? extrasData : null,
+                        notes: item.note || null
+                    };
+                });
 
-                } catch (netErr: any) {
-                    console.error('⚠️ [Cashier] Error en servidor, usando modo offline:', netErr?.message || netErr || 'Error desconocido');
-                    // Fallback to offline storage
-                    const localId = saveOrderOffline(orderPayload, orderItemsPayload);
-                    createdOrder = { ...orderPayload, id: localId, is_offline: true };
+                console.log('🚀 [Cashier] Enviando orden al servidor...');
+                
+                const response = await fetch('/api/cashier/save-order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        order: { ...orderPayload, id: activeOrderId },
+                        items: orderItemsPayload
+                    })
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.error || 'Error al guardar en la base de datos');
                 }
-            } else {
-                // Not online, go directly to offline storage
-                const localId = saveOrderOffline(orderPayload, orderItemsPayload);
-                createdOrder = { ...orderPayload, id: localId, is_offline: true };
-            }
 
-            // UI SUCCESS FLOW
-            if (createdOrder) {
+                const result = await response.json();
+                const createdOrder = result.order;
+                console.log(`✅ [Cashier] ORDEN GUARDADA (ID: ${createdOrder?.id})`);
+
+                // UI SUCCESS FLOW
+                if (createdOrder) {
                 setLastOrderId(createdOrder.id);
                 // Si es PRE-TICKET no mostramos el Confetti/Success grande, solo el Ticket (y un mini alert/toast visual de exito)
                 if (isFinalPayment) {
@@ -2359,7 +2327,7 @@ export default function CashierPage() {
                                 <span className="material-icons-round text-[12px]">table_restaurant</span> Cuentas Abiertas (Mesa)
                             </span>
                             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                                {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.order_type === 'dine-in').map(order => {
+                                {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.order_type === 'dine-in').map(order => {
                                     const isSelected = activeOrderId === order.id || (order.table_number && tableNumber === order.table_number);
                                     return (
                                         <button 
@@ -2612,7 +2580,7 @@ export default function CashierPage() {
 
                         {/* List */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length === 0 ? (
+                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status)).length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full opacity-20 gap-4">
                                     <span className="material-icons-round text-6xl">receipt_long</span>
                                     <p className="font-black text-sm uppercase tracking-widest">Sin cuentas abiertas</p>

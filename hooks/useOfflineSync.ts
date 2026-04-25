@@ -114,45 +114,25 @@ export function useOfflineSync() {
                     }
                 }
 
-                // 1. Insertar la Orden
-                const { data: orderData, error: orderError } = await supabase
-                    .from('orders')
-                    .insert(order.payload)
-                    .select();
+                // 1. Sincronizar usando la API consolidada (más robusto y no requiere RLS de sesión)
+                const response = await fetch('/api/cashier/save-order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        order: order.payload,
+                        items: order.items
+                    })
+                });
 
-                if (orderError) {
-                    const errStr = JSON.stringify({
-                        message: orderError.message,
-                        code: orderError.code,
-                        details: orderError.details,
-                        hint: orderError.hint,
-                        payload: order.payload
-                    }, null, 2);
-                    console.error('❌ [OfflineSync] Error Supabase al insertar orden:', errStr);
-                    throw orderError;
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.error || 'Error en servidor durante sincronización');
                 }
-                const createdOrder = orderData?.[0];
 
-                if (!createdOrder) throw new Error('No se pudo crear la orden en la BD.');
+                const result = await response.json();
+                const createdOrder = result.order;
 
-                // 2. Insertar los Items de esa Orden
-                const orderItems = order.items.map(item => ({
-                    ...item,
-                    order_id: createdOrder.id
-                }));
-
-                const { error: itemsError } = await supabase
-                    .from('order_items')
-                    .insert(orderItems);
-
-                if (itemsError) {
-                    console.error('❌ [OfflineSync] Error Supabase al insertar items:', {
-                        message: itemsError.message,
-                        code: itemsError.code,
-                        details: itemsError.details,
-                    });
-                    throw itemsError;
-                }
+                if (!createdOrder) throw new Error('No se pudo confirmar la creación en la BD.');
 
                 console.log(`✅ [OfflineSync] Pedido sincronizado éxito: ID local ${order.id} -> DB ${createdOrder.id}`);
             } catch (err) {
