@@ -117,7 +117,8 @@ export default function CashierPage() {
     // Data State
     const [products, setProducts] = useState<Product[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true);       // menú / productos
+    const [orderLoading, setOrderLoading] = useState(false); // procesar orden
     const [activeBanner, setActiveBanner] = useState<any>(null);
 
     // Filter UI State
@@ -1224,8 +1225,8 @@ export default function CashierPage() {
     const handlePlaceOrder = async (isFinalPayment: boolean = true, overridePaymentMethod?: string, skipPrinting: boolean = false) => {
         if (isProcessingOrder.current) {
             console.warn('⚠️ [Cashier] Ya hay un proceso en curso.');
-            // Si loading está atascado, forzar reset
-            setLoading(false);
+            setOrderLoading(false);
+            isProcessingOrder.current = false;
             return;
         }
 
@@ -1234,7 +1235,7 @@ export default function CashierPage() {
             return;
         }
 
-            setLoading(true);
+            setOrderLoading(true);
             isProcessingOrder.current = true;
 
             try {
@@ -1377,7 +1378,7 @@ export default function CashierPage() {
                 setTimeout(() => fetchRecentOrders(false), 500);
             }
 
-            setLoading(false);
+            setOrderLoading(false);
             isProcessingOrder.current = false;
 
         } catch (error: any) {
@@ -1386,8 +1387,7 @@ export default function CashierPage() {
                 alert(error.message || 'Error al procesar la orden');
             }
         } finally {
-            // Garantizar que loading e isProcessingOrder siempre se limpien
-            setLoading(false);
+            setOrderLoading(false);
             isProcessingOrder.current = false;
         }
     };
@@ -1395,7 +1395,7 @@ export default function CashierPage() {
     const handleCancelOrder = async () => {
         if (!lastOrderId) return;
 
-        setLoading(true);
+        setOrderLoading(true);
         try {
             console.log(`🛑 [Cashier] Cancelando pedido ID: ${lastOrderId}...`);
 
@@ -1421,7 +1421,7 @@ export default function CashierPage() {
             console.error('❌ [Cashier] Error al cancelar:', err);
             alert('No se pudo cancelar el pedido de la base de datos: ' + err.message);
         } finally {
-            setLoading(false);
+            setOrderLoading(false);
         }
     };
 
@@ -1898,7 +1898,7 @@ export default function CashierPage() {
                                                                     setCart(loadedCart);
                                                                     setTimeout(() => {
                                                                         isProcessingOrder.current = false;
-                                                                        setLoading(false);
+                                                                        setOrderLoading(false);
                                                                         setShowPaymentModal(true);
                                                                     }, 150);
                                                                 }}
@@ -2476,7 +2476,7 @@ export default function CashierPage() {
                             <button onClick={() => {
                                 // Resetear estado de procesamiento al abrir el modal de pago
                                 isProcessingOrder.current = false;
-                                setLoading(false);
+                                setOrderLoading(false);
                                 setShowPaymentModal(true);
                             }} disabled={cart.length === 0} className="flex-1 bg-[#181511] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all disabled:opacity-50">PROCESAR PAGO</button>
                         </div>
@@ -2488,20 +2488,20 @@ export default function CashierPage() {
                                 </button>
                                 <button 
                                     onClick={() => handlePlaceOrder(false, 'efectivo')} 
-                                    disabled={cart.length === 0 || loading || (orderType === 'delivery' && !customerInfo.name)} 
+                                    disabled={cart.length === 0 || orderLoading || (orderType === 'delivery' && !customerInfo.name)} 
                                     className="flex-1 bg-[#181511] text-white font-black py-3 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
                                 >
                                     <span className="material-icons-round text-sm">print</span>
-                                    {loading ? 'Procesando...' : 'Imprimir Ticket'}
+                                    {orderLoading ? 'Procesando...' : 'Imprimir Ticket'}
                                 </button>
                             </div>
                             <button 
                                 onClick={() => handlePlaceOrder(true, 'transferencia')} 
-                                disabled={cart.length === 0 || loading || (orderType === 'delivery' && !customerInfo.name)} 
+                                disabled={cart.length === 0 || orderLoading || (orderType === 'delivery' && !customerInfo.name)} 
                                 className="w-full bg-blue-600 text-white font-black py-3 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
                             >
                                 <span className="material-icons-round text-sm">account_balance</span>
-                                {loading ? 'Procesando...' : 'Pago con Transferencia'}
+                                {orderLoading ? 'Procesando...' : 'Pago con Transferencia'}
                             </button>
                         </div>
                     )}
@@ -3004,20 +3004,28 @@ export default function CashierPage() {
                                 <div className="flex flex-col gap-3 pt-2">
                                     {orderType === 'dine-in' && (
                                         <button
-                                            onClick={() => handlePlaceOrder(false)}
-                                            disabled={loading || !tableNumber.trim() || cart.length === 0}
+                                            onClick={() => {
+                                                isProcessingOrder.current = false;
+                                                setOrderLoading(false);
+                                                setTimeout(() => handlePlaceOrder(false), 50);
+                                            }}
+                                            disabled={!tableNumber.trim() || cart.length === 0}
                                             className="w-full bg-white border-2 border-[#181511] text-[#181511] font-black py-4 rounded-2xl shadow-sm active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
                                         >
                                             <span className="material-icons-round">print</span>
-                                            SOLO IMPRIMIR (CUENTA ABIERTA)
+                                            {orderLoading ? 'PROCESANDO...' : 'SOLO IMPRIMIR (CUENTA ABIERTA)'}
                                         </button>
                                     )}
 
                                     <div className="flex flex-col gap-2">
                                         <button
-                                            onClick={() => handlePlaceOrder(true)}
+                                            onClick={() => {
+                                                isProcessingOrder.current = false;
+                                                setOrderLoading(false);
+                                                setTimeout(() => handlePlaceOrder(true), 50);
+                                            }}
                                             disabled={
-                                                loading ||
+                                                orderLoading ||
                                                 (paymentMethod === 'efectivo' && orderType !== 'delivery' && !isSufficientPayment) ||
                                                 (orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address)) ||
                                                 (orderType === 'dine-in' && !tableNumber.trim()) ||
@@ -3026,7 +3034,7 @@ export default function CashierPage() {
                                             className="w-full bg-[#f7951d] text-white font-black py-5 rounded-2xl shadow-xl active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                                         >
                                             <span className="material-icons-round">{orderType === 'dine-in' ? 'check_circle' : 'receipt_long'}</span>
-                                            {loading ? 'PROCESANDO...' :
+                                            {orderLoading ? 'PROCESANDO...' :
                                                 (orderType === 'delivery' && (!customerInfo.name || !customerInfo.phone || !customerInfo.address)) ? 'FALTA DATOS CLIENTE' :
                                                     (orderType === 'dine-in' && !tableNumber.trim()) ? 'FALTA MESA' :
                                                         (orderType === 'dine-in' ? 'COBRAR MESA Y FINALIZAR' : 'FINALIZAR E IMPRIMIR')}
@@ -3035,7 +3043,7 @@ export default function CashierPage() {
                                         {(orderType === 'takeout' || orderType === 'delivery') && activeOrderId && (
                                             <button
                                                 onClick={() => handlePlaceOrder(true, undefined, true)}
-                                                disabled={loading || (paymentMethod === 'efectivo' && !isSufficientPayment)}
+                                                disabled={orderLoading || (paymentMethod === 'efectivo' && !isSufficientPayment)}
                                                 className="w-full bg-white border-2 border-green-600 text-green-600 font-black py-3 rounded-2xl shadow-sm active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-xs uppercase"
                                             >
                                                 <span className="material-icons-round">check_circle</span>
@@ -3148,7 +3156,7 @@ export default function CashierPage() {
                                     className="w-full bg-white border-2 border-red-500 text-red-500 py-3 rounded-2xl font-black hover:bg-red-50 active:scale-95 transition-all flex items-center justify-center gap-2 group text-sm"
                                 >
                                     <span className="material-icons-round group-hover:rotate-90 transition-transform">cancel</span>
-                                    {loading ? 'ELIMINANDO...' : 'CANCELAR PEDIDO'}
+                                    {orderLoading ? 'ELIMINANDO...' : 'CANCELAR PEDIDO'}
                                 </button>
                             </div>
                         </div>
