@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+
+// Revalidate every 5 minutes — insights are not real-time critical
+export const revalidate = 300;
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -75,7 +77,8 @@ export async function GET(request: Request) {
                 )
             `)
             .neq('status', 'cancelado')
-            .not('status', 'in', '("pendiente","preparando","listo")');
+            .not('status', 'in', '("pendiente","preparando","listo")')
+            .limit(2000); // safety cap — prevents loading entire table history
 
         // Date filtering: explicit dates override period
         if (startDate) {

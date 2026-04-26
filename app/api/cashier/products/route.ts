@@ -2,9 +2,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
+// Products change infrequently — cache for 60 seconds
+export const revalidate = 60;
 
-// Usamos el Service Role para saltar RLS y asegurar que el cajero siempre vea los productos
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -18,30 +18,25 @@ const supabase = createClient(
 
 export async function GET() {
     try {
-        console.log('🚀 [API-Products] Cargando menú completo para caja...');
-
-        // 1. Cargar todas las categorías
-        const { data: categories, error: catError } = await supabase
-            .from('categories')
-            .select('*')
-            .order('name');
-
-        if (catError) throw catError;
-
-        // 2. Cargar todos los productos disponibles
+        // Single query with join — avoids two round-trips to the DB
         const { data: products, error: prodError } = await supabase
             .from('products')
-            .select('*, categories(name)')
+            .select('*, categories(id, name)')
             .eq('available', true)
             .order('name');
 
         if (prodError) throw prodError;
 
-        // 3. Filtrar categorías que no tienen productos (Opcional, para limpiar la UI)
-        const activeCategoryIds = new Set(products?.map(p => p.category_id));
-        const filteredCategories = categories?.filter(c => activeCategoryIds.has(c.id)) || [];
+        // Derive active categories from the products result — no extra query needed
+        const categoryMap = new Map<number, { id: number; name: string }>();
+        products?.forEach(p => {
+            if (p.categories && !categoryMap.has(p.category_id)) {
+                categoryMap.set(p.category_id, p.categories);
+            }
+        });
 
-        console.log(`✅ [API-Products] ${products?.length} productos y ${filteredCategories.length} categorías enviadas.`);
+        const filteredCategories = Array.from(categoryMap.values())
+            .sort((a, b) => a.name.localeCompare(b.name));
 
         return NextResponse.json({
             categories: filteredCategories,

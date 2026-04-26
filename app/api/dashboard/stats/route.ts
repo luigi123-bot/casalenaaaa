@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+
+// Revalidate every 2 minutes — stats don't need to be real-time
+export const revalidate = 120;
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,61 +14,48 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const range = searchParams.get('range') || 'week'; // 'week', 'month', 'year'
 
-        console.log(`=== FETCHING DASHBOARD STATS (Range: ${range}) ===`);
-
-        // Fetch all relevant columns. Removed tax_amount as it might not be in all schemas.
-        const { data: allOrders, error: ordersError } = await supabase
-            .from('orders')
-            .select('id, total_amount, created_at, status');
-
-        if (ordersError) {
-            console.error('❌ Supabase Order Fetch Error:', ordersError.message, ordersError.hint);
-            throw new Error(`DB Error: ${ordersError.message}`);
-        }
-        
-        console.log(`📊 [DB DEBUG] Pedidos totales recuperados: ${allOrders?.length || 0}`);
-        if (allOrders && allOrders.length > 0) {
-            console.log('📝 [DB DEBUG] Primeras 3 órdenes (ejemplo):', JSON.stringify(allOrders.slice(0, 3), null, 2));
-        } else {
-            console.warn('⚠️ [DB DEBUG] No se encontraron órdenes en la tabla "orders".');
-        }
-
-
-        // Definir rangos de fecha
+        // ── Calcular rangos de fecha ANTES de la query ──────────────────────
         const now = new Date();
         let startDate = new Date();
         let prevStartDate = new Date();
         let prevEndDate = new Date();
 
         if (range === 'month') {
-            // Mes Actual vs Mes Anterior
             startDate = new Date(now.getFullYear(), now.getMonth(), 1);
             prevStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
             prevEndDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
         } else if (range === 'year') {
-            // Año Actual vs Año Anterior
             startDate = new Date(now.getFullYear(), 0, 1);
             prevStartDate = new Date(now.getFullYear() - 1, 0, 1);
             prevEndDate = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
         } else {
-            // Semana (Últimos 7 días vs 7 días anteriores)
+            // Semana: últimos 7 días vs 7 días anteriores
             startDate.setDate(now.getDate() - 7);
             prevEndDate.setDate(now.getDate() - 8);
             prevStartDate.setDate(now.getDate() - 15);
         }
 
-        // Filtrar órdenes
-        const currentOrders = allOrders?.filter(o => {
-            const date = new Date(o.created_at);
-            return date >= startDate && date <= now;
-        }) || [];
+        // ── Fetch solo el rango necesario — NO traer toda la tabla ──────────
+        const [currentRes, prevRes] = await Promise.all([
+            supabase
+                .from('orders')
+                .select('id, total_amount, created_at, status')
+                .gte('created_at', startDate.toISOString())
+                .lte('created_at', now.toISOString()),
+            supabase
+                .from('orders')
+                .select('id, total_amount, created_at, status')
+                .gte('created_at', prevStartDate.toISOString())
+                .lte('created_at', prevEndDate.toISOString()),
+        ]);
 
-        const prevOrders = allOrders?.filter(o => {
-            const date = new Date(o.created_at);
-            return date >= prevStartDate && date <= prevEndDate;
-        }) || [];
+        if (currentRes.error) throw new Error(`DB Error: ${currentRes.error.message}`);
+        if (prevRes.error) throw new Error(`DB Error: ${prevRes.error.message}`);
 
-        console.log(`Orders: Current ${currentOrders.length} | Prev ${prevOrders.length}`);
+        const currentOrders = currentRes.data || [];
+        const prevOrders = prevRes.data || [];
+
+        // (removed verbose console.log in production path)
 
         // Calcular Métricas
         const calculateSales = (orders: any[]) => orders.reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0);
@@ -116,11 +105,21 @@ export async function GET(request: Request) {
             }
         }
 
-        // Obtener Top Product (Global)
-        const { data: topProducts, error: productsError } = await supabase
-            .from('order_items')
-            .select(`quantity, products (name)`)
-            .limit(1);
+        // ── Top Product y Category Stats en paralelo ────────────────────────
+        const [topProductsRes, categoryItemsRes] = await Promise.all([
+            supabase
+                .from('order_items')
+                .select(`quantity, products (name)`)
+                .limit(1),
+            supabase
+                .from('order_items')
+                .select(`quantity, products (name, categories (name))`)
+                .limit(500), // cap para evitar traer miles de filas
+        ]);
+
+        const topProducts = topProductsRes.data;
+        const categoryItems = categoryItemsRes.data;
+        const catError = categoryItemsRes.error;
 
         // Safe top product name helper
         const getProductName = (p: any) => {
@@ -132,11 +131,6 @@ export async function GET(request: Request) {
         const topProductName = Array.isArray(topProducts) && topProducts[0]
             ? getProductName(topProducts[0])
             : 'N/A';
-
-        // Obtener Category Stats (Global)
-        const { data: categoryItems, error: catError } = await supabase
-            .from('order_items')
-            .select(`quantity, products (name, categories (name))`);
 
         interface CategoryStat { name: string; count: number; percentage: number; }
         let categoryStats: CategoryStat[] = [];

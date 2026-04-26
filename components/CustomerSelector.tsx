@@ -1,194 +1,196 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { supabase } from '@/utils/supabase/client';
+import { useState, useRef, useEffect } from 'react';
 
-interface Customer {
-    id: number;
-    full_name: string;
-    phone?: string;
-    email?: string;
+export interface CustomerData {
+    name: string;
+    phone: string;
+    address: string;
 }
 
 interface CustomerSelectorProps {
-    onSelect: (customer: Customer | null) => void;
-    selectedCustomer: Customer | null;
+    value: CustomerData;
+    onChange: (data: CustomerData) => void;
+    orderType?: string; // 'dine-in' | 'takeout' | 'delivery'
 }
 
-export default function CustomerSelector({ onSelect, selectedCustomer }: CustomerSelectorProps) {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [results, setResults] = useState<Customer[]>([]);
-    const [isOpen, setIsOpen] = useState(false);
-    const [isCreating, setIsCreating] = useState(false);
+interface FoundCustomer {
+    id: number;
+    full_name: string;
+    phone: string;
+    address?: string;
+}
 
-    // New Customer Form State
-    const [newCustomerName, setNewCustomerName] = useState('');
-    const [newCustomerPhone, setNewCustomerPhone] = useState('');
+export default function CustomerSelector({ value, onChange, orderType }: CustomerSelectorProps) {
+    const [searchResults, setSearchResults] = useState<FoundCustomer[]>([]);
+    const [showDropdown, setShowDropdown] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
 
-    const wrapperRef = useRef<HTMLDivElement>(null);
-
+    // Close dropdown on outside click
     useEffect(() => {
-        function handleClickOutside(event: MouseEvent) {
-            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
+        const handler = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setShowDropdown(false);
             }
-        }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
     }, []);
 
-    const searchCustomers = useCallback(async () => {
-        const { data } = await supabase
-            .from('customers')
-            .select('*')
-            .ilike('full_name', `%${searchTerm}%`)
-            .limit(5);
-        setResults(data || []);
-        setIsOpen(true);
-    }, [searchTerm]);
+    // Search customers by phone or name — only triggered manually (button click)
+    const handleSearch = async () => {
+        const term = value.phone || value.name;
+        if (!term || term.length < 3) return;
 
-    useEffect(() => {
-        if (searchTerm.length > 2) {
-            searchCustomers();
-        } else {
-            setResults([]);
+        setIsSearching(true);
+        try {
+            const res = await fetch(`/api/cashier/customers/search?term=${encodeURIComponent(term)}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            setSearchResults(data || []);
+            setShowDropdown(true);
+        } catch {
+            // silently ignore
+        } finally {
+            setIsSearching(false);
         }
-    }, [searchTerm, searchCustomers]);
-
-    const handleCreateCustomer = async () => {
-        if (!newCustomerName) return;
-
-        const { data, error } = await supabase
-            .from('customers')
-            .insert({
-                full_name: newCustomerName,
-                phone: newCustomerPhone
-            })
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error creating customer:', error);
-            alert('Error al crear cliente');
-            return;
-        }
-
-        onSelect(data);
-        setIsCreating(false);
-        setNewCustomerName('');
-        setNewCustomerPhone('');
     };
 
-    if (isCreating) {
-        return (
-            <div className="bg-[#f8f7f5] p-4 rounded-xl mb-4 border border-[#e6e1db] animate-in slide-in-from-top-2">
-                <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-bold text-[#181511]">Nuevo Cliente</h3>
-                    <button onClick={() => setIsCreating(false)} className="text-[#8c785f] hover:text-[#181511]">
-                        <span className="material-symbols-outlined">close</span>
-                    </button>
-                </div>
-                <div className="space-y-3">
-                    <input
-                        type="text"
-                        placeholder="Nombre Completo *"
-                        className="w-full p-2 rounded-lg border border-[#e6e1db] outline-none focus:border-primary"
-                        value={newCustomerName}
-                        onChange={(e) => setNewCustomerName(e.target.value)}
-                        autoFocus
-                    />
-                    <input
-                        type="tel"
-                        placeholder="Teléfono (Opcional)"
-                        className="w-full p-2 rounded-lg border border-[#e6e1db] outline-none focus:border-primary"
-                        value={newCustomerPhone}
-                        onChange={(e) => setNewCustomerPhone(e.target.value)}
-                    />
-                    <button
-                        onClick={handleCreateCustomer}
-                        className="w-full bg-primary text-white font-bold py-2 rounded-lg hover:bg-[#e68a1b] transition-colors"
-                    >
-                        Guardar Cliente
-                    </button>
-                </div>
-            </div>
-        );
-    }
+    const handleSelectCustomer = (customer: FoundCustomer) => {
+        onChange({
+            name: customer.full_name,
+            phone: customer.phone,
+            address: customer.address || value.address,
+        });
+        setShowDropdown(false);
+        setSearchResults([]);
+    };
 
-    if (selectedCustomer) {
-        return (
-            <div className="bg-[#f8f7f5] p-3 rounded-xl mb-4 border border-[#e6e1db] flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                    <div className="size-10 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold">
-                        {selectedCustomer.full_name[0].toUpperCase()}
-                    </div>
-                    <div>
-                        <p className="font-bold text-[#181511] text-sm">{selectedCustomer.full_name}</p>
-                        <p className="text-xs text-[#8c785f]">{selectedCustomer.phone || 'Sin teléfono'}</p>
-                    </div>
-                </div>
-                <button
-                    onClick={() => onSelect(null)}
-                    className="size-8 flex items-center justify-center rounded-full hover:bg-white text-[#8c785f] transition-colors"
-                >
-                    <span className="material-symbols-outlined">close</span>
-                </button>
-            </div>
-        );
-    }
+    const handleClear = () => {
+        onChange({ name: '', phone: '', address: '' });
+        setSearchResults([]);
+        setShowDropdown(false);
+    };
+
+    const isDelivery = orderType === 'delivery' || orderType === 'Domicilio';
 
     return (
-        <div className="mb-4 relative" ref={wrapperRef}>
-            <div className="flex bg-[#f8f7f5] p-1 rounded-xl items-center border border-transparent focus-within:border-primary/50 transition-colors">
-                <span className="material-symbols-outlined text-[#8c785f] ml-2">search</span>
+        <div className="space-y-2" ref={dropdownRef}>
+            <p className="text-[10px] font-black text-[#8c785f] uppercase tracking-widest mb-2">
+                Datos de Entrega
+            </p>
+
+            {/* Nombre */}
+            <div className="relative flex items-center bg-white border border-[#e6e1db] rounded-xl px-3 py-2.5 gap-2 focus-within:border-primary/60 transition-colors">
+                <span className="material-icons-round text-[#f7951d] text-lg shrink-0">person</span>
                 <input
                     type="text"
-                    placeholder="Buscar o crear cliente..."
-                    className="w-full bg-transparent p-2 outline-none text-[#181511] text-sm font-medium placeholder-[#8c785f]"
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        setIsOpen(true);
-                    }}
-                    onFocus={() => setIsOpen(true)}
+                    placeholder="Nombre del cliente"
+                    value={value.name}
+                    onChange={(e) => onChange({ ...value, name: e.target.value })}
+                    className="flex-1 bg-transparent outline-none text-sm text-[#181511] placeholder-[#c4b9a8] font-medium"
                 />
-                {(searchTerm || results.length > 0) && (
-                    <button onClick={() => { setSearchTerm(''); setResults([]); }} className="p-1 text-[#8c785f]">
-                        <span className="material-symbols-outlined text-sm">close</span>
-                    </button>
-                )}
+                {/* Botón buscar — solo dispara búsqueda al hacer click */}
+                <button
+                    type="button"
+                    onClick={handleSearch}
+                    disabled={isSearching}
+                    title="Buscar cliente existente"
+                    className="shrink-0 text-[#f7951d] hover:text-[#e68a1b] transition-colors disabled:opacity-50"
+                >
+                    {isSearching
+                        ? <span className="material-icons-round text-lg animate-spin">progress_activity</span>
+                        : <span className="material-icons-round text-lg">download</span>
+                    }
+                </button>
             </div>
 
-            {/* Dropdown Results */}
-            {isOpen && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-[#e6e1db] overflow-hidden z-50">
-                    {results.map((customer) => (
+            {/* Teléfono */}
+            <div className="relative flex items-center bg-white border border-[#e6e1db] rounded-xl px-3 py-2.5 gap-2 focus-within:border-primary/60 transition-colors">
+                <span className="material-icons-round text-[#f7951d] text-lg shrink-0">phone</span>
+                <input
+                    type="tel"
+                    placeholder="Teléfono"
+                    value={value.phone}
+                    onChange={(e) => onChange({ ...value, phone: e.target.value })}
+                    className="flex-1 bg-transparent outline-none text-sm text-[#181511] placeholder-[#c4b9a8] font-medium"
+                />
+                <button
+                    type="button"
+                    onClick={handleSearch}
+                    disabled={isSearching}
+                    title="Buscar por teléfono"
+                    className="shrink-0 text-[#f7951d] hover:text-[#e68a1b] transition-colors disabled:opacity-50"
+                >
+                    {isSearching
+                        ? <span className="material-icons-round text-lg animate-spin">progress_activity</span>
+                        : <span className="material-icons-round text-lg">download</span>
+                    }
+                </button>
+            </div>
+
+            {/* Dirección — solo visible en delivery */}
+            {isDelivery && (
+                <div className="flex items-center bg-white border border-[#e6e1db] rounded-xl px-3 py-2.5 gap-2 focus-within:border-primary/60 transition-colors">
+                    <span className="material-icons-round text-[#f7951d] text-lg shrink-0">location_on</span>
+                    <input
+                        type="text"
+                        placeholder="Dirección Completa"
+                        value={value.address}
+                        onChange={(e) => onChange({ ...value, address: e.target.value })}
+                        className="flex-1 bg-transparent outline-none text-sm text-[#181511] placeholder-[#c4b9a8] font-medium"
+                    />
+                </div>
+            )}
+
+            {/* Dropdown de resultados */}
+            {showDropdown && searchResults.length > 0 && (
+                <div className="absolute z-50 left-0 right-0 mt-1 bg-white rounded-xl shadow-xl border border-[#e6e1db] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                    <p className="px-3 py-2 text-[10px] font-black text-[#8c785f] uppercase tracking-widest border-b border-[#f0ece6]">
+                        Clientes encontrados
+                    </p>
+                    {searchResults.map((c) => (
                         <button
-                            key={customer.id}
-                            onClick={() => {
-                                onSelect(customer);
-                                setIsOpen(false);
-                                setSearchTerm('');
-                            }}
-                            className="w-full text-left p-3 hover:bg-[#f8f7f5] border-b border-[#f8f7f5] last:border-0 flex items-center justify-between group"
+                            key={c.id}
+                            type="button"
+                            onClick={() => handleSelectCustomer(c)}
+                            className="w-full text-left px-3 py-2.5 hover:bg-[#fdf8f3] border-b border-[#f8f7f5] last:border-0 flex items-center justify-between gap-3 transition-colors"
                         >
-                            <span className="font-bold text-[#181511] text-sm">{customer.full_name}</span>
-                            <span className="text-xs text-[#8c785f] group-hover:text-primary">{customer.phone}</span>
+                            <div className="flex items-center gap-2 min-w-0">
+                                <div className="size-7 rounded-full bg-[#f7951d]/10 flex items-center justify-center text-[#f7951d] font-black text-xs shrink-0">
+                                    {c.full_name[0]?.toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-sm font-bold text-[#181511] truncate">{c.full_name}</p>
+                                    {c.address && (
+                                        <p className="text-[11px] text-[#8c785f] truncate">{c.address}</p>
+                                    )}
+                                </div>
+                            </div>
+                            <span className="text-xs text-[#8c785f] shrink-0">{c.phone}</span>
                         </button>
                     ))}
-
                     <button
-                        onClick={() => {
-                            setNewCustomerName(searchTerm);
-                            setIsCreating(true);
-                            setIsOpen(false);
-                        }}
-                        className="w-full p-3 bg-[#fcfbf9] text-primary font-bold text-sm hover:bg-[#f8f7f5] flex items-center justify-center gap-2 border-t border-[#e6e1db]"
+                        type="button"
+                        onClick={() => setShowDropdown(false)}
+                        className="w-full px-3 py-2 text-xs text-[#8c785f] hover:bg-[#f8f7f5] text-center font-bold border-t border-[#f0ece6]"
                     >
-                        <span className="material-symbols-outlined">add</span>
-                        Crear &quot;{searchTerm || 'Nuevo Cliente'}&quot;
+                        Cerrar
                     </button>
                 </div>
+            )}
+
+            {/* Limpiar datos si hay algo escrito */}
+            {(value.name || value.phone || value.address) && (
+                <button
+                    type="button"
+                    onClick={handleClear}
+                    className="w-full text-xs text-[#8c785f] hover:text-red-500 font-bold py-1 transition-colors flex items-center justify-center gap-1"
+                >
+                    <span className="material-icons-round text-sm">close</span>
+                    Limpiar datos
+                </button>
             )}
         </div>
     );

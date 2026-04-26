@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/utils/supabase/client';
 
 
@@ -129,8 +129,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    // Memoize context value — prevents re-rendering all consumers when unrelated state changes
+    const value = useMemo(() => ({ user, loading, signOut }), [user, loading]);
+
     return (
-        <AuthContext.Provider value={{ user, loading, signOut }}>
+        <AuthContext.Provider value={value}>
             {children}
         </AuthContext.Provider>
     );

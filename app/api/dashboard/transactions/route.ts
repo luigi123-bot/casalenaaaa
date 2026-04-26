@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+
+// Short cache — transactions update frequently but don't need to be instant
+export const revalidate = 30;
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,10 +12,8 @@ const supabase = createClient(
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
-        const limit = parseInt(searchParams.get('limit') || '10');
+        const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 50); // cap at 50
 
-        console.log('=== FETCHING RECENT TRANSACTIONS ===');
-        
         const { data: orders, error } = await supabase
             .from('orders')
             .select(`
@@ -30,18 +30,12 @@ export async function GET(request: Request) {
             .order('created_at', { ascending: false })
             .limit(limit);
 
-        if (error) {
-            console.error('❌ Transactions Fetch Error:', error.message);
-            throw error;
-        }
+        if (error) throw error;
 
-        console.log(`✅ Transactions fetched: ${orders?.length || 0}`);
-
-        // Formatear las transacciones
         const transactions = orders?.map(order => {
             const items = order.order_items?.map(item =>
                 `${item.quantity}x ${item.product_name}`
-            ).join(', ') || 'No items';
+            ).join(', ') || 'Sin items';
 
             return {
                 id: `#${order.id}`,
@@ -50,13 +44,11 @@ export async function GET(request: Request) {
                     minute: '2-digit'
                 }),
                 items,
-                amount: `$${parseFloat(order.total_amount || '0').toFixed(2)}`,
+                amount: `${parseFloat(order.total_amount || '0').toFixed(2)}`,
                 status: order.status,
                 paymentMethod: order.payment_method
             };
         }) || [];
-
-        console.log('Formatted transactions:', transactions);
 
         return NextResponse.json(transactions);
 

@@ -34,7 +34,7 @@ body {
   font-family: 'Material Symbols Outlined';
   font-style: normal;
   font-weight: 100 700;
-  font-display: block;
+  font-display: swap;
   src: url('/fonts/material-symbols-outlined.woff2') format('woff2');
 }
 
@@ -63,7 +63,7 @@ body {
   font-family: 'Material Icons Round';
   font-style: normal;
   font-weight: 400;
-  font-display: block;
+  font-display: swap;
   src: url('/fonts/material-symbols-rounded.woff2') format('woff2');
 }
 

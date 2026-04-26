@@ -1,23 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import { Geist } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import InstallPWA from "@/components/InstallPWA";
-import MonitoringSystem from "@/components/MonitoringSystem";
+import MonitoringSystem from "@/components/MonitoringSystemLazy";
 import Script from "next/script";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-const plusJakartaSans = Plus_Jakarta_Sans({
-  variable: "--font-plus-jakarta",
   subsets: ["latin"],
   display: "swap",
 });
@@ -99,7 +89,7 @@ export default function RootLayout({
 
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${plusJakartaSans.variable} font-sans antialiased bg-background-light dark:bg-background-dark text-text-dark dark:text-text-light transition-colors duration-300`}
+        className={`${geistSans.variable} font-sans antialiased bg-background-light dark:bg-background-dark text-text-dark dark:text-text-light transition-colors duration-300`}
         suppressHydrationWarning
       >
         {/* Google Tag Manager (noscript) */}

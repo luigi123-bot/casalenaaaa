@@ -3,9 +3,17 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
+import { useSafeFetch } from '@/hooks/useSafeFetch';
 
-// Dynamically import map to avoid SSR issues
-const DeliveryMap = dynamic(() => import('@/components/DeliveryMap'), { ssr: false });
+// Dynamically import map to avoid SSR issues — show skeleton while loading
+const DeliveryMap = dynamic(() => import('@/components/DeliveryMap'), {
+    ssr: false,
+    loading: () => (
+        <div className="w-full h-full min-h-[200px] bg-gray-100 rounded-xl animate-pulse flex items-center justify-center">
+            <span className="text-gray-400 text-sm font-medium">Cargando mapa...</span>
+        </div>
+    ),
+});
 
 interface DashboardStats {
     totalSales: string;
@@ -34,6 +42,7 @@ export default function AdminPage() {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('week');
     const [activeDrivers, setActiveDrivers] = useState<any[]>([]);
+    const safeFetch = useSafeFetch();
 
     const ORIGIN: [number, number] = [16.6853, -98.4116]; 
 
@@ -63,25 +72,22 @@ export default function AdminPage() {
     }, [timeRange]);
 
     const fetchDashboardData = async () => {
-        if (!stats) setLoading(true); // Only show full loader on first load
-        else setIsRefreshing(true); // Show refresh indicator on subsequent updates
+        if (!stats) setLoading(true);
+        else setIsRefreshing(true);
 
         try {
-            console.log(`=== FETCHING ADMIN DASHBOARD DATA (Range: ${timeRange}) ===`);
-
-            // Fetch both in parallel to speed up
-            // Note: transactions don't depend on range currently, but we refetch to keep sync if needed
-            // If optimize: only fetch transactions once or separately.
             const [statsRes, transactionsRes] = await Promise.all([
-                fetch(`/api/dashboard/stats?range=${timeRange}`),
-                fetch('/api/dashboard/transactions?limit=5')
+                safeFetch(`/api/dashboard/stats?range=${timeRange}`),
+                safeFetch('/api/dashboard/transactions?limit=5')
             ]);
 
-            const statsData = await statsRes.json();
-            const transactionsData = await transactionsRes.json();
+            // safeFetch returns a never-resolving promise on abort — check ok before parsing
+            if (!statsRes.ok || !transactionsRes.ok) return;
 
-            // console.log('Stats received:', statsData);
-            // console.log('Transactions received:', transactionsData);
+            const [statsData, transactionsData] = await Promise.all([
+                statsRes.json(),
+                transactionsRes.json(),
+            ]);
 
             setStats(statsData);
             setTransactions(Array.isArray(transactionsData) ? transactionsData : []);

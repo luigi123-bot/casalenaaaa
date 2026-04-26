@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import Link from 'next/link';
+import { useSafeFetch } from '@/hooks/useSafeFetch';
 
 export default function PointsWidget() {
     const [points, setPoints] = useState<number>(0);
     const [level, setLevel] = useState<string>('bronce');
     const [loading, setLoading] = useState(true);
+    const safeFetch = useSafeFetch();
 
     useEffect(() => {
         fetchPoints();
@@ -18,7 +20,8 @@ export default function PointsWidget() {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
-            const response = await fetch(`/api/gamification?userId=${user.id}`);
+            const response = await safeFetch(`/api/gamification?userId=${user.id}`);
+            if (!response.ok) return;
             const data = await response.json();
 
             if (data.points) {

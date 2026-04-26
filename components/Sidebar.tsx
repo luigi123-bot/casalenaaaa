@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useCallback } from 'react';
 
 // Define the shape of our navigation items
 interface NavItem {
@@ -13,7 +13,49 @@ interface NavItem {
     filled?: boolean;
 }
 
-export default function Sidebar() {
+// Moved outside component — pure function, no need to recreate on every render
+function isActive(pathname: string, path: string): boolean {
+    if (path === '#chat') return false;
+    if (path === '/admin' || path === '/cashier' || path === '/cocina' || path === '/tienda') {
+        return pathname === path;
+    }
+    return pathname.startsWith(path);
+}
+
+// Navigation arrays are static — defined outside to avoid recreation on every render
+const adminNavItems: NavItem[] = [
+    { label: 'Dashboard', icon: 'grid_view', href: '/admin' },
+    { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
+    { label: 'Envíos / Repartos', icon: 'two_wheeler', href: '/cashier/deliveries' },
+    { label: 'Productos', icon: 'inventory_2', href: '/admin/productos' },
+    { label: 'Órdenes', icon: 'receipt_long', href: '/admin/orders' },
+    { label: 'Cierres de Caja', icon: 'history', href: '/admin/cierres' },
+    { label: 'Reportes', icon: 'analytics', href: '/admin/reports' },
+    { label: 'Usuarios', icon: 'group', href: '/admin/users' },
+    { label: 'Configuración', icon: 'settings', href: '/admin/settings' },
+    { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
+];
+
+const cashierNavItems: NavItem[] = [
+    { label: 'Dashboard', icon: 'dashboard', href: '/cashier/dashboard' },
+    { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
+    { label: 'Envíos / Repartos', icon: 'two_wheeler', href: '/cashier/deliveries' },
+    { label: 'Órdenes Hoy', icon: 'receipt_long', href: '/cashier/orders' },
+    { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
+];
+
+const kitchenNavItems: NavItem[] = [
+    { label: 'Monitor Cocina', icon: 'kitchen', href: '/cocina' },
+    { label: 'Órdenes', icon: 'receipt_long', href: '/cocina/orders' },
+];
+
+const clientNavItems: NavItem[] = [
+    { label: 'Menú Digital', icon: 'restaurant_menu', href: '/tienda' },
+    { label: 'Mis Pedidos', icon: 'receipt_long', href: '/tienda/mis-pedidos' },
+    { label: 'Historial', icon: 'history', href: '/tienda/history' },
+];
+
+function SidebarComponent() {
     const pathname = usePathname();
     const { user, loading, signOut } = useAuth();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -26,67 +68,22 @@ export default function Sidebar() {
         setIsWindows(isWin || isDesktop);
     }, []);
 
-    const handleDownloadDesktop = () => {
+    const handleDownloadDesktop = useCallback(() => {
         const link = document.createElement('a');
         link.href = '/Casalena POS.exe';
         link.download = 'Casalena POS.exe';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-    };
-
-    const isActive = (path: string) => {
-        if (path === '#chat') return false;
-        if (path === '/admin' || path === '/cashier' || path === '/cocina' || path === '/tienda') {
-            return pathname === path;
-        }
-        return pathname.startsWith(path);
-    };
-
-    // Navigation for Administrator
-    const adminNavItems: NavItem[] = [
-        { label: 'Dashboard', icon: 'grid_view', href: '/admin' },
-        { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
-        { label: 'Envíos / Repartos', icon: 'two_wheeler', href: '/cashier/deliveries' },
-        { label: 'Productos', icon: 'inventory_2', href: '/admin/productos' },
-        { label: 'Órdenes', icon: 'receipt_long', href: '/admin/orders' },
-        { label: 'Cierres de Caja', icon: 'history', href: '/admin/cierres' },
-        { label: 'Reportes', icon: 'analytics', href: '/admin/reports' },
-        { label: 'Usuarios', icon: 'group', href: '/admin/users' },
-        { label: 'Configuración', icon: 'settings', href: '/admin/settings' },
-        { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
-    ];
-
-    // Navigation for Cashier / Waiter
-    const cashierNavItems: NavItem[] = [
-        { label: 'Dashboard', icon: 'dashboard', href: '/cashier/dashboard' },
-        { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
-        { label: 'Envíos / Repartos', icon: 'two_wheeler', href: '/cashier/deliveries' },
-        { label: 'Órdenes Hoy', icon: 'receipt_long', href: '/cashier/orders' },
-        { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
-    ];
-
-    // Navigation for Kitchen (Cocina)
-    const kitchenNavItems: NavItem[] = [
-        { label: 'Monitor Cocina', icon: 'kitchen', href: '/cocina' },
-        { label: 'Órdenes', icon: 'receipt_long', href: '/cocina/orders' },
-    ];
-
-    // Navigation for Client (Cliente) / Guest
-    const clientNavItems: NavItem[] = [
-        { label: 'Menú Digital', icon: 'restaurant_menu', href: '/tienda' },
-        { label: 'Mis Pedidos', icon: 'receipt_long', href: '/tienda/mis-pedidos' },
-        { label: 'Historial', icon: 'history', href: '/tienda/history' },
-    ];
+    }, []);
 
     // Determine which items to show based on role
     const normalizedRole = user?.role?.toLowerCase() || 'cliente';
 
     let navItems: NavItem[] = [];
 
-    // During loading, we show an empty list or a very basic item to avoid jumping
     if (loading) {
-        navItems = []; 
+        navItems = [];
     } else if (normalizedRole === 'administrador' || normalizedRole === 'admin') {
         navItems = adminNavItems;
     } else if (normalizedRole === 'cajero' || normalizedRole === 'mesero') {
@@ -97,13 +94,13 @@ export default function Sidebar() {
         navItems = clientNavItems;
     }
 
-    const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    const handleLinkClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
         if (href === '#chat') {
             e.preventDefault();
             window.dispatchEvent(new CustomEvent('open-admin-chat'));
         }
         setIsMobileMenuOpen(false);
-    };
+    }, []);
 
     return (
         <>
@@ -159,15 +156,15 @@ export default function Sidebar() {
                             key={item.href}
                             href={item.href}
                             onClick={(e) => handleLinkClick(e, item.href)}
-                            className={`flex items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden rounded-xl transition-all h-11 ${isActive(item.href)
+                            className={`flex items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden rounded-xl transition-all h-11 ${isActive(pathname, item.href)
                                 ? 'bg-[#f7951d] text-white shadow-md'
                                 : 'text-[#8c785f] hover:bg-[#f8f7f5] hover:text-[#181511]'
                                 }`}
                         >
-                            <span className={`material-icons-round text-2xl shrink-0 transition-transform duration-300 flex items-center justify-center ${isActive(item.href) ? 'scale-110' : 'group-hover/sidebar:scale-105'}`}>
+                            <span className={`material-icons-round text-2xl shrink-0 transition-transform duration-300 flex items-center justify-center ${isActive(pathname, item.href) ? 'scale-110' : 'group-hover/sidebar:scale-105'}`}>
                                 {item.icon}
                             </span>
-                            <span className={`ml-4 text-sm whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0 ${isActive(item.href) ? 'font-black' : 'font-bold'}`}>
+                            <span className={`ml-4 text-sm whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0 ${isActive(pathname, item.href) ? 'font-black' : 'font-bold'}`}>
                                 {item.label}
                             </span>
                         </Link>
@@ -220,3 +217,5 @@ export default function Sidebar() {
         </>
     );
 }
+
+export default memo(SidebarComponent);

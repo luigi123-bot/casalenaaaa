@@ -251,15 +251,15 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                     <div className="mt-6 flex flex-col gap-3">
                         <button
                             onClick={handleSaveAndAccept}
-                            disabled={isSaving || !customerInfo.phone || !customerInfo.name}
+                            disabled={isSaving}
                             className="w-full bg-[#181511] text-white py-4 rounded-xl font-black text-[12px] uppercase shadow-xl shadow-black/10 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                         >
                             {isSaving ? (
                                 <span className="material-icons-round animate-spin text-lg">sync</span>
                             ) : (
-                                <span className="material-icons-round text-green-400 text-lg">save_alt</span>
+                                <span className="material-icons-round text-green-400 text-lg">check_circle</span>
                             )}
-                            {isSaving ? 'Guardando...' : 'Confirmar y Continuar al Pago'}
+                            {isSaving ? 'Guardando...' : 'Confirmar datos'}
                         </button>
                         
                         <button

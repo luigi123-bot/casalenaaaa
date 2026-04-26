@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
+import { useSafeFetch } from '@/hooks/useSafeFetch';
 
 interface GamificationInlineProps {
     userId: string;
@@ -16,6 +17,7 @@ export default function GamificationInline({ userId }: GamificationInlineProps) 
     const [activeTab, setActiveTab] = useState<'rewards' | 'coupons' | 'achievements'>('rewards');
     const [redeeming, setRedeeming] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+    const safeFetch = useSafeFetch();
 
     useEffect(() => {
         fetchGamificationData();
@@ -23,7 +25,8 @@ export default function GamificationInline({ userId }: GamificationInlineProps) 
 
     const fetchGamificationData = async () => {
         try {
-            const response = await fetch(`/api/gamification?userId=${userId}`);
+            const response = await safeFetch(`/api/gamification?userId=${userId}`);
+            if (!response.ok) return;
             const data = await response.json();
 
             setUserPoints(data.points);

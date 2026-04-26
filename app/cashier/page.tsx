@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 
 import { useSessionKeepAlive } from '@/hooks/useSessionKeepAlive';
+import { isAbortError } from '@/hooks/useSafeFetch';
 import NotificationPanel from '@/components/NotificationPanel';
 import CashierSupportChat from '@/components/CashierSupportChat';
 import TicketPrintModal from '@/components/TicketPrintModal';
@@ -12,7 +13,6 @@ import CierreCajaModal from '@/components/CierreCajaModal';
 import AperturaCajaModal from '@/components/AperturaCajaModal';
 import CustomerDeliveryModal from '@/components/CustomerDeliveryModal';
 import { useAuth } from '@/contexts/AuthContext';
-
 
 // Types
 interface Category {
@@ -97,7 +97,7 @@ export default function CashierPage() {
             
             const result = await Promise.race([
                 sessionPromise.catch(err => {
-                    if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('signal')) {
+                    if (isAbortError(err)) {
                         return { data: { session: null } };
                     }
                     throw err;
@@ -252,6 +252,8 @@ export default function CashierPage() {
             console.error('Error restoring state from localStorage:', e);
         } finally {
             setIsStateRestored(true);
+            // Limpiar estado de procesamiento residual al montar
+            isProcessingOrder.current = false;
         }
     }, []);
 
@@ -269,7 +271,6 @@ export default function CashierPage() {
 
     useEffect(() => {
         let isMounted = true;
-        let timeoutId: NodeJS.Timeout;
 
         const cleanupOldShiftKeys = () => {
             try {
@@ -286,6 +287,7 @@ export default function CashierPage() {
             } catch (e) {}
         };
 
+        // Settings se cargan UNA sola vez al montar — no hay polling
         const fetchSystemConfig = async () => {
             if (!isMounted) return;
             try {
@@ -296,15 +298,11 @@ export default function CashierPage() {
             } catch (error) {
                 console.error('Error syncing settings:', error);
             }
-            if (isMounted) timeoutId = setTimeout(fetchSystemConfig, 15000); // Poll faster (15s) for responsiveness
         };
-        
+
         cleanupOldShiftKeys();
         fetchSystemConfig();
-        return () => {
-            isMounted = false;
-            if (timeoutId) clearTimeout(timeoutId);
-        };
+        return () => { isMounted = false; };
     }, []);
 
     useEffect(() => {
@@ -317,12 +315,9 @@ export default function CashierPage() {
                 const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
                 if (saved) {
                     const shift = JSON.parse(saved);
-                    if (shift.openedAt && !shift.closedAt) {
-                        return true;
-                    }
+                    if (shift.openedAt && !shift.closedAt) return true;
                 }
-
-                // Búsqueda extendida: por si el turno empezó ayer pero sigue abierto
+                // Búsqueda extendida: turno abierto ayer que sigue activo
                 for (let i = 0; i < localStorage.length; i++) {
                     const key = localStorage.key(i);
                     if (key?.startsWith('caja_casalena_')) {
@@ -342,14 +337,16 @@ export default function CashierPage() {
             return false;
         };
 
-        const evaluateShift = async () => {
+        // ─── VERIFICACIÓN ÚNICA AL MONTAR ────────────────────────────────────────
+        // Una vez que shiftState === 'open', NO se vuelve a verificar.
+        // El turno permanece abierto hasta que el cajero lo cierre manualmente.
+        const evaluateShiftOnce = async () => {
             try {
                 const startOfDay = new Date();
-                startOfDay.setHours(0,0,0,0);
+                startOfDay.setHours(0, 0, 0, 0);
                 const endOfDay = new Date();
-                endOfDay.setHours(23,59,59,999);
+                endOfDay.setHours(23, 59, 59, 999);
 
-                // 1. DETERMINAR ROL Y NOMBRE (con timeout silencioso para no colgar el arranque)
                 const result = await Promise.race([
                     (async () => {
                         try {
@@ -365,35 +362,33 @@ export default function CashierPage() {
                 if (!isEffectActive) return;
 
                 if (result.type === 'timeout' || result.type === 'error') {
-                    console.warn('[Shift] ⚠️ Problema con Supabase (timeout/error), usando fallback local.');
                     const locallyOpen = checkLocalShift();
                     setShiftState(locallyOpen ? 'open' : 'must_open');
                     return;
                 }
 
                 const user = result.data?.user;
-                if (!user) {
-                    setShiftState('closed');
-                    return;
-                }
+                if (!user) { setShiftState('closed'); return; }
 
-                const { data: profile } = await supabase.from('profiles').select('role, full_name').eq('id', user.id).single();
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('role, full_name')
+                    .eq('id', user.id)
+                    .single();
+
                 if (!isEffectActive) return;
 
                 const isAdminUser = profile?.role === 'administrador' || profile?.role === 'admin';
                 setIsAdmin(isAdminUser);
-                if (profile?.full_name) {
-                    console.log(`[ShiftCheck] Usuario identificado: ${profile.full_name}`);
-                }
 
-                // PRIORIDAD ADMIN
+                // Admin siempre tiene acceso sin apertura de caja
                 if (isAdminUser) {
                     if (isEffectActive) setShiftState('open');
                     return;
                 }
 
-                // 2. BUSCAR SESIÓN ACTIVA EN DB
-                const { data: activeSessions, error: sessionError } = await supabase
+                // Verificar sesión activa en DB o localStorage
+                const { data: activeSessions } = await supabase
                     .from('cashier_sessions')
                     .select('id')
                     .eq('status', 'open')
@@ -407,51 +402,36 @@ export default function CashierPage() {
                 const locallyOpen = checkLocalShift();
 
                 if (hasActiveDbSession || locallyOpen) {
-                    if (shiftState !== 'open') {
-                         console.log(`[Shift] ✅ Sesión detectada. Entrando...`);
-                         setShiftState('open');
-                    }
-                } else if (shiftState === 'checking') {
-                    // Solo pedimos abrir si es la primera comprobación y no hay nada
-                    console.log('[Shift] ℹ️ No se detectó sesión activa. Requiere apertura.');
+                    setShiftState('open');
+                } else {
                     setShiftState('must_open');
                 }
-                // Si ya estaba 'open', no lo regresamos a 'must_open' automáticamente 
-                // para evitar que pida la caja de nuevo por errores de red temporales.
             } catch (err: any) {
-                // Ignorar silenciosamente errores de abort (desmonte del componente / StrictMode)
-                if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('signal')) {
-                    return;
-                }
-                if (!isEffectActive) return;
+                if (isAbortError(err) || !isEffectActive) return;
                 console.error('[Shift] ❌ Error evaluando turno:', err);
                 setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
             }
         };
 
-        // PASO 1 — Revisión instantánea de localStorage (sin red)
+        // Si localStorage ya tiene turno abierto → estado inmediato, verificación en background
         const alreadyOpen = checkLocalShift();
-
-        // PASO 2 — Safety fallback: si en 8s no resolvió y no hay localStorage
-        const safetyId = setTimeout(() => {
-            if (isEffectActive) setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
-        }, 5000); // Reducido a 5s para mejor UX
-
-        // PASO 3 — Verificación con Supabase en background
-        if (!alreadyOpen) {
-            evaluateShift().catch(() => {}).finally(() => clearTimeout(safetyId));
+        if (alreadyOpen) {
+            setShiftState('open');
+            // Verificar en background solo para sincronizar isAdmin, sin cambiar el estado
+            evaluateShiftOnce().catch(() => {});
         } else {
-            clearTimeout(safetyId);
-            evaluateShift().catch(() => {}); // background — errores silenciosos
+            // Safety fallback: si Supabase no responde en 5s, pedir apertura
+            const safetyId = setTimeout(() => {
+                if (isEffectActive) setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
+            }, 5000);
+            evaluateShiftOnce().catch(() => {}).finally(() => clearTimeout(safetyId));
         }
 
-        const interval = setInterval(evaluateShift, 30000);
-        return () => {
-            isEffectActive = false;
-            clearInterval(interval);
-            clearTimeout(safetyId);
-        };
-    }, []);
+        // ── SIN setInterval — la sesión no se re-verifica automáticamente ────────
+        // El turno permanece abierto hasta que el cajero presione "Cerrar Caja".
+
+        return () => { isEffectActive = false; };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleOpenShift = async (info: { fondo: number, notas: string }) => {
         setShiftState('checking'); // Show loading while processing
@@ -578,7 +558,7 @@ export default function CashierPage() {
                 }
             } catch (err: any) {
                 // Ignore AbortError which happens on rapid re-renders or unmounts
-                if (err?.name === 'AbortError' || err?.message?.includes('aborted')) {
+                if (isAbortError(err) || !isEffectActive) {
                     return;
                 }
                 console.error('❌ [Notifications] Error en carga inicial de pendientes:', err);
@@ -738,78 +718,20 @@ export default function CashierPage() {
     const fetchClientsForDropdown = async () => {
         setLoadingClients(true);
         try {
-            console.log('🔄 [Cashier] Cargando solo usuarios con ROL=CLIENTE...');
-
-            // 1. Definir fetchers independientes con filtro de rol 'cliente'
-            const fetchCustomers = supabase.from('customers').select('*').limit(100).order('full_name');
-            const fetchProfiles = supabase.from('profiles').select('*').eq('role', 'cliente').limit(100);
-            const fetchUsuarios = supabase.from('usuarios').select('*').eq('role', 'cliente').limit(100);
-
-            // 2. Ejecutar en paralelo
-            const [customersRes, profilesRes, usuariosRes] = await Promise.allSettled([
-                fetchCustomers,
-                fetchProfiles,
-                fetchUsuarios
-            ]);
-
-            let customersData: any[] = [];
-            let profilesData: any[] = [];
-            const usuariosData: any[] = [];
-
-            // 3. Procesar resultados de forma segura
-            if (customersRes.status === 'fulfilled' && !customersRes.value.error) {
-                customersData = customersRes.value.data || [];
-            }
-            if (profilesRes.status === 'fulfilled' && !profilesRes.value.error) {
-                profilesData = profilesRes.value.data || [];
-            }
-            if (usuariosRes.status === 'fulfilled' && !usuariosRes.value.error) {
-                // Merge logic for legacy tables
-                const rawUsuarios = usuariosRes.value.data || [];
-                rawUsuarios.forEach(u => {
-                    const existingProfileIndex = profilesData.findIndex(p => p.id === u.id);
-                    if (existingProfileIndex >= 0) {
-                        const p = profilesData[existingProfileIndex];
-                        const legacyPhone = u.phone || u.phone_number || u.telefono || '';
-                        const legacyAddress = u.address || u.direccion || '';
-                        if (!p.phone_number && legacyPhone) profilesData[existingProfileIndex].phone_merged = legacyPhone;
-                        if (!p.address && legacyAddress) profilesData[existingProfileIndex].address_merged = legacyAddress;
-                    } else {
-                        usuariosData.push(u);
-                    }
-                });
-            }
-
-            console.log(`📊 [Cashier] Clientes encontrados (rol: cliente): ${customersData.length} ocasionales, ${profilesData.length} perfiles, ${usuariosData.length} legados.`);
-
-            // 4. Mapeo y Unificación
-            const combined = [
-                ...customersData.map(c => ({
-                    id: c.id,
-                    name: c.full_name,
-                    phone: c.phone,
-                    address: c.address,
-                    origin: 'customer'
-                })),
-                ...profilesData.map(p => ({
-                    id: p.id,
-                    name: p.full_name || p.nombre || 'Usuario App',
-                    phone: p.phone_merged || p.phone || p.phone_number || p.phoneNumber || p.telefono || p.celular || '',
-                    address: p.address_merged || p.address || p.direccion || p.location || '',
-                    origin: 'profile'
-                })),
-                ...usuariosData.map(u => ({
-                    id: u.id,
-                    name: u.full_name || u.email || 'Usuario Legado',
-                    phone: u.phone || u.phone_number || u.telefono || '',
-                    address: u.address || u.direccion || '',
-                    origin: 'legacy'
-                }))
-            ].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
+            // Usar la API centralizada que ya maneja profiles + customers correctamente
+            const res = await fetch('/api/cashier/customers/search');
+            if (!res.ok) return;
+            const data = await res.json();
+            const combined = (data.customers || []).map((c: any) => ({
+                id: c.id,
+                name: c.full_name || 'Sin Nombre',
+                phone: c.phone || '',
+                address: c.address || '',
+                origin: c.is_app_user ? 'profile' : 'customer',
+            }));
             setAvailableClients(combined);
         } catch (err) {
-            console.error('❌ Error crítico en fetchClientsForDropdown:', err);
+            if (!isAbortError(err)) console.error('❌ Error en fetchClientsForDropdown:', err);
         } finally {
             setLoadingClients(false);
         }
@@ -833,7 +755,7 @@ export default function CashierPage() {
         }
     };
 
-    // Fetch customers for the searchable list
+    // Fetch customers for the searchable list — triggered manually only
     const searchCustomersList = async (term: string) => {
         if (!term || term.length < 2) {
             setFoundCustomers([]);
@@ -844,7 +766,6 @@ export default function CashierPage() {
             if (!res.ok) throw new Error('Error en búsqueda de clientes');
             
             const data = await res.json();
-            console.log(`📊 [Cashier] Búsqueda de lista: ${data.customers?.length || 0} resultados para "${term}"`);
             const mapped = (data.customers || []).map((c: any) => ({
                 id: c.id,
                 name: c.full_name || c.name || 'Sin Nombre',
@@ -858,101 +779,83 @@ export default function CashierPage() {
         }
     };
 
-
-    useEffect(() => {
-        const timer = setTimeout(() => searchCustomersList(searchTerm), 300);
-        return () => clearTimeout(timer);
-    }, [searchTerm]);
+    // ── NO auto-search useEffect — búsqueda solo se dispara manualmente ──────
 
     const searchCustomerByTerm = useCallback(async (manualTerm?: string) => {
         const queryTerm = manualTerm || customerInfo.phone.trim();
-        console.log(`🔍 [Cashier] Iniciando búsqueda con: "${queryTerm}" (manual: ${!!manualTerm})`);
-        if (queryTerm.length >= 3) {
-            setIsSearchingCustomer(true);
-            try {
-                const res = await fetch(`/api/cashier/customers/search?term=${encodeURIComponent(queryTerm)}`);
-                const data = await res.json();
+        if (queryTerm.length < 3) return;
+
+        setIsSearchingCustomer(true);
+        try {
+            const res = await fetch(`/api/cashier/customers/search?term=${encodeURIComponent(queryTerm)}`);
+            const data = await res.json();
+            
+            let customerData = null;
+            if (!manualTerm) {
+                customerData = data.customers?.find((c: any) => c.phone === queryTerm) || data.customers?.[0];
+            } else {
+                customerData = data.customers?.[0];
+            }
+
+            if (customerData) {
+                const parts = (customerData.address || '').split(',').map((p: string) => p.trim());
                 
-                // If searching by phone, try to find exact match first. If by name, take the first result.
-                let customerData = null;
-                if (!manualTerm) {
-                    customerData = data.customers?.find((c: any) => c.phone === queryTerm) || data.customers?.[0];
-                } else {
-                    customerData = data.customers?.[0];
-                }
+                setCustomerInfo({
+                    phone: customerData.phone || queryTerm,
+                    name: customerData.full_name || customerData.name || '',
+                    address: customerData.address || '',
+                    street: parts[0] || '',
+                    neighborhood: parts[1] || '',
+                    reference: parts.slice(2).join(', ') || ''
+                });
 
-                if (customerData) {
-                    console.log(`👤 [Cashier] Cliente encontrado: ${customerData.full_name || customerData.name}`);
-                    const parts = (customerData.address || '').split(',').map((p: string) => p.trim());
-                    
-                    setCustomerInfo({
-                        phone: customerData.phone || queryTerm,
-                        name: customerData.full_name || customerData.name || '',
-                        address: customerData.address || '',
-                        street: parts[0] || '',
-                        neighborhood: parts[1] || '',
-                        reference: parts.slice(2).join(', ') || ''
+                const { data: orderHistory, error: hError } = await supabase
+                    .from('orders')
+                    .select(`created_at, total_amount, order_items(product_name)`)
+                    .eq('phone_number', customerData.phone || queryTerm)
+                    .order('created_at', { ascending: false });
+
+                if (!hError && orderHistory && orderHistory.length > 0) {
+                    const totalOrders = orderHistory.length;
+                    const totalSpent = orderHistory.reduce((acc, curr) => acc + (curr.total_amount || 0), 0);
+                    const lastOrderDate = orderHistory[0].created_at;
+                    const lastOrderAmount = orderHistory[0].total_amount;
+                    const firstOrderDate = orderHistory[orderHistory.length - 1].created_at;
+
+                    const productCounts: Record<string, number> = {};
+                    orderHistory.forEach(o => {
+                        (o.order_items as any[])?.forEach((item: any) => {
+                            productCounts[item.product_name] = (productCounts[item.product_name] || 0) + 1;
+                        });
                     });
+                    const favoriteProducts = Object.entries(productCounts)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 3)
+                        .map(([name]) => name);
 
-                    const { data: orderHistory, error: hError } = await supabase
-                        .from('orders')
-                        .select(`
-                            created_at, 
-                            total_amount, 
-                            order_items(product_name)
-                        `)
-                        .eq('phone_number', customerData.phone || queryTerm)
-                        .order('created_at', { ascending: false });
-
-                    if (!hError && orderHistory && orderHistory.length > 0) {
-                        const totalOrders = orderHistory.length;
-                        const totalSpent = orderHistory.reduce((acc, curr) => acc + (curr.total_amount || 0), 0);
-                        const lastOrderDate = orderHistory[0].created_at;
-                        const lastOrderAmount = orderHistory[0].total_amount;
-                        const firstOrderDate = orderHistory[orderHistory.length - 1].created_at;
-
-                        const productCounts: Record<string, number> = {};
-                        orderHistory.forEach(o => {
-                            (o.order_items as any[])?.forEach((item: any) => {
-                                productCounts[item.product_name] = (productCounts[item.product_name] || 0) + 1;
-                            });
-                        });
-                        const favoriteProducts = Object.entries(productCounts)
-                            .sort((a, b) => b[1] - a[1])
-                            .slice(0, 3)
-                            .map(([name]) => name);
-
-                        setCustomerInsights({
-                            totalOrders,
-                            totalSpent,
-                            lastOrderDate,
-                            firstOrderDate,
-                            favoriteProducts,
-                            isFrequent: totalOrders >= 3,
-                            lastOrderAmount
-                        });
-                    } else {
-                        setCustomerInsights(null);
-                    }
+                    setCustomerInsights({
+                        totalOrders,
+                        totalSpent,
+                        lastOrderDate,
+                        firstOrderDate,
+                        favoriteProducts,
+                        isFrequent: totalOrders >= 3,
+                        lastOrderAmount
+                    });
                 } else {
-                    console.warn(`⚠️ [Cashier] No se encontró ningún cliente con: "${queryTerm}"`);
-                    alert(`❌ No se encontró ningún cliente con: "${queryTerm}"`);
                     setCustomerInsights(null);
                 }
-            } catch (err) {
-                console.error('Error fetching customer insights:', err);
-            } finally {
-                setIsSearchingCustomer(false);
+            } else {
+                setCustomerInsights(null);
             }
-        } else {
-            setCustomerInsights(null);
+        } catch (err) {
+            console.error('Error fetching customer insights:', err);
+        } finally {
+            setIsSearchingCustomer(false);
         }
     }, [customerInfo.phone]);
 
-    useEffect(() => {
-        const timer = setTimeout(searchCustomerByTerm, 600);
-        return () => clearTimeout(timer);
-    }, [searchCustomerByTerm]);
+    // ── NO auto-search useEffect — búsqueda solo se dispara manualmente ──────
 
 
     // Fetch Active Banner
@@ -1320,7 +1223,9 @@ export default function CashierPage() {
 
     const handlePlaceOrder = async (isFinalPayment: boolean = true, overridePaymentMethod?: string, skipPrinting: boolean = false) => {
         if (isProcessingOrder.current) {
-            console.warn('⚠️ [Cashier] Ya hay un proceso de pedido en curso. Ignorando clic duplicado.');
+            console.warn('⚠️ [Cashier] Ya hay un proceso en curso.');
+            // Si loading está atascado, forzar reset
+            setLoading(false);
             return;
         }
 
@@ -1410,18 +1315,22 @@ export default function CashierPage() {
 
                 console.log('🚀 [Cashier] Enviando orden al servidor...');
                 
+                const controller = new AbortController();
+                const fetchTimeout = setTimeout(() => controller.abort(), 15000);
+
                 const response = await fetch('/api/cashier/save-order', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         order: { ...orderPayload, id: activeOrderId },
                         items: orderItemsPayload
-                    })
-                });
+                    }),
+                    signal: controller.signal
+                }).finally(() => clearTimeout(fetchTimeout));
 
                 if (!response.ok) {
-                    const errData = await response.json();
-                    throw new Error(errData.error || 'Error al guardar en la base de datos');
+                    const errData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+                    throw new Error(errData.error || `Error al guardar (${response.status})`);
                 }
 
                 const result = await response.json();
@@ -1431,28 +1340,30 @@ export default function CashierPage() {
                 // UI SUCCESS FLOW
                 if (createdOrder) {
                 setLastOrderId(createdOrder.id);
-                // Si es PRE-TICKET no mostramos el Confetti/Success grande, solo el Ticket (y un mini alert/toast visual de exito)
-                if (isFinalPayment) {
+
+                // Capturar copia del carrito ANTES de limpiar
+                const cartSnapshot = [...cart];
+
+                // Generar Ticket (Pre-cuenta o Final) — siempre, a menos que skipPrinting
+                if (!skipPrinting) {
+                    try {
+                        handleOpenTicketModal({ ...createdOrder, is_pre_ticket: !isFinalPayment }, cartSnapshot);
+                    } catch (printErr) {
+                        console.error('⚠️ [Cashier] Error abriendo modal de ticket:', printErr);
+                    }
+                }
+
+                // Solo mostrar success modal para pago final Y cuando no hay ticket abierto
+                if (isFinalPayment && skipPrinting) {
                     setShowSuccessModal(true);
                     successModalRef.current = true;
-                } else {
-                    // Feedback visual sutil de que se guardó
+                } else if (!isFinalPayment) {
+                    // Pre-ticket: toast sutil
                     const toast = document.createElement('div');
                     toast.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in';
                     toast.innerHTML = '<span class="material-icons-round align-middle mr-2">save</span> Cuenta Abierta Guardada';
                     document.body.appendChild(toast);
                     setTimeout(() => { toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10'); setTimeout(() => toast.remove(), 300); }, 3000);
-                }
-
-                // Generar Ticket (Pre-cuenta o Final)
-                if (!skipPrinting) {
-                    try {
-                        console.log('📄 [Cashier] Generando ticket para impresión...');
-                        handleOpenTicketModal({ ...createdOrder, is_pre_ticket: !isFinalPayment }, cart);
-                    } catch (printErr) {
-                        console.error('⚠️ [Cashier] Error abriendo modal de ticket:', printErr);
-                        alert('El pedido se guardó pero hubo un error al generar el ticket visual.');
-                    }
                 }
 
                 // SIEMPRE LIMPIAMOS TODO (Incluso en Solo Guardar) para liberar la máquina
@@ -1471,7 +1382,11 @@ export default function CashierPage() {
 
         } catch (error: any) {
             console.error('🛑 [Cashier] ERROR EN PROCESO:', error);
-            alert(error.message || 'Error al procesar la orden');
+            if (!isAbortError(error)) {
+                alert(error.message || 'Error al procesar la orden');
+            }
+        } finally {
+            // Garantizar que loading e isProcessingOrder siempre se limpien
             setLoading(false);
             isProcessingOrder.current = false;
         }
@@ -1540,7 +1455,7 @@ export default function CashierPage() {
                     await fetchRecentOrders(false);
                 } catch (err: any) {
                     // Ignore abort errors from the environment
-                    if (err.name !== 'AbortError') {
+                    if (!isAbortError(err)) {
                         console.error('Sync Error:', err);
                     }
                 }
@@ -1981,7 +1896,11 @@ export default function CashierPage() {
                                                                         cartItemId: Math.random().toString(36).substr(2, 9)
                                                                     }));
                                                                     setCart(loadedCart);
-                                                                    setTimeout(() => setShowPaymentModal(true), 150);
+                                                                    setTimeout(() => {
+                                                                        isProcessingOrder.current = false;
+                                                                        setLoading(false);
+                                                                        setShowPaymentModal(true);
+                                                                    }, 150);
                                                                 }}
                                                                 className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-colors shadow-sm active:scale-95 flex items-center justify-center gap-1"
                                                             >
@@ -2388,64 +2307,94 @@ export default function CashierPage() {
                     )}
 
                     {(orderType === 'takeout' || orderType === 'delivery') && (
-                        <div className="bg-white/50 rounded-xl p-2.5 border border-gray-100 animate-in fade-in slide-in-from-top-2 mb-2">
-                            <div className="flex justify-between items-center mb-1.5">
-                                <span className="text-[9px] font-black text-[#8c785f] uppercase tracking-widest">{orderType === 'delivery' ? 'Datos de Entrega' : 'Información Pickup'}</span>
-                                {(!customerInsights && customerInfo.phone.length >= 7 && customerInfo.name) && (
-                                    <button 
-                                        onClick={() => handleSaveCustomer(customerInfo)}
-                                        className="flex items-center gap-1 bg-green-500 text-white px-1.5 py-0.5 rounded-lg hover:bg-green-600 transition-all active:scale-95"
+                        <div className="bg-white/50 rounded-xl px-2 py-1.5 border border-gray-100 animate-in fade-in slide-in-from-top-2 mb-2">
+                            {/* Header compacto */}
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-[8px] font-black text-[#8c785f] uppercase tracking-widest">
+                                    {orderType === 'delivery' ? 'Entrega' : 'Pick up'}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                    {(!customerInsights && customerInfo.phone.length >= 7 && customerInfo.name) && (
+                                        <button
+                                            onClick={() => handleSaveCustomer(customerInfo)}
+                                            className="flex items-center gap-0.5 bg-green-500 text-white px-1.5 py-0.5 rounded-md hover:bg-green-600 transition-all active:scale-95"
+                                        >
+                                            <span className="material-icons-round text-[9px]">person_add</span>
+                                            <span className="text-[7px] font-black uppercase">Guardar</span>
+                                        </button>
+                                    )}
+                                    {/* Botón buscar — icono solo, compacto */}
+                                    <button
+                                        type="button"
+                                        title="Buscar cliente registrado"
+                                        onClick={async () => {
+                                            const addr = customerInfo.address || '';
+                                            const parts = addr.split(',').map((p: string) => p.trim());
+                                            setCustomerInfo(prev => ({
+                                                ...prev,
+                                                street: prev.street || parts[0] || '',
+                                                neighborhood: prev.neighborhood || parts[1] || '',
+                                                reference: prev.reference || parts.slice(2).join(', ') || '',
+                                            }));
+                                            setLoadingClients(true);
+                                            setShowCustomerModal(true);
+                                            try {
+                                                const res = await fetch('/api/cashier/customers/search');
+                                                if (res.ok) {
+                                                    const data = await res.json();
+                                                    const mapped = (data.customers || []).map((c: any) => ({
+                                                        id: c.id,
+                                                        name: c.full_name || 'Sin Nombre',
+                                                        phone: c.phone || '',
+                                                        address: c.address || '',
+                                                        origin: c.is_app_user ? 'profile' : 'customer',
+                                                    }));
+                                                    setAvailableClients(mapped);
+                                                    setFoundCustomers(mapped);
+                                                }
+                                            } catch { /* ignore */ } finally {
+                                                setLoadingClients(false);
+                                            }
+                                        }}
+                                        className="flex items-center gap-0.5 bg-[#f7951d]/10 text-[#f7951d] px-1.5 py-0.5 rounded-md hover:bg-[#f7951d]/20 transition-all active:scale-95"
                                     >
-                                        <span className="material-icons-round text-[10px]">person_add</span>
-                                        <span className="text-[7px] font-black uppercase">Guardar</span>
-                                    </button>
-                                )}
-                            </div>
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-2 bg-white rounded-lg px-2 py-1 border border-gray-100">
-                                    <span className="material-icons-round text-xs text-gray-300">person</span>
-                                    <input
-                                        type="text"
-                                        placeholder="Nombre del cliente"
-                                        value={customerInfo.name || ''}
-                                        onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
-                                        onKeyDown={(e) => e.key === 'Enter' && searchCustomerByTerm(customerInfo.name)}
-                                        className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-200"
-                                    />
-                                    <button 
-                                        onClick={() => searchCustomerByTerm(customerInfo.name)}
-                                        className="p-1 hover:bg-gray-100 rounded text-[#f7941d] active:scale-90 transition-all"
-                                        title="Buscar cliente por nombre"
-                                    >
-                                        <span className="material-icons-round text-xs">download</span>
+                                        <span className="material-icons-round text-[9px]">manage_search</span>
+                                        <span className="text-[7px] font-black uppercase">Buscar</span>
                                     </button>
                                 </div>
-                                <div className="flex items-center gap-2 bg-white rounded-lg px-2 py-1 border border-gray-100">
-                                    <span className="material-icons-round text-xs text-gray-300">phone</span>
+                            </div>
+
+                            {/* Campos en grid 2 columnas — más compactos */}
+                            <div className="grid grid-cols-2 gap-1">
+                                <div className="flex items-center gap-1 bg-white rounded-md px-1.5 py-1 border border-gray-100 col-span-2">
+                                    <span className="material-icons-round text-[10px] text-gray-300 shrink-0">person</span>
+                                    <input
+                                        type="text"
+                                        placeholder="Nombre"
+                                        value={customerInfo.name || ''}
+                                        onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
+                                        className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-1 bg-white rounded-md px-1.5 py-1 border border-gray-100 col-span-2">
+                                    <span className="material-icons-round text-[10px] text-gray-300 shrink-0">phone</span>
                                     <input
                                         type="tel"
                                         placeholder="Teléfono"
                                         value={customerInfo.phone || ''}
                                         onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-                                        onKeyDown={(e) => e.key === 'Enter' && searchCustomerByTerm()}
-                                        className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-200"
+                                        className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
                                     />
-                                    <button 
-                                        onClick={() => searchCustomerByTerm()}
-                                        className="p-1 hover:bg-gray-100 rounded text-[#f7941d] active:scale-90 transition-all"
-                                    >
-                                        <span className="material-icons-round text-xs">download</span>
-                                    </button>
                                 </div>
                                 {orderType === 'delivery' && (
-                                    <div className="flex items-start gap-2 bg-white rounded-lg px-2 py-1 border border-gray-100">
-                                        <span className="material-icons-round text-xs text-gray-300 mt-0.5">location_on</span>
-                                        <textarea
-                                            placeholder="Dirección Completa"
+                                    <div className="flex items-center gap-1 bg-white rounded-md px-1.5 py-1 border border-gray-100 col-span-2">
+                                        <span className="material-icons-round text-[10px] text-gray-300 shrink-0">location_on</span>
+                                        <input
+                                            type="text"
+                                            placeholder="Dirección"
                                             value={customerInfo.address || ''}
                                             onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
-                                            rows={1}
-                                            className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-200 resize-none"
+                                            className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
                                         />
                                     </div>
                                 )}
@@ -2524,7 +2473,12 @@ export default function CashierPage() {
                             <button onClick={clearCart} className="w-1/4 flex-none bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-500 font-black py-4 rounded-xl shadow-sm transition-all text-xs flex items-center justify-center" title="Nueva Orden (Limpiar)">
                                 <span className="material-icons-round">delete_sweep</span>
                             </button>
-                            <button onClick={() => setShowPaymentModal(true)} disabled={cart.length === 0} className="flex-1 bg-[#181511] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all disabled:opacity-50">PROCESAR PAGO</button>
+                            <button onClick={() => {
+                                // Resetear estado de procesamiento al abrir el modal de pago
+                                isProcessingOrder.current = false;
+                                setLoading(false);
+                                setShowPaymentModal(true);
+                            }} disabled={cart.length === 0} className="flex-1 bg-[#181511] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all disabled:opacity-50">PROCESAR PAGO</button>
                         </div>
                     ) : (
                         <div className="flex flex-col gap-2">
@@ -2714,7 +2668,11 @@ export default function CashierPage() {
                                                     setCart(loadedCart);
                                                     
                                                     setShowOpenTabsModal(false);
-                                                    setTimeout(() => setShowPaymentModal(true), 150);
+                                                    setTimeout(() => {
+                                                        isProcessingOrder.current = false;
+                                                        setLoading(false);
+                                                        setShowPaymentModal(true);
+                                                    }, 150);
                                                 }}
                                                 className="flex-1 flex items-center justify-center gap-2 bg-[#181511] text-white py-3 rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 shadow-lg"
                                             >
@@ -3107,16 +3065,35 @@ export default function CashierPage() {
                 setCustomerInfo={setCustomerInfo}
                 customerInsights={customerInsights}
                 searchTerm={searchTerm}
-                onSearchChange={setSearchTerm}
+                onSearchChange={async (term: string) => {
+                    setSearchTerm(term);
+                    // Buscar mientras escribe — también actualiza availableClients
+                    try {
+                        const url = term.length >= 2
+                            ? `/api/cashier/customers/search?term=${encodeURIComponent(term)}`
+                            : '/api/cashier/customers/search';
+                        const res = await fetch(url);
+                        if (!res.ok) return;
+                        const data = await res.json();
+                        const mapped = (data.customers || []).map((c: any) => ({
+                            id: c.id,
+                            name: c.full_name || 'Sin Nombre',
+                            phone: c.phone || '',
+                            address: c.address || '',
+                            origin: c.is_app_user ? 'profile' : 'customer',
+                        }));
+                        setFoundCustomers(mapped);
+                        setAvailableClients(mapped);
+                    } catch { /* ignore */ }
+                }}
                 onSearchByPhone={searchCustomerByTerm}
                 availableClients={foundCustomers}
-                loadingClients={false}
+                loadingClients={loadingClients}
                 isSearchingCustomer={isSearchingCustomer}
                 handleClientSelect={handleClientSelect}
                 onClose={() => {
                     setShowCustomerModal(false);
                     setSearchTerm('');
-                    setFoundCustomers([]);
                 }}
                 onAccept={() => setShowCustomerModal(false)}
                 onClear={() => {
@@ -3139,29 +3116,39 @@ export default function CashierPage() {
                             <h3 className="text-4xl font-black mb-4">¡LISTO!</h3>
                             <p className="text-gray-500 font-medium max-w-[240px] mx-auto mb-4">La orden ha sido enviada correctamente.</p>
 
-                            {/* Printing indicator */}
-                            <div className="flex items-center justify-center gap-2 mb-8 text-[#f7951d]">
-                                <span className="material-icons-round text-lg animate-pulse">print</span>
-                                <span className="text-sm font-bold">Imprimiendo ticket...</span>
-                            </div>
-
                             <div className="flex flex-col gap-3">
                                 <button
                                     onClick={() => {
-                                        console.log('🔄 [Cashier] Recargando página para nueva orden...');
+                                        setShowSuccessModal(false);
+                                        successModalRef.current = false;
+                                        // El ticket ya está abierto (showTicketModal = true)
+                                        // Si no está abierto, recargar
+                                        if (!showTicketModal) window.location.reload();
+                                    }}
+                                    className="w-full bg-[#181511] text-white py-4 rounded-2xl font-black active:scale-95 transition-all shadow-xl shadow-black/20 flex items-center justify-center gap-2"
+                                >
+                                    <span className="material-icons-round">print</span>
+                                    VER TICKET E IMPRIMIR
+                                </button>
+
+                                <button
+                                    onClick={() => {
+                                        setShowSuccessModal(false);
+                                        successModalRef.current = false;
+                                        setShowTicketModal(false);
                                         window.location.reload();
                                     }}
-                                    className="w-full bg-[#181511] text-white py-4 rounded-2xl font-black active:scale-95 transition-all shadow-xl shadow-black/20"
+                                    className="w-full bg-gray-100 text-gray-600 py-3 rounded-2xl font-black active:scale-95 transition-all"
                                 >
-                                    NUEVA ORDEN
+                                    NUEVA ORDEN SIN IMPRIMIR
                                 </button>
 
                                 <button
                                     onClick={handleCancelOrder}
-                                    className="w-full bg-white border-2 border-red-500 text-red-500 py-4 rounded-2xl font-black hover:bg-red-50 active:scale-95 transition-all flex items-center justify-center gap-2 group"
+                                    className="w-full bg-white border-2 border-red-500 text-red-500 py-3 rounded-2xl font-black hover:bg-red-50 active:scale-95 transition-all flex items-center justify-center gap-2 group text-sm"
                                 >
                                     <span className="material-icons-round group-hover:rotate-90 transition-transform">cancel</span>
-                                    {loading ? 'ELIMINANDO...' : 'CANCELAR Y ELIMINAR PEDIDO'}
+                                    {loading ? 'ELIMINANDO...' : 'CANCELAR PEDIDO'}
                                 </button>
                             </div>
                         </div>
