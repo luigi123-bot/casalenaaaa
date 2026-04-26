@@ -140,7 +140,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
 
             {/* 5. TABLA DE PRODUCTOS */}
             <div className="w-full mt-2">
-                <div className="grid grid-cols-[1.5rem_1fr_3rem] gap-1 font-black text-[13px] border-b border-black pb-1 mb-1 px-2 uppercase">
+                <div className="grid grid-cols-[2rem_1fr_3.5rem] gap-1 font-black text-[11px] border-b border-black pb-1 mb-1 px-1 uppercase">
                     <div className="text-left">Cant</div>
                     <div className="text-left">Descripción</div>
                     <div className="text-right">Total</div>
@@ -154,7 +154,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                         const showDetail = prod.detalle && !nameLower.includes(detailLower);
 
                         return (
-                            <div key={idx} className="grid grid-cols-[1.5rem_1fr_3rem] gap-1 items-start text-[11px] font-bold">
+                            <div key={idx} className="grid grid-cols-[2rem_1fr_3.5rem] gap-1 items-start text-[11px] font-bold px-1">
                                 <div className="text-left font-black">{prod.cantidad}</div>
                                 <div className="text-left flex flex-col leading-tight pr-1">
                                     <span className="uppercase font-black text-[12px]">{prod.nombre}</span>
@@ -185,10 +185,10 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }) => {
                     <span className="max-w-[100px] leading-none">PAGO: {data.pedido.metodo_pago}</span>
                     <span>{formatCurrency(data.pedido.pago_con || data.pedido.total)}</span>
                 </div>
-                {data.pedido.cambio && data.pedido.cambio > 0 && (
+                {(data.pedido.cambio ?? 0) > 0 && (
                     <div className="flex justify-between font-black text-[13px] text-gray-800 uppercase">
                         <span>SU CAMBIO:</span>
-                        <span>{formatCurrency(data.pedido.cambio)}</span>
+                        <span>{formatCurrency(data.pedido.cambio!)}</span>
                     </div>
                 )}
             </div>

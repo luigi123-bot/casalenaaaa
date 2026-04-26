@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Ticket58mm, { TicketData } from './Ticket58mm';
 
 interface TicketPrintModalProps {
@@ -11,14 +11,79 @@ interface TicketPrintModalProps {
 
 const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, data }) => {
 
-  // Auto-print disabled to allow user interaction
-  // useEffect removed
+  const handlePrint = () => {
+    const printContent = document.getElementById('print-area');
+    if (!printContent) return;
+
+    // Eliminar iframe anterior si existe
+    const oldIframe = document.getElementById('ticket-print-iframe');
+    if (oldIframe) {
+      oldIframe.remove();
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.id = 'ticket-print-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc) return;
+
+    // Obtener todos los estilos (Tailwind) de la página actual
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map(node => node.outerHTML)
+      .join('\n');
+
+    doc.open();
+    doc.write(`
+      <html>
+        <head>
+          <title>Imprimir Ticket</title>
+          ${styles}
+          <style>
+            @page {
+              size: 58mm auto;
+              margin: 0;
+            }
+            body {
+              width: 58mm;
+              margin: 0;
+              padding: 0;
+              background-color: white;
+            }
+          </style>
+        </head>
+        <body onload="setTimeout(function() { window.focus(); window.print(); }, 150)">
+          <div style="width: 58mm; max-width: 58mm; margin: 0; padding: 0;">
+            ${printContent.outerHTML}
+          </div>
+        </body>
+      </html>
+    `);
+    doc.close();
+  };
+
+  // Auto-print when modal opens
+  useEffect(() => {
+    if (isOpen && data) {
+      const timer = setTimeout(() => {
+        handlePrint();
+      }, 50); // Mínimo tiempo para asegurar que el DOM exista
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, data]);
 
   if (!isOpen || !data) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 print:p-0 print:bg-white animate-in fade-in duration-300">
-      <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:rounded-none animate-in zoom-in-95 duration-300">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 print:static print:block print:p-0 print:bg-white animate-in fade-in duration-300">
+      <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh] print:static print:block print:max-h-none print:shadow-none print:rounded-none animate-in zoom-in-95 duration-300">
         
         {/* Header - Screen Only */}
         <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white print:hidden">
@@ -44,7 +109,7 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
         {/* Footer Actions - Screen Only */}
         <div className="p-6 bg-white border-t border-gray-100 flex flex-col gap-3 print:hidden">
           <button
-            onClick={() => window.print()}
+            onClick={handlePrint}
             className="w-full py-4 bg-[#1D1D1F] text-white rounded-[20px] font-black text-xs uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-3 hover:bg-black active:scale-[0.98] transition-all duration-300 group"
           >
             <span className="material-icons-round text-lg group-hover:scale-110 transition-transform">print</span>
@@ -72,57 +137,6 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
           </div>
         </div>
       </div>
-
-      <style jsx global>{`
-        @page {
-          size: 58mm auto;
-          margin: 0mm;
-        }
-
-        @media print {
-          html, body {
-            width: 58mm !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background-color: white !important;
-            height: auto !important;
-            overflow: visible !important;
-          }
-
-          body * {
-            visibility: hidden;
-          }
-
-          #print-area {
-            visibility: visible !important;
-            display: block !important;
-            width: 58mm !important; 
-            max-width: 58mm !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background-color: white !important;
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            border: none !important;
-            box-shadow: none !important;
-          }
-
-          #print-area * {
-            visibility: visible !important;
-          }
-          
-          #print-area {
-             color: black !important;
-             -webkit-print-color-adjust: exact;
-             print-color-adjust: exact;
-          }
-
-          .no-print, header, nav, footer {
-            display: none !important;
-          }
-        }
-      `}</style>
     </div>
   );
 };

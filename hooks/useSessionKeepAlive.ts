@@ -78,30 +78,11 @@ export function useSessionKeepAlive(onSessionLost?: () => void) {
         // 2. Programar refrescos periódicos
         scheduleRefresh();
 
-        // 3. Refrescar al recuperar visibilidad (al volver a la pestaña)
-        const handleVisibility = () => {
-            if (document.visibilityState === 'visible') {
-                console.log('[SessionKeepAlive] 👁️ Tab visible — forzando renovación de token.');
-                refreshSession();
-                scheduleRefresh(); // Reiniciar timer desde ahora
-            }
-        };
-
-        // 4. Refrescar al recuperar foco de ventana
-        const handleFocus = () => {
-            console.log('[SessionKeepAlive] 🖱️ Ventana enfocada — forzando renovación de token.');
-            refreshSession();
-            scheduleRefresh();
-        };
-
-        document.addEventListener('visibilitychange', handleVisibility);
-        window.addEventListener('focus', handleFocus);
+        // 3. (Eliminado: Evitar spam de API en focus/visibility que causa Timeouts)
 
         return () => {
             isMountedRef.current = false;
             if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-            document.removeEventListener('visibilitychange', handleVisibility);
-            window.removeEventListener('focus', handleFocus);
         };
     }, [refreshSession, scheduleRefresh]);
 }

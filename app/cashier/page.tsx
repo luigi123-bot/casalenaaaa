@@ -13,6 +13,7 @@ import CierreCajaModal from '@/components/CierreCajaModal';
 import AperturaCajaModal from '@/components/AperturaCajaModal';
 import CustomerDeliveryModal from '@/components/CustomerDeliveryModal';
 import { useAuth } from '@/contexts/AuthContext';
+import CashierSidebar from './components/CashierSidebar';
 
 // Types
 interface Category {
@@ -232,6 +233,7 @@ export default function CashierPage() {
 
     // --- Persistencia Local (LocalStorage) ---
     const [isStateRestored, setIsStateRestored] = useState(false);
+    const [isLocalStorageEnabled, setIsLocalStorageEnabled] = useState(true);
 
     useEffect(() => {
         try {
@@ -258,16 +260,16 @@ export default function CashierPage() {
         }
     }, []);
 
-    useEffect(() => { if (isStateRestored) localStorage.setItem('caja_cart', JSON.stringify(cart)); }, [cart, isStateRestored]);
-    useEffect(() => { if (isStateRestored) localStorage.setItem('caja_orderType', orderType); }, [orderType, isStateRestored]);
-    useEffect(() => { if (isStateRestored) localStorage.setItem('caja_tableNumber', tableNumber); }, [tableNumber, isStateRestored]);
-    useEffect(() => { if (isStateRestored) localStorage.setItem('caja_customerInfo', JSON.stringify(customerInfo)); }, [customerInfo, isStateRestored]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_cart', JSON.stringify(cart)); }, [cart, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_orderType', orderType); }, [orderType, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_tableNumber', tableNumber); }, [tableNumber, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_customerInfo', JSON.stringify(customerInfo)); }, [customerInfo, isStateRestored, isLocalStorageEnabled]);
     useEffect(() => { 
-        if (isStateRestored) {
+        if (isStateRestored && isLocalStorageEnabled) {
             if (activeOrderId) localStorage.setItem('caja_activeOrderId', activeOrderId); 
             else localStorage.removeItem('caja_activeOrderId');
         }
-    }, [activeOrderId, isStateRestored]);
+    }, [activeOrderId, isStateRestored, isLocalStorageEnabled]);
     // -----------------------------------------
 
     useEffect(() => {
@@ -655,15 +657,10 @@ export default function CashierPage() {
             const fetchOpenTableOrder = async () => {
                 console.log(`🔍 [Cashier] Buscando comanda abierta para Mesa: ${tableNum}...`);
                 try {
-                    const { data, error } = await supabase
-                        .from('orders')
-                        .select('*, order_items(*)')
-                        .eq('table_number', tableNum)
-                        .in('status', ['pendiente', 'preparando', 'listo'])
-                        .order('created_at', { ascending: false })
-                        .limit(1);
-
-                    if (error) throw error;
+                    const res = await fetch(`/api/cashier/orders/search?table_number=${tableNum}`);
+                    if (!res.ok) throw new Error('Error en API de búsqueda');
+                    
+                    const { orders: data } = await res.json();
 
                     if (data && data.length > 0) {
                         const order = data[0];
@@ -898,6 +895,15 @@ export default function CashierPage() {
     const changeAmount = Math.max(0, paidAmount - cartTotals.total);
     const missingAmount = Math.max(0, cartTotals.total - paidAmount);
     const isSufficientPayment = paidAmount >= cartTotals.total;
+
+    // Reset loading state whenever the payment modal is opened
+    // This prevents buttons from being stuck in "PROCESANDO..." after a failed/interrupted request
+    useEffect(() => {
+        if (showPaymentModal) {
+            setOrderLoading(false);
+            isProcessingOrder.current = false;
+        }
+    }, [showPaymentModal]);
 
     useEffect(() => {
         // Safety timeout for loading state
@@ -1241,28 +1247,6 @@ export default function CashierPage() {
             try {
                 const userId = await getUserIdSafe();
 
-                // ── NÚMERO DE TICKET DIARIO ──────────────────────────────────────────
-                let dailySequence = 1;
-                if (!activeOrderId) {
-                    try {
-                        const today = new Date().toLocaleDateString('en-CA');
-                        const { data: ticketData } = await supabase
-                            .from('orders')
-                            .select('ticket_number')
-                            .gte('created_at', today + 'T00:00:00')
-                            .lte('created_at', today + 'T23:59:59')
-                            .order('ticket_number', { ascending: false })
-                            .limit(1)
-                            .single();
-                        
-                        if (ticketData?.ticket_number) {
-                            dailySequence = Number(ticketData.ticket_number) + 1;
-                        }
-                    } catch (ticketErr) {
-                        console.warn('[Cashier] Fallback en número de ticket:', ticketErr);
-                    }
-                }
-
                 // El status es 'pendiente' si es pre-ticket.
                 // Para llevar -> 'preparando' para que siga en Cuentas Abiertas.
                 // Domicilio -> 'confirmado'.
@@ -1283,8 +1267,7 @@ export default function CashierPage() {
                     delivery_address: orderType === 'delivery' ? customerInfo.address : null,
                     table_number: orderType === 'dine-in' ? tableNumber : null,
                     updated_at: new Date().toISOString(),
-                    cashier_name: cashierName,
-                    ticket_number: dailySequence
+                    cashier_name: cashierName
                 };
 
                 if (!activeOrderId) {
@@ -1319,11 +1302,16 @@ export default function CashierPage() {
                 const controller = new AbortController();
                 const fetchTimeout = setTimeout(() => controller.abort(), 15000);
 
+                const payloadOrderInfo = { ...orderPayload };
+                if (activeOrderId) {
+                    payloadOrderInfo.id = activeOrderId;
+                }
+
                 const response = await fetch('/api/cashier/save-order', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        order: { ...orderPayload, id: activeOrderId },
+                        order: payloadOrderInfo,
                         items: orderItemsPayload
                     }),
                     signal: controller.signal
@@ -1494,84 +1482,20 @@ export default function CashierPage() {
     };
 
     const fetchRecentOrders = async (showLoading = true) => {
-        // Verificación de sesión no bloqueante: si no hay sesión, saltamos silenciosamente.
-        // El autoRefreshToken del cliente Supabase se encargará de renovarla en background.
-        // NO hacemos refreshSession() aquí para evitar cuelgues por red lenta.
-        try {
-            const { data } = await supabase.auth.getSession();
-            if (!data.session) {
-                console.log('[Cashier] ℹ️ Sin sesión activa, saltando fetch de órdenes (se renovará sola).');
-                return;
-            }
-        } catch {
-            // Error de red — simplemente ignorar, el siguiente ciclo de polling lo reintentará.
-            return;
-        }
-
         if (showLoading) setRecentOrdersLoading(true);
         try {
-            // Query 1: open accounts (DINE-IN ONLY)
-            const { data: openData, error: openErr } = await supabase
-                .from('orders')
-                .select(`
-                    *,
-                    order_items (
-                        product_name,
-                        product_id,
-                        quantity,
-                        unit_price,
-                        selected_size,
-                        extras,
-                        notes
-                    )
-                `)
-                .in('status', ['pendiente', 'preparando', 'listo'])
-                .eq('order_type', 'dine-in')
-                .order('created_at', { ascending: false });
-
-            if (openErr) {
-                console.error('❌ [Cashier] Error fetching open orders:', openErr.message || JSON.stringify(openErr));
-                return;
-            }
-
-            // Query 2: All other orders (Delivery, Takeout, or Finished Dine-in)
-            // This ensures Delivery/Takeout show up in "History" even if pending, as they are paid on receipt
-            const { data: recentData, error: recentErr } = await supabase
-                .from('orders')
-                .select(`
-                    *,
-                    order_items (
-                        product_name,
-                        product_id,
-                        quantity,
-                        unit_price,
-                        selected_size,
-                        extras,
-                        notes
-                    )
-                `)
-                .or('order_type.neq.dine-in,status.in.(entregado,cancelado,confirmado)')
-                .order('created_at', { ascending: false })
-                .limit(50);
-
-            if (recentErr) {
-                console.error('❌ [Cashier] Error fetching recent orders:', recentErr.message || JSON.stringify(recentErr));
-                return;
-            }
-
-            // Merge: Active Mesa orders first, then the rest
-            // Avoid duplicates just in case
-            const openIds = new Set((openData || []).map(o => o.id));
-            const filteredRecent = (recentData || []).filter(o => !openIds.has(o.id));
+            const res = await fetch('/api/cashier/orders/list');
+            if (!res.ok) throw new Error('Error al obtener lista de órdenes');
             
-            const combined = [...(openData || []), ...filteredRecent];
+            const data = await res.json();
             
-            // Only update state if we have results to avoid flickering/clearing
-            if (combined.length > 0) {
+            if (data.success) {
+                // Combinar cuentas abiertas primero, luego el historial
+                const combined = [...data.openOrders, ...data.history];
                 setRecentOrders(combined);
             }
         } catch (err) {
-            console.error('❌ [Cashier] Error crítico en fetchRecentOrders:', err);
+            console.error('❌ [Cashier] Error en fetchRecentOrders:', err);
         } finally {
             if (showLoading) setRecentOrdersLoading(false);
         }
@@ -1706,6 +1630,28 @@ export default function CashierPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {process.env.NODE_ENV === 'development' && (
+                            <button
+                                onClick={() => {
+                                    setIsLocalStorageEnabled(prev => {
+                                        if (prev) {
+                                            localStorage.removeItem('caja_cart');
+                                            localStorage.removeItem('caja_orderType');
+                                            localStorage.removeItem('caja_tableNumber');
+                                            localStorage.removeItem('caja_customerInfo');
+                                            localStorage.removeItem('caja_activeOrderId');
+                                        }
+                                        return !prev;
+                                    });
+                                }}
+                                className={`h-10 px-3 shrink-0 flex items-center justify-center gap-1.5 rounded-xl transition-colors text-xs font-black ${!isLocalStorageEnabled ? 'bg-red-500 text-white shadow-lg' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                                title="Toggle LocalStorage"
+                            >
+                                <span className="material-icons-round text-base">sd_storage</span>
+                                <span className="hidden sm:inline">{isLocalStorageEnabled ? 'LS ON' : 'LS OFF'}</span>
+                            </button>
+                        )}
+
                         <button
                             onClick={() => setShowOrdersView(!showOrdersView)}
                             className={`lg:hidden h-10 px-3 flex items-center justify-center gap-2 rounded-xl border transition-all ${showOrdersView 
@@ -2190,323 +2136,43 @@ export default function CashierPage() {
                 />
             )}
 
-            {/* RIGHT SIDEBAR - Responsive: Drawer on mobile, Sidebar on desktop */}
-            <aside className={`fixed lg:static inset-y-0 right-0 z-[80] lg:z-auto transition-transform duration-300 ease-out lg:translate-x-0 ${isCartDrawerOpen ? 'translate-x-0' : 'translate-x-full'} w-[340px] sm:w-[380px] xl:w-[400px] bg-white border-l border-[#e8e5e1] flex flex-col h-screen shrink-0 shadow-2xl lg:shadow-none overflow-hidden`}>
-                <div className="p-6 border-b border-[#e8e5e1] relative">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex flex-col">
-                            <h2 className="text-[#181511] text-2xl font-black tracking-tight leading-none">Comanda Actual</h2>
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[2px] mt-1.5">{cart.length} ITEMS SELECCIONADOS</p>
-                        </div>
-
-                        {/* Mobile Close Button for Drawer */}
-                        <button 
-                            onClick={() => setIsCartDrawerOpen(false)}
-                            className="lg:hidden size-10 flex items-center justify-center rounded-xl bg-gray-50 text-gray-400 active:bg-red-50 active:text-red-500 transition-colors"
-                        >
-                            <span className="material-icons-round">close</span>
-                        </button>
-
-                        {/* Offline / Sync Indicators */}
-                        <div className="flex items-center gap-2">
-                            {isSyncing && (
-                                <div className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-1 rounded-full animate-pulse">
-                                    <span className="material-icons-round text-sm animate-spin">sync</span>
-                                    <span className="text-[10px] font-black uppercase">Sincronizando...</span>
-                                </div>
-                            )}
-
-                            {!isOnline && (
-                                <div className="flex items-center gap-1 bg-red-50 text-red-600 px-2 py-1 rounded-full border border-red-100">
-                                    <span className="material-icons-round text-sm">cloud_off</span>
-                                    <span className="text-[10px] font-black uppercase">Offline</span>
-                                </div>
-                            )}
-
-                            {pendingCount > 0 && !isSyncing && (
-                                <div className="flex items-center gap-1 bg-orange-50 text-[#f7951d] px-2 py-1 rounded-full border border-orange-100">
-                                    <span className="material-icons-round text-sm">schedule</span>
-                                    <span className="text-[10px] font-black uppercase">{pendingCount} Pendientes</span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                    <div className="flex bg-[#f8f7f5] p-1 rounded-xl mb-4">
-                        {(['dine-in', 'takeout', 'delivery'] as const).map((type) => (
-                            <button key={type} onClick={() => setOrderType(type)} className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${orderType === type ? 'bg-white shadow-sm text-[#f7951d]' : 'text-[#8c785f]'}`}>
-                                {type === 'dine-in' ? 'Mesa' : type === 'takeout' ? 'Pick up' : 'Domicilio'}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* MESAS / CUENTAS ABIERTAS QUICK ACCESS (SOLO MESA) */}
-                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.order_type === 'dine-in').length > 0 && (
-                        <div className="mb-4 animate-in fade-in slide-in-from-top-2">
-                            <span className="text-[10px] font-black text-purple-500 uppercase tracking-widest block mb-2 flex items-center gap-1">
-                                <span className="material-icons-round text-[12px]">table_restaurant</span> Cuentas Abiertas (Mesa)
-                            </span>
-                            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                                {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.order_type === 'dine-in').map(order => {
-                                    const isSelected = activeOrderId === order.id || (order.table_number && tableNumber === order.table_number);
-                                    return (
-                                        <button 
-                                            key={order.id}
-                                            onClick={() => {
-                                                setOrderType(order.order_type || 'dine-in');
-                                                if (order.table_number) {
-                                                    setTableNumber(order.table_number);
-                                                } else {
-                                                    setTableNumber('');
-                                                }
-                                                
-                                                // SIEMPRE CARGAR EL CARRITO AL SELECCIONAR EXPLÍCITAMENTE
-                                                setActiveOrderId(order.id);
-                                                setPaymentMethod(order.payment_method || 'efectivo');
-                                                const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                    id: item.product_id || 0,
-                                                    name: item.product_name,
-                                                    price: item.unit_price,
-                                                    quantity: item.quantity,
-                                                    selectedSize: item.selected_size,
-                                                    extras: item.extras || [],
-                                                    cartItemId: Math.random().toString(36).substr(2, 9)
-                                                }));
-                                                setCart(loadedCart);
-                                            }}
-                                            className={`px-3 py-1.5 rounded-lg border text-xs font-black shrink-0 transition-all flex items-center gap-1.5 ${
-                                                isSelected
-                                                ? 'bg-purple-600 text-white border-purple-600 shadow-md scale-[1.03]'
-                                                : 'bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100'
-                                            }`}
-                                        >
-                                            <span className="material-icons-round text-[14px]">
-                                                {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
-                                            </span>
-                                            {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || `LLEVAR #${order.ticket_number}`)}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {orderType === 'dine-in' && (
-                        <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 animate-in fade-in slide-in-from-top-2 flex items-center justify-between mb-4">
-                            <span className="text-[10px] font-black text-blue-500 uppercase">Configuración de Mesa</span>
-                            <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-bold text-blue-400">#</span>
-                                <input
-                                    type="text"
-                                    placeholder="00"
-                                    value={tableNumber}
-                                    onChange={(e) => setTableNumber(e.target.value)}
-                                    className="w-12 bg-white border border-blue-200 rounded-lg px-2 py-1 text-sm font-black text-center focus:border-blue-500 outline-none"
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {(orderType === 'takeout' || orderType === 'delivery') && (
-                        <div className="bg-white/50 rounded-xl px-2 py-1.5 border border-gray-100 animate-in fade-in slide-in-from-top-2 mb-2">
-                            {/* Header compacto */}
-                            <div className="flex justify-between items-center mb-1">
-                                <span className="text-[8px] font-black text-[#8c785f] uppercase tracking-widest">
-                                    {orderType === 'delivery' ? 'Entrega' : 'Pick up'}
-                                </span>
-                                <div className="flex items-center gap-1">
-                                    {(!customerInsights && customerInfo.phone.length >= 7 && customerInfo.name) && (
-                                        <button
-                                            onClick={() => handleSaveCustomer(customerInfo)}
-                                            className="flex items-center gap-0.5 bg-green-500 text-white px-1.5 py-0.5 rounded-md hover:bg-green-600 transition-all active:scale-95"
-                                        >
-                                            <span className="material-icons-round text-[9px]">person_add</span>
-                                            <span className="text-[7px] font-black uppercase">Guardar</span>
-                                        </button>
-                                    )}
-                                    {/* Botón buscar — icono solo, compacto */}
-                                    <button
-                                        type="button"
-                                        title="Buscar cliente registrado"
-                                        onClick={async () => {
-                                            const addr = customerInfo.address || '';
-                                            const parts = addr.split(',').map((p: string) => p.trim());
-                                            setCustomerInfo(prev => ({
-                                                ...prev,
-                                                street: prev.street || parts[0] || '',
-                                                neighborhood: prev.neighborhood || parts[1] || '',
-                                                reference: prev.reference || parts.slice(2).join(', ') || '',
-                                            }));
-                                            setLoadingClients(true);
-                                            setShowCustomerModal(true);
-                                            try {
-                                                const res = await fetch('/api/cashier/customers/search');
-                                                if (res.ok) {
-                                                    const data = await res.json();
-                                                    const mapped = (data.customers || []).map((c: any) => ({
-                                                        id: c.id,
-                                                        name: c.full_name || 'Sin Nombre',
-                                                        phone: c.phone || '',
-                                                        address: c.address || '',
-                                                        origin: c.is_app_user ? 'profile' : 'customer',
-                                                    }));
-                                                    setAvailableClients(mapped);
-                                                    setFoundCustomers(mapped);
-                                                }
-                                            } catch { /* ignore */ } finally {
-                                                setLoadingClients(false);
-                                            }
-                                        }}
-                                        className="flex items-center gap-0.5 bg-[#f7951d]/10 text-[#f7951d] px-1.5 py-0.5 rounded-md hover:bg-[#f7951d]/20 transition-all active:scale-95"
-                                    >
-                                        <span className="material-icons-round text-[9px]">manage_search</span>
-                                        <span className="text-[7px] font-black uppercase">Buscar</span>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Campos en grid 2 columnas — más compactos */}
-                            <div className="grid grid-cols-2 gap-1">
-                                <div className="flex items-center gap-1 bg-white rounded-md px-1.5 py-1 border border-gray-100 col-span-2">
-                                    <span className="material-icons-round text-[10px] text-gray-300 shrink-0">person</span>
-                                    <input
-                                        type="text"
-                                        placeholder="Nombre"
-                                        value={customerInfo.name || ''}
-                                        onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
-                                        className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
-                                    />
-                                </div>
-                                <div className="flex items-center gap-1 bg-white rounded-md px-1.5 py-1 border border-gray-100 col-span-2">
-                                    <span className="material-icons-round text-[10px] text-gray-300 shrink-0">phone</span>
-                                    <input
-                                        type="tel"
-                                        placeholder="Teléfono"
-                                        value={customerInfo.phone || ''}
-                                        onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-                                        className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
-                                    />
-                                </div>
-                                {orderType === 'delivery' && (
-                                    <div className="flex items-center gap-1 bg-white rounded-md px-1.5 py-1 border border-gray-100 col-span-2">
-                                        <span className="material-icons-round text-[10px] text-gray-300 shrink-0">location_on</span>
-                                        <input
-                                            type="text"
-                                            placeholder="Dirección"
-                                            value={customerInfo.address || ''}
-                                            onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
-                                            className="w-full text-[10px] font-black text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
-                    {cart.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center opacity-20">
-                            <span className="material-icons-round text-6xl mb-2">shopping_basket</span>
-                            <p className="font-bold">Orden vacía</p>
-                        </div>
-                    ) : (
-                        cart.map((item) => (
-                            <div key={item.cartItemId} className="flex gap-2 animate-in slide-in-from-right-2 duration-200">
-                                <div className="size-8 bg-orange-50 text-[#f7951d] rounded-lg flex items-center justify-center font-black shrink-0 text-xs">{item.quantity}x</div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-bold text-[11px] truncate leading-tight">{item.name}</p>
-                                    <p className="text-[9px] text-[#8c785f] font-bold uppercase tracking-tighter">
-                                        {item.selectedSize} {item.extras && item.extras.length > 0 ? `+ ${item.extras.length} extras` : ''}
-                                    </p>
-                                    {item.note && (
-                                        <p className="text-[9px] text-amber-600 font-bold italic mt-0.5 truncate leading-tight" title={item.note}>
-                                            📝 {item.note}
-                                        </p>
-                                    )}
-                                    <div className="flex gap-2 mt-0.5">
-                                        <button onClick={() => updateQuantity(item.cartItemId, -1)} className="text-[9px] font-black text-red-500 hover:underline">QUITAR</button>
-                                        <button onClick={() => updateQuantity(item.cartItemId, 1)} className="text-[9px] font-black text-green-600 hover:underline">AÑADIR</button>
-                                        <button
-                                            onClick={() => {
-                                                const group = groupedProducts.find(g => g.name === item.name || item.name.includes(g.name));
-                                                if (group) openProductCustomizer(group, item);
-                                            }}
-                                            className="text-[9px] font-black text-blue-500 hover:underline"
-                                        >
-                                            EDITAR
-                                        </button>
-                                    </div>
-                                </div>
-                                <p className="font-bold text-[11px] shrink-0">${(item.price * item.quantity).toFixed(2)}</p>
-                            </div>
-                        ))
-                    )}
-                </div>
-
-                <div className="p-3 bg-[#f8f7f5] border-t border-[#e8e5e1] space-y-2">
-                    {/* Open Tabs button - always visible */}
-                    <button
-                        onClick={() => setShowOpenTabsModal(true)}
-                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 active:scale-95 transition-all"
-                    >
-                        <div className="flex items-center gap-2">
-                            <span className="material-icons-round text-base">receipt_long</span>
-                            <span className="text-[10px] font-black uppercase tracking-widest">Cuentas Abiertas</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length > 0 && (
-                                <span className="bg-purple-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">
-                                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length}
-                                </span>
-                            )}
-                            <span className="material-icons-round text-sm">chevron_right</span>
-                        </div>
-                    </button>
-
-                    <div className="flex justify-between items-end">
-                        <span className="text-[#8c785f] font-bold text-xs uppercase tracking-tighter">Total a Pagar</span>
-                        <span className="text-2xl font-black text-[#f7951d] tracking-tighter">${cartTotals.total.toFixed(2)}</span>
-                    </div>
-
-                    {orderType === 'dine-in' ? (
-                        <div className="flex gap-2">
-                            <button onClick={clearCart} className="w-1/4 flex-none bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-500 font-black py-4 rounded-xl shadow-sm transition-all text-xs flex items-center justify-center" title="Nueva Orden (Limpiar)">
-                                <span className="material-icons-round">delete_sweep</span>
-                            </button>
-                            <button onClick={() => {
-                                // Resetear estado de procesamiento al abrir el modal de pago
-                                isProcessingOrder.current = false;
-                                setOrderLoading(false);
-                                setShowPaymentModal(true);
-                            }} disabled={cart.length === 0} className="flex-1 bg-[#181511] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all disabled:opacity-50">PROCESAR PAGO</button>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col gap-2">
-                            <div className="flex gap-2">
-                                <button onClick={clearCart} className="w-1/4 flex-none bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-500 font-black py-3 rounded-xl shadow-sm transition-all text-xs flex items-center justify-center" title="Nueva Orden (Limpiar)">
-                                    <span className="material-icons-round">delete_sweep</span>
-                                </button>
-                                <button 
-                                    onClick={() => handlePlaceOrder(false, 'efectivo')} 
-                                    disabled={cart.length === 0 || orderLoading || (orderType === 'delivery' && !customerInfo.name)} 
-                                    className="flex-1 bg-[#181511] text-white font-black py-3 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
-                                >
-                                    <span className="material-icons-round text-sm">print</span>
-                                    {orderLoading ? 'Procesando...' : 'Imprimir Ticket'}
-                                </button>
-                            </div>
-                            <button 
-                                onClick={() => handlePlaceOrder(true, 'transferencia')} 
-                                disabled={cart.length === 0 || orderLoading || (orderType === 'delivery' && !customerInfo.name)} 
-                                className="w-full bg-blue-600 text-white font-black py-3 rounded-xl shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
-                            >
-                                <span className="material-icons-round text-sm">account_balance</span>
-                                {orderLoading ? 'Procesando...' : 'Pago con Transferencia'}
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </aside>
+            {/* RIGHT SIDEBAR - Separated into component */}
+            <CashierSidebar
+                isCartDrawerOpen={isCartDrawerOpen}
+                setIsCartDrawerOpen={setIsCartDrawerOpen}
+                cart={cart}
+                setCart={setCart}
+                isSyncing={isSyncing}
+                isOnline={isOnline}
+                pendingCount={pendingCount}
+                orderType={orderType}
+                setOrderType={setOrderType}
+                recentOrders={recentOrders}
+                activeOrderId={activeOrderId}
+                setActiveOrderId={setActiveOrderId}
+                tableNumber={tableNumber}
+                setTableNumber={setTableNumber}
+                setPaymentMethod={setPaymentMethod}
+                customerInfo={customerInfo}
+                setCustomerInfo={setCustomerInfo}
+                customerInsights={customerInsights}
+                handleSaveCustomer={handleSaveCustomer}
+                setLoadingClients={setLoadingClients}
+                setShowCustomerModal={setShowCustomerModal}
+                setAvailableClients={setAvailableClients}
+                setFoundCustomers={setFoundCustomers}
+                updateQuantity={updateQuantity}
+                groupedProducts={groupedProducts}
+                openProductCustomizer={openProductCustomizer}
+                setShowOpenTabsModal={setShowOpenTabsModal}
+                cartTotals={cartTotals}
+                clearCart={clearCart}
+                isProcessingOrder={isProcessingOrder}
+                orderLoading={orderLoading}
+                setOrderLoading={setOrderLoading}
+                setShowPaymentModal={setShowPaymentModal}
+                handlePlaceOrder={handlePlaceOrder}
+            />
 
             {/* ── CUENTAS ABIERTAS MODAL ── */}
             {showOpenTabsModal && (
@@ -2671,6 +2337,7 @@ export default function CashierPage() {
                                                     setTimeout(() => {
                                                         isProcessingOrder.current = false;
                                                         setLoading(false);
+                                                        setOrderLoading(false);
                                                         setShowPaymentModal(true);
                                                     }, 150);
                                                 }}

@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import CustomerSelector, { CustomerData } from '@/components/CustomerSelector';
 import CustomerDeliveryModal from '@/components/CustomerDeliveryModal';
+import TicketPrintModal from '@/components/TicketPrintModal';
+import { TicketData } from '@/components/Ticket58mm';
 
 interface CartItem {
     id: number;
@@ -41,6 +43,13 @@ export default function OrderPanel({ cartItems, onUpdateQuantity, onClearCart }:
     const [amountPaid, setAmountPaid] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('efectivo');
     const [change, setChange] = useState(0);
+
+    // Ticket State
+    const [showTicketModal, setShowTicketModal] = useState(false);
+    const [ticketData, setTicketData] = useState<TicketData | null>(null);
+
+    // Mesa number (simple state, could be extended)
+    const [mesaNumber, setMesaNumber] = useState('');
 
     const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const tax = subtotal * 0.08;
@@ -189,12 +198,16 @@ export default function OrderPanel({ cartItems, onUpdateQuantity, onClearCart }:
                 return;
             }
 
+            const orderTypeKey = diningOption === 'Domicilio' ? 'domicilio'
+                : diningOption === 'Para Llevar' ? 'para llevar'
+                : 'mesa';
+
             const orderPayload = {
                 user_id: user.id,
                 status: 'pendiente',
                 total_amount: total,
                 tax_amount: tax,
-                order_type: diningOption.toLowerCase(),
+                order_type: orderTypeKey,
                 payment_method: paymentMethod,
                 customer_name: customerData.name || null,
                 phone_number: customerData.phone || null,
@@ -217,11 +230,52 @@ export default function OrderPanel({ cartItems, onUpdateQuantity, onClearCart }:
 
             if (!res.ok) throw new Error('Error al guardar la orden');
 
+            const resData = await res.json();
+            const savedOrder = resData.order;
+
+            // Build TicketData for printing
+            const ticket: TicketData = {
+                atendido_por: user.email || 'Cajero',
+                comercio: {
+                    nombre: 'CASALEÑA',
+                    telefono: '741-107-5056',
+                    direccion: 'Blvd. Juan N Alvarez, Ometepec Gro.',
+                },
+                pedido: {
+                    id: String(savedOrder?.id ?? Date.now()),
+                    tipo: diningOption === 'Domicilio' ? 'delivery'
+                        : diningOption === 'Para Llevar' ? 'takeout'
+                        : 'dine-in',
+                    mesa: mesaNumber || undefined,
+                    subtotal: subtotal,
+                    total: total,
+                    metodo_pago: paymentMethod,
+                    pago_con: paymentMethod === 'efectivo' ? (parseFloat(amountPaid) || total) : undefined,
+                    cambio: paymentMethod === 'efectivo' ? change : undefined,
+                },
+                cliente: (customerData.name || customerData.phone) ? {
+                    nombre: customerData.name || 'Sin Nombre',
+                    telefono: customerData.phone || '',
+                    direccion: customerData.address || '',
+                } : undefined,
+                productos: cartItems.map(item => ({
+                    cantidad: item.quantity,
+                    nombre: item.name,
+                    precio: item.price,
+                })),
+            };
+
+            // Clear cart & close payment modal
             onClearCart();
             setCustomerData({ name: '', phone: '', address: '' });
             setCustomerInfo(EMPTY_CUSTOMER);
             setCustomerInsights(null);
             setShowPaymentModal(false);
+            setMesaNumber('');
+
+            // Show ticket for printing
+            setTicketData(ticket);
+            setShowTicketModal(true);
 
         } catch (error) {
             console.error('Error placing order:', error);
@@ -481,6 +535,13 @@ export default function OrderPanel({ cartItems, onUpdateQuantity, onClearCart }:
                     </div>
                 </div>
             )}
+
+            {/* ── Ticket Print Modal ────────────────────────────────────────── */}
+            <TicketPrintModal
+                isOpen={showTicketModal}
+                onClose={() => { setShowTicketModal(false); setTicketData(null); }}
+                data={ticketData}
+            />
         </aside>
     );
 }

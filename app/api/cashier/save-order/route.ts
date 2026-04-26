@@ -74,10 +74,27 @@ export async function POST(req: Request) {
             await supabase.from('order_items').delete().eq('order_id', orderId);
         } else {
             // Nueva orden
+            // Generar número de ticket diario en el servidor para mayor velocidad
+            const today = new Date().toLocaleDateString('en-CA');
+            const { data: ticketData } = await supabase
+                .from('orders')
+                .select('ticket_number')
+                .gte('created_at', today + 'T00:00:00')
+                .lte('created_at', today + 'T23:59:59')
+                .order('ticket_number', { ascending: false })
+                .limit(1)
+                .single();
+
+            let dailySequence = 1;
+            if (ticketData?.ticket_number) {
+                dailySequence = Number(ticketData.ticket_number) + 1;
+            }
+
             const { data, error } = await supabase
                 .from('orders')
                 .insert({
                     ...order,
+                    ticket_number: dailySequence, // Sobrescribir siempre con el más reciente
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 })
