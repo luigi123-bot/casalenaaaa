@@ -429,25 +429,25 @@ export default function TiendaPage() {
         setProcessingStep('Guardando tu pedido...');
 
         try {
-            // 1. Get Daily Sequence
+            // 1. Get Daily Sequence searching for gaps
             let dailySequence = 1;
             const todayStr = new Date().toLocaleDateString('en-CA');
-            
             try {
-                const { data: maxOrder } = await supabase
+                const { data: usedTickets } = await supabase
                     .from('orders')
                     .select('ticket_number')
                     .gte('created_at', todayStr + 'T00:00:00')
                     .lte('created_at', todayStr + 'T23:59:59')
-                    .order('ticket_number', { ascending: false })
-                    .limit(1)
-                    .single();
+                    .order('ticket_number', { ascending: true });
                 
-                if (maxOrder && maxOrder.ticket_number) {
-                    dailySequence = Number(maxOrder.ticket_number) + 1;
+                if (usedTickets && usedTickets.length > 0) {
+                    const usedNumbers = new Set(usedTickets.map(o => Number(o.ticket_number)));
+                    while (usedNumbers.has(dailySequence)) {
+                        dailySequence++;
+                    }
                 }
             } catch (err) {
-                console.warn('Error fetching max ticket number, defaulting to 1', err);
+                console.warn('Error fetching daily sequence, defaulting to 1', err);
             }
 
             let orderData;
@@ -800,7 +800,6 @@ export default function TiendaPage() {
                 </header>
 
                 <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 lg:px-8 pb-20 custom-scrollbar scroll-smooth">
-                    {/* Hero Banner - Responsive */}
                     {/* Hero Banner - Responsive */}
                     {activeBanner ? (
                         <div className="w-full h-32 sm:h-40 md:h-44 rounded-xl sm:rounded-2xl md:rounded-[28px] bg-[#1D1D1F] text-white mb-4 sm:mb-6 md:mb-8 relative overflow-hidden shadow-xl group flex shrink-0 mt-4">
@@ -1239,7 +1238,7 @@ export default function TiendaPage() {
                     />
                     <div className="relative w-full max-w-xl bg-[#FAFAFA] rounded-t-[48px] shadow-[0_-20px_80px_rgba(0,0,0,0.3)] max-h-[92vh] flex flex-col animate-in slide-in-from-bottom duration-500 spring-bounce-400">
                         {/* Drag Handle */}
-                        <div className="w-full flex justify-center pt-4 pb-2">
+                        <div className="w-full flex justify-center pt-4 Gabriel pb-2">
                             <div className="w-12 h-1.5 bg-gray-200 rounded-full"></div>
                         </div>
 

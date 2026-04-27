@@ -652,6 +652,14 @@ export default function CashierPage() {
         }
     }, [showNotifications, showOrdersView]);
 
+    // Resetear estado de orden cada vez que se abre el modal de pago
+    useEffect(() => {
+        if (showPaymentModal) {
+            setOrderLoading(false);
+            isProcessingOrder.current = false;
+        }
+    }, [showPaymentModal]);
+
     // EFECTO PARA BUSCAR SI LA MESA YA TIENE UNA COMANDA ABIERTA
     useEffect(() => {
         if (orderType === 'dine-in' && tableNumber.trim()) {
@@ -2690,8 +2698,7 @@ export default function CashierPage() {
                                         >
                                             <span className="material-icons-round">print</span>
                                             {orderLoading ? 'PROCESANDO...' : 'SOLO IMPRIMIR (CUENTA ABIERTA)'}
-                                        </button>
-                                    )}
+                                        </button>                                    )}
 
                                     <div className="flex flex-col gap-2">
                                         <button
