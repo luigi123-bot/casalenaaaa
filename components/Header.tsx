@@ -121,10 +121,12 @@ export default function Header(props: HeaderProps) {
 
     const handleNewNotification = useCallback((notif: AppNotification) => {
         setNotifications(prev => [notif, ...prev]);
+        /*
         if (notificationAudioRef.current) {
             notificationAudioRef.current.currentTime = 0;
             notificationAudioRef.current.play().catch(() => { });
         }
+        */
     }, []);
 
     useEffect(() => {

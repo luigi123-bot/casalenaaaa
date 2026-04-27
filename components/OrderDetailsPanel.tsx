@@ -53,6 +53,12 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     const ORIGIN: [number, number] = [16.6853, -98.4116]; 
 
     useEffect(() => {
+        if (order && (order as any)._printOnly) {
+            handlePrintTicket();
+        }
+    }, [order]);
+
+    useEffect(() => {
         if (!order || !selectedRepartidor || order.order_type !== 'delivery') {
             setDriverLocation(null);
             return;

@@ -27,10 +27,12 @@ export default function NotificationPanel({
     const addNotification = useCallback((notification: Notification) => {
         setNotifications(prev => [notification, ...prev]);
 
-        // Play notification sound
+        // Play notification sound - Desactivado por solicitud del usuario
+        /*
         const audio = new Audio('/notification.mp3');
         audio.volume = 0.3;
         audio.play().catch(() => { });
+        */
     }, []);
 
     const loadExistingNotifications = useCallback(async () => {

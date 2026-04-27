@@ -40,21 +40,9 @@ export default function OrdersView() {
 
     const fetchOrders = async () => {
         try {
-            const { data, error } = await supabase
-                .from('orders')
-                .select(`
-                    *,
-                    order_items (
-                        *,
-                        products (
-                            name,
-                            description
-                        )
-                    )
-                `)
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
+            const res = await fetch('/api/orders?timeFilter=all');
+            if (!res.ok) throw new Error('Failed to fetch orders');
+            const data = await res.json();
             setOrders(data || []);
         } catch (error) {
             console.error('Error fetching orders:', error);

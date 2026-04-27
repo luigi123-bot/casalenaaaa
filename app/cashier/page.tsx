@@ -549,6 +549,7 @@ export default function CashierPage() {
                     .select('*, order_items(*)')
                     .eq('status', 'pendiente')
                     .in('order_type', ['delivery', 'takeout'])
+                    .is('cashier_name', null)
                     .order('created_at', { ascending: true });
 
                 if (error) throw error;
@@ -557,7 +558,7 @@ export default function CashierPage() {
                     console.log('🔔 [Notifications] Encontrados pedidos pendientes iniciales:', data.length);
                     setAllPendingVirtualOrders(data);
                     setPendingNewOrder(data[0]);
-                    startAlarm();
+                    // startAlarm(); // Desactivado por solicitud del usuario
                 }
             } catch (err: any) {
                 // Ignore AbortError which happens on rapid re-renders or unmounts
@@ -586,7 +587,8 @@ export default function CashierPage() {
                 fetchRecentOrders(false);
 
                 // Browser Notification (Only for Delivery as requested, or others if needed)
-                if (newOrder.status === 'pendiente' && (newOrder.order_type === 'delivery' || newOrder.order_type === 'takeout')) {
+                // SOLO MOSTRAR SI ES UN PEDIDO VIRTUAL (Sin cajero asignado inicialmente)
+                if (newOrder.status === 'pendiente' && !newOrder.cashier_name && (newOrder.order_type === 'delivery' || newOrder.order_type === 'takeout')) {
                     const title = newOrder.order_type === 'delivery' ? '🚀 ¡Nuevo Domicilio!' : '🛍️ ¡Nuevo Pick-up!';
                     const body = `Orden #${newOrder.id} - $${newOrder.total_amount}\nCliente: ${newOrder.customer_name || 'Desconocido'}`;
                     
@@ -605,8 +607,8 @@ export default function CashierPage() {
                         };
                     }
 
-                    // Start Continuous Alarm
-                    startAlarm();
+                    // Start Continuous Alarm - Desactivado por solicitud del usuario
+                    // startAlarm();
 
                     // PERSISTENT UI ALERT
                     setAllPendingVirtualOrders(prev => [...prev, newOrder]);
@@ -1433,13 +1435,13 @@ export default function CashierPage() {
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
                 if (!isEffectActive) return;
                 if (payload.new.order_source === 'web' || payload.new.order_type === 'delivery') {
-                    playNotificationSound();
+                    // playNotificationSound(); // Desactivado por solicitud del usuario
                     setUnreadNotifications(prev => prev + 1);
                 }
             })
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'cashier_notifications' }, (payload) => {
                 if (!isEffectActive) return;
-                playNotificationSound();
+                // playNotificationSound(); // Desactivado por solicitud del usuario
                 setUnreadNotifications(prev => prev + 1);
             })
             .subscribe();
@@ -1784,6 +1786,14 @@ export default function CashierPage() {
                                                                     setTableNumber(order.table_number || '');
                                                                     setActiveOrderId(order.id);
                                                                     setPaymentMethod(order.payment_method || 'efectivo');
+                                                                    setCustomerInfo({
+                                                                        name: order.customer_name || '',
+                                                                        phone: order.phone_number || '',
+                                                                        address: order.delivery_address || '',
+                                                                        street: (order.delivery_address || '').split(',')[0] || '',
+                                                                        neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                                        reference: ''
+                                                                    });
                                                                     const loadedCart = (order.order_items || []).map((item: any) => ({
                                                                         id: item.product_id || 0,
                                                                         name: item.product_name,
@@ -1896,6 +1906,7 @@ export default function CashierPage() {
                         <section className="flex-1 p-3 lg:p-4 overflow-hidden flex flex-col">
                             {/* Categories Selection - Full Width Grid at the top to avoid scroll */}
                             <div className="mb-3 shrink-0">
+                                <h4 className="text-[10px] font-black text-[#f7951d] uppercase tracking-[2px] mb-2 px-1">Paso 1: Categoría</h4>
                                 <div className="grid grid-cols-5 sm:grid-cols-8 lg:grid-cols-10 gap-1 lg:gap-1.5">
                                     {[...categories].sort((a, b) => {
                                         const getPriority = (name: string) => {
@@ -1989,6 +2000,7 @@ export default function CashierPage() {
 
                             {/* Products Grid - Maximum Density */}
                             <div className="flex-1 overflow-y-auto scrollbar-hide">
+                                <h4 className="text-[10px] font-black text-[#f7951d] uppercase tracking-[2px] mb-3 px-1 sticky top-0 z-20 bg-[#f8f7f5]/80 backdrop-blur-sm py-1">Paso 2: Selecciona Productos</h4>
                                 {loading ? (
                                     <div className="flex items-center justify-center h-full">
                                         <div className="w-8 h-8 border-3 border-[#f7951d] border-t-transparent rounded-full animate-spin"></div>
@@ -2240,42 +2252,38 @@ export default function CashierPage() {
                                                 onClick={() => {
                                                     // Load order into cart
                                                     setOrderType(order.order_type || 'dine-in');
-                                                    if (order.table_number) {
-                                                        setTableNumber(order.table_number);
-                                                    } else {
-                                                        setTableNumber('');
-                                                        setActiveOrderId(order.id);
-                                                        
-                                                        if (order.order_type !== 'dine-in') {
-                                                            setCustomerInfo({
-                                                                name: order.customer_name || '',
-                                                                phone: order.phone_number || '',
-                                                                address: order.delivery_address || '',
-                                                                street: (order.delivery_address || '').split(',')[0] || '',
-                                                                neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                                reference: ''
-                                                            });
-                                                        }
-
-                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                            id: item.product_id || 0,
-                                                            name: item.product_name,
-                                                            price: item.unit_price,
-                                                            quantity: item.quantity,
-                                                            selectedSize: item.selected_size,
-                                                            extras: (function() {
-                                                                if (!item.extras) return [];
-                                                                if (typeof item.extras === 'string') {
-                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                                }
-                                                                if (Array.isArray(item.extras)) return item.extras;
-                                                                return [];
-                                                            })(),
-                                                            note: item.notes || '',
-                                                            cartItemId: Math.random().toString(36).substr(2, 9)
-                                                        }));
-                                                        setCart(loadedCart);
+                                                    setTableNumber(order.table_number || '');
+                                                    setActiveOrderId(order.id);
+                                                    
+                                                    if (order.order_type !== 'dine-in') {
+                                                        setCustomerInfo({
+                                                            name: order.customer_name || '',
+                                                            phone: order.phone_number || '',
+                                                            address: order.delivery_address || '',
+                                                            street: (order.delivery_address || '').split(',')[0] || '',
+                                                            neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                            reference: ''
+                                                        });
                                                     }
+
+                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                        id: item.product_id || 0,
+                                                        name: item.product_name,
+                                                        price: item.unit_price,
+                                                        quantity: item.quantity,
+                                                        selectedSize: item.selected_size,
+                                                        extras: (function() {
+                                                            if (!item.extras) return [];
+                                                            if (typeof item.extras === 'string') {
+                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                            }
+                                                            if (Array.isArray(item.extras)) return item.extras;
+                                                            return [];
+                                                        })(),
+                                                        note: item.notes || '',
+                                                        cartItemId: Math.random().toString(36).substr(2, 9)
+                                                    }));
+                                                    setCart(loadedCart);
                                                     setShowOpenTabsModal(false);
                                                 }}
                                                 className="flex-1 flex items-center justify-center gap-2 bg-[#f8f7f5] text-[#181511] border border-gray-200 py-3 rounded-xl text-xs font-black hover:bg-gray-100 transition-all active:scale-95"
@@ -2643,6 +2651,16 @@ export default function CashierPage() {
                                                     step="any"
                                                 />
                                             </div>
+                                        </div>
+
+                                        {/* Botones de Pago Rápido */}
+                                        <div className="grid grid-cols-4 gap-2">
+                                            <button onClick={() => setAmountPaid(cartTotals.total.toString())} className="py-2 bg-green-50 text-green-700 border border-green-100 rounded-xl text-[10px] font-black hover:bg-green-100 transition-all">EXACTO</button>
+                                            {[20, 50, 100, 200, 500].map(val => (
+                                                <button key={val} onClick={() => setAmountPaid(val.toString())} className="py-2 bg-gray-50 text-gray-600 border border-gray-100 rounded-xl text-[10px] font-black hover:bg-gray-100 transition-all">${val}</button>
+                                            ))}
+                                            <button onClick={() => setAmountPaid((Math.ceil(cartTotals.total / 50) * 50).toString())} className="py-2 bg-blue-50 text-blue-700 border border-blue-100 rounded-xl text-[10px] font-black hover:bg-blue-100 transition-all">REDONDEO</button>
+                                            <button onClick={() => setAmountPaid('')} className="py-2 bg-red-50 text-red-700 border border-red-100 rounded-xl text-[10px] font-black hover:bg-red-100 transition-all">LIMPIAR</button>
                                         </div>
                                         {isSufficientPayment && (paidAmount > 0) && (
                                             <div className="p-5 rounded-2xl flex justify-between items-center bg-green-50 text-green-700">

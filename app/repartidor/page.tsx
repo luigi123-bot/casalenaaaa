@@ -57,7 +57,7 @@ export default function RepartidorApp() {
             const { data } = await supabase.from('orders').select('*, order_items(*)').eq('driver_id', selectedDriver.id).in('delivery_status', ['assigned', 'picked_up', 'en_camino']).order('created_at', { ascending: false }).limit(1).maybeSingle();
             if (data) {
                 if (isUpdate && (!assignedOrder || assignedOrder.id !== data.id)) {
-                    audioRef.current?.play().catch(() => {});
+                    // audioRef.current?.play().catch(() => {}); // Desactivado por solicitud del usuario
                     if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
                 }
                 setAssignedOrder(data);

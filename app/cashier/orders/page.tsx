@@ -13,6 +13,10 @@ export default function CashierOrdersPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('Todos');
     const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+    const [showQuickPay, setShowQuickPay] = useState<any | null>(null);
+    const [quickPayAmount, setQuickPayAmount] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false);
+    
     const [showChat, setShowChat] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
     const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'all'>('today');
@@ -21,8 +25,9 @@ export default function CashierOrdersPage() {
         fetchOrders();
 
         const channel = supabase
-            .channel('cashier_orders_realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+            .channel('cashier_orders_realtime_v2')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+                console.log('Realtime change detected:', payload.eventType);
                 fetchOrders();
             })
             .subscribe();
@@ -38,40 +43,44 @@ export default function CashierOrdersPage() {
 
     const fetchOrders = async () => {
         try {
-            let query = supabase
-                .from('orders')
-                .select(`
-                    *,
-                    order_items (
-                        id,
-                        quantity,
-                        unit_price,
-                        product_name,
-                        selected_size,
-                        extras
-                    )
-                `)
-                .order('created_at', { ascending: false });
-
-            // Apply time filter
-            if (timeFilter === 'today') {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                query = query.gte('created_at', today.toISOString());
-            } else if (timeFilter === 'week') {
-                const weekAgo = new Date();
-                weekAgo.setDate(weekAgo.getDate() - 7);
-                query = query.gte('created_at', weekAgo.toISOString());
-            }
-
-            const { data, error } = await query;
-
-            if (error) throw error;
+            const res = await fetch(`/api/orders?timeFilter=${timeFilter}`);
+            if (!res.ok) throw new Error('Failed to fetch orders');
+            const data = await res.json();
             setOrders(data || []);
         } catch (error) {
             console.error('Error fetching orders:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleQuickPay = async (order: any) => {
+        if (isProcessing) return;
+        setIsProcessing(true);
+        try {
+            const res = await fetch('/api/cashier/orders/process-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: order.id,
+                    amountPaid: quickPayAmount,
+                    totalAmount: order.total_amount
+                })
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Failed to process payment');
+            }
+            
+            setShowQuickPay(null);
+            setQuickPayAmount('');
+            fetchOrders();
+        } catch (error: any) {
+            console.error('Error in quick pay:', error);
+            alert(`Error: ${error.message}`);
+        } finally {
+            setIsProcessing(false);
         }
     };
 
@@ -353,10 +362,36 @@ export default function CashierOrdersPage() {
                                 </p>
                             </div>
 
-                            {/* Action Button */}
-                            <button className="w-full mt-4 bg-[#181511] text-white py-2.5 rounded-xl font-bold text-sm group-hover:bg-[#F7941D] transition-all flex items-center justify-center gap-2">
-                                <span>Ver Detalles</span>
-                                <span className="material-icons-round text-sm">arrow_forward</span>
+                            {/* Action Buttons */}
+                            <div className="grid grid-cols-2 gap-2 mt-4">
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setQuickPayAmount(order.total_amount.toString());
+                                        setShowQuickPay(order);
+                                    }}
+                                    className="bg-green-600 text-white py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-green-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-100 active:scale-95"
+                                >
+                                    <span className="material-icons-round text-sm">payments</span>
+                                    COBRAR YA
+                                </button>
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedOrder({...order, _printOnly: true});
+                                    }}
+                                    className="bg-[#181511] text-white py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 active:scale-95"
+                                >
+                                    <span className="material-icons-round text-sm">print</span>
+                                    PRE-VENTA
+                                </button>
+                            </div>
+                            
+                            <button 
+                                onClick={() => setSelectedOrder(order)}
+                                className="w-full mt-2 text-[#8c785f] py-1.5 font-bold text-[10px] uppercase tracking-widest hover:text-[#181511] transition-colors"
+                            >
+                                Ver Detalle Completo
                             </button>
                         </div>
                     ))
@@ -377,6 +412,73 @@ export default function CashierOrdersPage() {
 
             {showChat && <CashierSupportChat onClose={() => setShowChat(false)} />}
             {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
+
+            {/* Quick Pay Modal */}
+            {showQuickPay && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-[#181511]/40 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="p-6 text-center border-b border-gray-50">
+                            <h3 className="text-xl font-black text-[#181511] uppercase tracking-tight">Cobro Rápido</h3>
+                            <p className="text-xs text-[#8c785f] font-bold mt-1">Orden #{showQuickPay.id.toString().slice(-4)}</p>
+                        </div>
+                        
+                        <div className="p-8">
+                            <div className="text-center mb-8">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total a Pagar</p>
+                                <p className="text-5xl font-black text-[#181511] tracking-tighter">${showQuickPay.total_amount.toFixed(2)}</p>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div className="bg-[#f8f7f5] rounded-2xl p-4 border-2 border-gray-100 focus-within:border-[#F7941D] transition-all">
+                                    <p className="text-[9px] font-black text-gray-400 uppercase mb-1">Efectivo Recibido</p>
+                                    <div className="flex items-center text-3xl font-black text-[#181511]">
+                                        <span className="mr-2 text-gray-300">$</span>
+                                        <input 
+                                            type="number"
+                                            value={quickPayAmount}
+                                            onChange={(e) => setQuickPayAmount(e.target.value)}
+                                            onFocus={(e) => e.target.select()}
+                                            autoFocus
+                                            className="w-full bg-transparent outline-none placeholder-gray-200"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-4 gap-2">
+                                    <button onClick={() => setQuickPayAmount(showQuickPay.total_amount.toString())} className="py-2 bg-green-50 text-green-700 rounded-xl text-[10px] font-black border border-green-100 hover:bg-green-100">EXACTO</button>
+                                    {[100, 200, 500].map(v => (
+                                        <button key={v} onClick={() => setQuickPayAmount(v.toString())} className="py-2 bg-gray-50 text-gray-600 rounded-xl text-[10px] font-black border border-gray-100 hover:bg-gray-100">${v}</button>
+                                    ))}
+                                </div>
+
+                                {parseFloat(quickPayAmount) > showQuickPay.total_amount && (
+                                    <div className="p-4 bg-green-50 rounded-2xl flex justify-between items-center border border-green-100">
+                                        <span className="text-[10px] font-black text-green-600 uppercase">Cambio</span>
+                                        <span className="text-2xl font-black text-green-700">${(parseFloat(quickPayAmount) - showQuickPay.total_amount).toFixed(2)}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-gray-50 flex gap-3">
+                            <button 
+                                onClick={() => setShowQuickPay(null)}
+                                className="flex-1 py-4 text-xs font-black text-gray-400 uppercase tracking-widest hover:text-red-500 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={() => handleQuickPay(showQuickPay)}
+                                disabled={isProcessing || (parseFloat(quickPayAmount) < showQuickPay.total_amount && quickPayAmount !== '')}
+                                className="flex-[2] bg-[#F7941D] text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-100 active:scale-95 disabled:opacity-50"
+                            >
+                                {isProcessing ? 'CERRANDO...' : 'CONFIRMAR Y CERRAR'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
