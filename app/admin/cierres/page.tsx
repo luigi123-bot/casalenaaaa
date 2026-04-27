@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface CashClosure {
     id: string;
@@ -25,6 +25,9 @@ export default function CierresRerportsPage() {
     const [cierres, setCierres] = useState<CashClosure[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedCierre, setSelectedCierre] = useState<CashClosure | null>(null);
+    const [secretUnlocked, setSecretUnlocked] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const keyBufferRef = useRef('');
 
     useEffect(() => {
         fetchCierres();
@@ -41,6 +44,36 @@ export default function CierresRerportsPage() {
             console.error("Error fetching closures", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignorar si el foco está en un input/textarea
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
+            keyBufferRef.current = (keyBufferRef.current + e.key).slice(-4).toLowerCase();
+            if (keyBufferRef.current === 'luis') {
+                setSecretUnlocked(prev => !prev);
+                keyBufferRef.current = '';
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
+    const handleDelete = async (id: string) => {
+        if (!window.confirm('¿Eliminar este cierre permanentemente? Esta acción no se puede deshacer.')) return;
+        setDeleting(true);
+        try {
+            const res = await fetch(`/api/admin/closures?id=${id}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('Error al eliminar');
+            setCierres(prev => prev.filter(c => c.id !== id));
+            setSelectedCierre(null);
+            setSecretUnlocked(false);
+        } catch (err: any) {
+            alert('No se pudo eliminar: ' + err.message);
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -162,15 +195,25 @@ export default function CierresRerportsPage() {
                         
                         {/* Header */}
                         <div className="flex items-center justify-between px-7 py-5 border-b border-[#f0ede9] bg-[#181511]">
-                            <div>
+                            <div className="cursor-default select-none">
                                 <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Detalles del Cierre</p>
                                 <h2 className="text-xl font-black text-white capitalize">{selectedCierre.fecha_turno}</h2>
                             </div>
                             <div className="flex gap-2">
+                                {secretUnlocked && (
+                                    <button
+                                        onClick={() => handleDelete(selectedCierre.id)}
+                                        disabled={deleting}
+                                        className="size-9 rounded-xl bg-red-600 flex items-center justify-center text-white hover:bg-red-700 transition-colors animate-in zoom-in-90 duration-200"
+                                        title="Eliminar cierre"
+                                    >
+                                        <span className="material-symbols-outlined text-lg">{deleting ? 'progress_activity' : 'delete_forever'}</span>
+                                    </button>
+                                )}
                                 <button onClick={() => handlePrint(selectedCierre)} className="size-9 rounded-xl bg-orange-500 flex items-center justify-center text-white hover:bg-orange-600 transition-colors">
                                     <span className="material-symbols-outlined text-lg">print</span>
                                 </button>
-                                <button onClick={() => setSelectedCierre(null)} className="size-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors">
+                                <button onClick={() => { setSelectedCierre(null); setSecretUnlocked(false); }} className="size-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors">
                                     <span className="material-symbols-outlined text-lg">close</span>
                                 </button>
                             </div>

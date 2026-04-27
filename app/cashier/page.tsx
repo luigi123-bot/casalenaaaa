@@ -2640,6 +2640,86 @@ export default function CashierPage() {
                                     </div>
                                 )}
 
+                                {/* Datos del cliente para takeout / delivery */}
+                                {(orderType === 'takeout' || orderType === 'delivery') && (
+                                    <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100 space-y-2">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-[10px] font-black text-[#f7951d] uppercase tracking-widest">
+                                                {orderType === 'delivery' ? 'Datos de Entrega' : 'Datos del Cliente'}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    const addr = customerInfo.address || '';
+                                                    const parts = addr.split(',').map((p: string) => p.trim());
+                                                    setCustomerInfo(prev => ({
+                                                        ...prev,
+                                                        street: prev.street || parts[0] || '',
+                                                        neighborhood: prev.neighborhood || parts[1] || '',
+                                                        reference: prev.reference || parts.slice(2).join(', ') || '',
+                                                    }));
+                                                    setLoadingClients(true);
+                                                    setShowCustomerModal(true);
+                                                    setShowPaymentModal(false);
+                                                    try {
+                                                        const res = await fetch('/api/cashier/customers/search');
+                                                        if (res.ok) {
+                                                            const data = await res.json();
+                                                            const mapped = (data.customers || []).map((c: any) => ({
+                                                                id: c.id,
+                                                                name: c.full_name || 'Sin Nombre',
+                                                                phone: c.phone || '',
+                                                                address: c.address || '',
+                                                                origin: c.is_app_user ? 'profile' : 'customer',
+                                                            }));
+                                                            setAvailableClients(mapped);
+                                                            setFoundCustomers(mapped);
+                                                        }
+                                                    } catch { /* ignore */ } finally {
+                                                        setLoadingClients(false);
+                                                    }
+                                                }}
+                                                className="flex items-center gap-1 text-[9px] font-black text-[#f7951d] uppercase bg-white border border-orange-200 px-2 py-1 rounded-lg hover:bg-orange-50 transition-all"
+                                            >
+                                                <span className="material-icons-round text-xs">manage_search</span>
+                                                Buscar
+                                            </button>
+                                        </div>
+                                        <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-2 border border-orange-100">
+                                            <span className="material-icons-round text-xs text-gray-300">person</span>
+                                            <input
+                                                type="text"
+                                                placeholder="Nombre del cliente"
+                                                value={customerInfo.name || ''}
+                                                onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
+                                                className="flex-1 text-xs font-black text-[#181511] outline-none bg-transparent placeholder-gray-300"
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-2 border border-orange-100">
+                                            <span className="material-icons-round text-xs text-gray-300">phone</span>
+                                            <input
+                                                type="tel"
+                                                placeholder="Teléfono"
+                                                value={customerInfo.phone || ''}
+                                                onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                                                className="flex-1 text-xs font-black text-[#181511] outline-none bg-transparent placeholder-gray-300"
+                                            />
+                                        </div>
+                                        {orderType === 'delivery' && (
+                                            <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-2 border border-orange-100">
+                                                <span className="material-icons-round text-xs text-gray-300">location_on</span>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Dirección completa"
+                                                    value={customerInfo.address || ''}
+                                                    onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
+                                                    className="flex-1 text-xs font-black text-[#181511] outline-none bg-transparent placeholder-gray-300"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 {paymentMethod === 'efectivo' && (
                                     <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-300">
                                         <div className="bg-white rounded-2xl p-4 border-2 border-gray-200 shadow-sm focus-within:border-[#F7941D] transition-colors relative">

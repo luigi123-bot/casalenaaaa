@@ -145,7 +145,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
             // 2. Guardar en Historial (Tabla Antigua compatible)
             // IMPORTANTE: Esta tabla usa nombres en ESPAÑOL
             const legacyPayload = {
-                fecha_turno: `${data?.fechaTurno}${totalGastos > 0 ? ` | GASTOS: $${totalGastos.toFixed(2)}` : ''}`,
+                fecha_turno: `${data?.fechaTurno}${totalGastos > 0 ? ` | GASTOS: ${totalGastos.toFixed(2)}` : ''}`,
                 cajero: cashierName,
                 total_ordenes: metrics.total_orders,
                 total_productos: metrics.total_products,
@@ -220,106 +220,103 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
     const handlePrint = () => {
         if (!data) return;
 
-        const ticketHtml = `
-            <html>
-                <head>
-                    <title>Cierre de Caja - Casaleña</title>
-                    <style>
-                        body { 
-                            font-family: 'Courier New', Courier, monospace; 
-                            width: 80mm; 
-                            margin: 0; 
-                            padding: 10px; 
-                            font-size: 12px;
-                            color: #000;
-                        }
-                        .header { text-align: center; margin-bottom: 20px; }
-                        .header h1 { margin: 0; font-size: 18px; text-transform: uppercase; }
-                        .header p { margin: 2px 0; font-size: 10px; }
-                        .divider { border-top: 1px dashed #000; margin: 10px 0; }
-                        .section-title { font-weight: bold; text-align: center; text-transform: uppercase; margin: 10px 0 5px 0; background: #eee; padding: 2px; }
-                        .row { display: flex; justify-content: space-between; margin: 3px 0; }
-                        .row.total { font-weight: bold; font-size: 14px; margin-top: 5px; }
-                        .row.diff { border: 1px solid #000; padding: 5px; margin-top: 5px; font-weight: bold; text-align: center; display: block; }
-                        .footer { text-align: center; margin-top: 20px; font-size: 9px; }
-                        @media print {
-                            body { width: 80mm; }
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        <h1>CASALEÑA</h1>
-                        <p>Cierre de Caja Diario</p>
-                        <p>${data.fechaTurno}</p>
-                        <p>Cajero: ${cashierName}</p>
-                    </div>
+        const diferenciaLabel = diferencia === 0 ? '✓ CAJA CUADRADA' : diferencia > 0 ? '▲ SOBRANTE' : '▼ FALTANTE';
 
-                    <div class="divider"></div>
+        const ticketHtml = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<title>Cierre de Caja — Casaleña</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Courier New',Courier,monospace;width:80mm;max-width:80mm;margin:0 auto;padding:6mm 4mm;font-size:11px;color:#000000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.header{text-align:center;margin-bottom:6px}
+.logo{font-size:22px;font-weight:900;letter-spacing:3px;text-transform:uppercase;color:#000}
+.sub{font-size:9px;font-weight:700;color:#000;letter-spacing:1px;text-transform:uppercase;margin-top:1px}
+.doc-title{margin-top:6px;background:#000;color:#fff;font-size:11px;font-weight:900;letter-spacing:2px;text-transform:uppercase;padding:3px 0}
+.meta{font-size:9px;color:#000;font-weight:700;margin-top:4px;line-height:1.6}
+.dashed{border:none;border-top:1px dashed #000;margin:5px 0}
+.solid{border:none;border-top:2px solid #000;margin:5px 0}
+.double{border:none;border-top:3px double #000;margin:5px 0}
+.section{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#000;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;padding:2px 0;margin:5px 0 4px 0}
+.row{display:flex;justify-content:space-between;align-items:baseline;margin:2px 0}
+.row .label{font-size:10px;font-weight:700;color:#000}
+.row .value{font-size:10px;font-weight:900;color:#000;text-align:right}
+.row.indent .label{padding-left:8px;font-size:9px}
+.row.indent .value{font-size:9px}
+.row.bold .label,.row.bold .value{font-size:11px;font-weight:900}
+.total-box{border:2px solid #000;padding:5px 6px;margin:5px 0;display:flex;justify-content:space-between;align-items:center}
+.total-box .t-label{font-size:11px;font-weight:900;text-transform:uppercase;color:#000}
+.total-box .t-value{font-size:16px;font-weight:900;color:#000}
+.diff-box{border:3px solid #000;padding:6px;margin:6px 0;text-align:center}
+.diff-box .diff-label{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#000}
+.diff-box .diff-value{font-size:20px;font-weight:900;color:#000;margin:2px 0}
+.diff-box .diff-status{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#000}
+.prod-row{display:flex;justify-content:space-between;margin:2px 0}
+.prod-row .num{font-size:9px;font-weight:900;color:#000;width:14px}
+.prod-row .name{font-size:9px;font-weight:700;color:#000;flex:1;padding:0 4px}
+.prod-row .qty{font-size:9px;font-weight:900;color:#000;text-align:right}
+.footer{text-align:center;margin-top:8px}
+.footer p{font-size:8px;font-weight:700;color:#000;line-height:1.6}
+.sign-line{border-top:1px solid #000;margin:10px auto 2px;width:60%}
+@page{size:80mm auto;margin:0}
+@media print{body{width:80mm}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo">CASALEÑA</div>
+  <div class="sub">Pizza &amp; Grill · Ometepec, Gro.</div>
+  <div class="doc-title">INFORME DE CIERRE DE CAJA</div>
+  <div class="meta">
+    Fecha: ${data.fechaTurno}<br/>
+    Cajero: ${cashierName.toUpperCase()}<br/>
+    Impreso: ${new Date().toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+  </div>
+</div>
+<hr class="double"/>
+<div class="section">Resumen Operativo</div>
+<div class="row bold"><span class="label">Total de Ordenes</span><span class="value">${data.totalOrdenes}</span></div>
+<div class="row"><span class="label">Productos Vendidos</span><span class="value">${data.totalProductos}</span></div>
+<div class="row"><span class="label">Ticket Promedio</span><span class="value">$${data.ticketPromedio.toFixed(2)}</span></div>
+<hr class="dashed"/>
+${data.ordenesPorTipo.length > 0 ? `<div class="section">Ventas por Canal</div>${data.ordenesPorTipo.map((t: any) => `<div class="row"><span class="label">${t.tipo.charAt(0).toUpperCase() + t.tipo.slice(1)}</span><span class="value">${t.count} - $${t.total.toFixed(2)}</span></div>`).join('')}<hr class="dashed"/>` : ''}
+<div class="section">Formas de Pago</div>
+<div class="row"><span class="label">Efectivo</span><span class="value">$${data.ventasEfectivo.toFixed(2)}</span></div>
+<div class="row"><span class="label">Tarjeta</span><span class="value">$${data.ventasTarjeta.toFixed(2)}</span></div>
+<div class="row"><span class="label">Transferencia / Otro</span><span class="value">$${data.ventasOtro.toFixed(2)}</span></div>
+<div class="total-box"><span class="t-label">TOTAL VENTAS</span><span class="t-value">$${data.totalVentas.toFixed(2)}</span></div>
+<div class="section">Gastos del Turno</div>
+<div class="row"><span class="label">Combustible</span><span class="value">$${gastosCombustibleNum.toFixed(2)}</span></div>
+<div class="row"><span class="label">Insumos Cocina</span><span class="value">$${gastosInsumoCocinaNum.toFixed(2)}</span></div>
+<div class="row"><span class="label">Insumos Limpieza</span><span class="value">$${gastosInsumoLimpiezaNum.toFixed(2)}</span></div>
+<div class="row bold"><span class="label">TOTAL GASTOS</span><span class="value">$${totalGastos.toFixed(2)}</span></div>
+<hr class="solid"/>
+<div class="section">Cuadre de Caja</div>
+<div class="row"><span class="label">Fondo Inicial</span><span class="value">$${fondoNum.toFixed(2)}</span></div>
+<div class="row indent"><span class="label">(+) Ventas Efectivo</span><span class="value">$${data.ventasEfectivo.toFixed(2)}</span></div>
+<div class="row indent"><span class="label">(-) Gastos</span><span class="value">$${totalGastos.toFixed(2)}</span></div>
+<hr class="dashed"/>
+<div class="row bold"><span class="label">Efectivo Esperado</span><span class="value">$${expectedCash.toFixed(2)}</span></div>
+<div class="row bold"><span class="label">Efectivo Contado</span><span class="value">$${contadoNum.toFixed(2)}</span></div>
+<div class="diff-box">
+  <div class="diff-label">Diferencia</div>
+  <div class="diff-value">${diferencia >= 0 ? '+' : ''}$${diferencia.toFixed(2)}</div>
+  <div class="diff-status">${diferenciaLabel}</div>
+</div>
+${data.topProductos.length > 0 ? `<div class="section">Top Productos del Dia</div>${data.topProductos.map((p: any, i: number) => `<div class="prod-row"><span class="num">${i + 1}.</span><span class="name">${p.name}</span><span class="qty">${p.qty} uds.</span></div>`).join('')}` : ''}
+<hr class="double"/>
+<div class="footer">
+  <div class="sign-line"></div>
+  <p>Firma del Cajero</p>
+  <p style="margin-top:8px">${cashierName.toUpperCase()}</p>
+  <p style="margin-top:10px;font-size:7px">Documento de control interno - No valido como comprobante fiscal</p>
+</div>
+<script>window.onload=function(){window.print();window.onafterprint=function(){window.close()}};</script>
+</body>
+</html>`;
 
-                    <div class="section-title">Resumen de Ventas</div>
-                    <div class="row"><span>Órdenes:</span> <span>${data.totalOrdenes}</span></div>
-                    <div class="row"><span>Productos:</span> <span>${data.totalProductos}</span></div>
-                    <div class="row"><span>Ticket Prom.:</span> <span>$${data.ticketPromedio.toFixed(2)}</span></div>
-                    
-                    <div class="divider"></div>
-
-                    <div class="section-title">Formas de Pago</div>
-                    <div class="row"><span>Efectivo:</span> <span>$${data.ventasEfectivo.toFixed(2)}</span></div>
-                    <div class="row"><span>Tarjeta:</span> <span>$${data.ventasTarjeta.toFixed(2)}</span></div>
-                    <div class="row"><span>Otro/Transf:</span> <span>$${data.ventasOtro.toFixed(2)}</span></div>
-                    <div class="row total"><span>TOTAL VENTAS:</span> <span>$${data.totalVentas.toFixed(2)}</span></div>
-
-                    <div class="divider"></div>
-
-                    <div class="section-title">Gastos del Turno</div>
-                    <div class="row"><span>Combustible:</span> <span>$${gastosCombustibleNum.toFixed(2)}</span></div>
-                    <div class="row"><span>Insumos Cocina:</span> <span>$${gastosInsumoCocinaNum.toFixed(2)}</span></div>
-                    <div class="row"><span>Insumos Limpieza:</span> <span>$${gastosInsumoLimpiezaNum.toFixed(2)}</span></div>
-                    <div class="row total"><span>TOTAL GASTOS:</span> <span>$${totalGastos.toFixed(2)}</span></div>
-
-                    <div class="divider"></div>
-
-                    <div class="section-title">Cuadre de Caja</div>
-                    <div class="row"><span>Fondo Inicial:</span> <span>$${fondoNum.toFixed(2)}</span></div>
-                    <div class="row"><span>(+) Ventas Efectivo:</span> <span>$${data.ventasEfectivo.toFixed(2)}</span></div>
-                    <div class="row"><span>(-) Gastos:</span> <span>$${totalGastos.toFixed(2)}</span></div>
-                    <div class="divider"></div>
-                    <div class="row"><span>Efectivo Esperado:</span> <span>$${expectedCash.toFixed(2)}</span></div>
-                    <div class="row"><span>Efectivo Contado:</span> <span>$${contadoNum.toFixed(2)}</span></div>
-                    
-                    <div class="row diff">
-                        DIFERENCIA: $${diferencia.toFixed(2)}
-                        <br/>
-                        <small>${diferencia === 0 ? 'CAJA CUADRADA' : diferencia > 0 ? 'SOBRANTE' : 'FALTANTE'}</small>
-                    </div>
-
-                    <div class="divider"></div>
-
-                    <div class="section-title">Top Productos</div>
-                    ${data.topProductos.map((p, i) => `
-                        <div class="row">
-                            <span>${i + 1}. ${p.name}</span>
-                            <span>${p.qty}</span>
-                        </div>
-                    `).join('')}
-
-                    <div class="footer">
-                        <p>Documento de Control Interno</p>
-                        <p>Generado: ${new Date().toLocaleString('es-MX')}</p>
-                    </div>
-
-                    <script>
-                        window.onload = () => {
-                            window.print();
-                            window.onafterprint = () => window.close();
-                        };
-                    </script>
-                </body>
-            </html>
-        `;
-
-        const win = window.open('', '_blank', 'width=450,height=800');
+        const win = window.open('', '_blank', 'width=500,height=900');
         if (win) {
             win.document.write(ticketHtml);
             win.document.close();
@@ -398,7 +395,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                                         {[
                                             { label: 'Órdenes', value: data.totalOrdenes, icon: 'receipt_long', color: 'text-blue-600' },
                                             { label: 'Productos', value: data.totalProductos, icon: 'local_pizza', color: 'text-purple-600' },
-                                            { label: 'Ticket Prom.', value: `$${data.ticketPromedio.toFixed(0)}`, icon: 'avg_pace', color: 'text-green-600' },
+                                            { label: 'Ticket Prom.', value: `${data.ticketPromedio.toFixed(0)}`, icon: 'avg_pace', color: 'text-green-600' },
                                         ].map(k => (
                                             <div key={k.label} className="bg-gray-50 rounded-2xl p-4 text-center border border-gray-100">
                                                 <span className={`material-symbols-outlined text-2xl mb-1 block ${k.color}`}>{k.icon}</span>
@@ -601,12 +598,12 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
 
                             <div className="bg-gray-50 rounded-2xl border border-gray-100 divide-y divide-gray-100 text-sm">
                                 {[
-                                    { l: 'Total ventas del día', v: `$${data.totalVentas.toFixed(2)}`, bold: true },
-                                    { l: 'Efectivo en caja', v: `$${data.ventasEfectivo.toFixed(2)}` },
-                                    { l: 'Total tarjeta', v: `$${data.ventasTarjeta.toFixed(2)}` },
-                                    { l: 'Fondo inicial', v: `$${fondoNum.toFixed(2)}` },
-                                    { l: 'Efectivo contado', v: `$${contadoNum.toFixed(2)}` },
-                                    { l: 'Diferencia de caja', v: `${diferencia >= 0 ? '+' : ''}$${diferencia.toFixed(2)}`, alert: diferencia !== 0 },
+                                    { l: 'Total ventas del día', v: `${data.totalVentas.toFixed(2)}`, bold: true },
+                                    { l: 'Efectivo en caja', v: `${data.ventasEfectivo.toFixed(2)}` },
+                                    { l: 'Total tarjeta', v: `${data.ventasTarjeta.toFixed(2)}` },
+                                    { l: 'Fondo inicial', v: `${fondoNum.toFixed(2)}` },
+                                    { l: 'Efectivo contado', v: `${contadoNum.toFixed(2)}` },
+                                    { l: 'Diferencia de caja', v: `${diferencia >= 0 ? '+' : ''}${diferencia.toFixed(2)}`, alert: diferencia !== 0 },
                                 ].map(row => (
                                     <div key={row.l} className={`flex justify-between px-5 py-3 ${row.bold ? 'bg-orange-50' : ''}`}>
                                         <span className={`font-bold ${row.alert ? 'text-red-600' : 'text-[#8c785f]'}`}>{row.l}</span>
