@@ -1380,34 +1380,44 @@ export default function CashierPage() {
         }
     };
 
-    const handleCancelOrder = async () => {
-        if (!lastOrderId) return;
+    const handleCancelOrder = async (orderId?: number | string) => {
+        const idToDelete = orderId || lastOrderId;
+        if (!idToDelete) return;
+
+        if (!window.confirm('¿Estás seguro de que deseas ELIMINAR esta cuenta? Esta acción no se puede deshacer.')) return;
 
         setOrderLoading(true);
         try {
-            console.log(`🛑 [Cashier] Cancelando pedido ID: ${lastOrderId}...`);
+            console.log(`🛑 [Cashier] Cancelando pedido ID: ${idToDelete}...`);
 
-            // Delete order items first (if no cascade)
-            await supabase.from('order_items').delete().eq('order_id', lastOrderId);
+            const res = await fetch('/api/cashier/orders/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId: idToDelete })
+            });
 
-            // Delete the order
-            const { error } = await supabase
-                .from('orders')
-                .delete()
-                .eq('id', lastOrderId);
-
-            if (error) throw error;
+            if (!res.ok) throw new Error('Error al cancelar en el servidor');
 
             // Success reset
-            setShowSuccessModal(false);
-            successModalRef.current = false;
-            setShowTicketModal(false);
-            setLastOrderId(null);
+            if (!orderId) {
+                setShowSuccessModal(false);
+                successModalRef.current = false;
+                setShowTicketModal(false);
+                setLastOrderId(null);
+            }
 
-            console.log('✅ [Cashier] Pedido cancelado correctamente de la BD.');
+            // Si la orden cancelada es la que tenemos activa, limpiar
+            if (activeOrderId === idToDelete) {
+                setActiveOrderId(null);
+                setCart([]);
+                setTableNumber('');
+            }
+
+            await fetchRecentOrders(false);
+            console.log('✅ [Cashier] Pedido cancelado correctamente.');
         } catch (err: any) {
             console.error('❌ [Cashier] Error al cancelar:', err);
-            alert('No se pudo cancelar el pedido de la base de datos: ' + err.message);
+            alert('No se pudo cancelar el pedido: ' + err.message);
         } finally {
             setOrderLoading(false);
         }
@@ -1630,27 +1640,7 @@ export default function CashierPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {process.env.NODE_ENV === 'development' && (
-                            <button
-                                onClick={() => {
-                                    setIsLocalStorageEnabled(prev => {
-                                        if (prev) {
-                                            localStorage.removeItem('caja_cart');
-                                            localStorage.removeItem('caja_orderType');
-                                            localStorage.removeItem('caja_tableNumber');
-                                            localStorage.removeItem('caja_customerInfo');
-                                            localStorage.removeItem('caja_activeOrderId');
-                                        }
-                                        return !prev;
-                                    });
-                                }}
-                                className={`h-10 px-3 shrink-0 flex items-center justify-center gap-1.5 rounded-xl transition-colors text-xs font-black ${!isLocalStorageEnabled ? 'bg-red-500 text-white shadow-lg' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
-                                title="Toggle LocalStorage"
-                            >
-                                <span className="material-icons-round text-base">sd_storage</span>
-                                <span className="hidden sm:inline">{isLocalStorageEnabled ? 'LS ON' : 'LS OFF'}</span>
-                            </button>
-                        )}
+
 
                         <button
                             onClick={() => setShowOrdersView(!showOrdersView)}
@@ -2334,17 +2324,18 @@ export default function CashierPage() {
                                                     setCart(loadedCart);
                                                     
                                                     setShowOpenTabsModal(false);
-                                                    setTimeout(() => {
-                                                        isProcessingOrder.current = false;
-                                                        setLoading(false);
-                                                        setOrderLoading(false);
-                                                        setShowPaymentModal(true);
-                                                    }, 150);
                                                 }}
                                                 className="flex-1 flex items-center justify-center gap-2 bg-[#181511] text-white py-3 rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 shadow-lg"
                                             >
                                                 <span className="material-icons-round text-base">payments</span>
                                                 Cobrar
+                                            </button>
+                                            <button
+                                                onClick={() => handleCancelOrder(order.id)}
+                                                className="px-4 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center border border-red-100"
+                                                title="Eliminar Cuenta"
+                                            >
+                                                <span className="material-icons-round text-xl">delete_outline</span>
                                             </button>
                                         </div>
                                     </div>
@@ -2819,7 +2810,7 @@ export default function CashierPage() {
                                 </button>
 
                                 <button
-                                    onClick={handleCancelOrder}
+                                    onClick={() => handleCancelOrder()}
                                     className="w-full bg-white border-2 border-red-500 text-red-500 py-3 rounded-2xl font-black hover:bg-red-50 active:scale-95 transition-all flex items-center justify-center gap-2 group text-sm"
                                 >
                                     <span className="material-icons-round group-hover:rotate-90 transition-transform">cancel</span>
