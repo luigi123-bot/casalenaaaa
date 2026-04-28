@@ -15,8 +15,12 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
     const printContent = document.getElementById('print-area');
     if (!printContent) return;
 
-    // Si estamos en Electron, usamos la impresión silenciosa nativa
-    if (typeof window !== 'undefined' && (window as any).electron?.isElectron) {
+    // Detectar si estamos en el entorno de escritorio (Electron)
+    const isElectron = typeof window !== 'undefined' && 
+                      ((window as any).electron?.isElectron || navigator.userAgent.toLowerCase().includes('electron'));
+
+    if (isElectron) {
+      console.log('🖥️ [Print] Entorno Electron detectado. Iniciando impresión silenciosa...');
       try {
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
           .map(node => node.outerHTML)
@@ -25,23 +29,15 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
         const fullHtml = `
           <html>
             <head>
-              <title>Imprimir Ticket</title>
+              <title>Ticket</title>
               ${styles}
               <style>
-                @page {
-                  size: 58mm auto;
-                  margin: 0;
-                }
-                body {
-                  width: 58mm;
-                  margin: 0;
-                  padding: 0;
-                  background-color: white;
-                }
+                @page { size: 58mm auto; margin: 0; }
+                body { width: 58mm; margin: 0; padding: 0; background: white; -webkit-print-color-adjust: exact; }
               </style>
             </head>
             <body>
-              <div style="width: 58mm; max-width: 58mm; margin: 0; padding: 0;">
+              <div style="width: 58mm; overflow: hidden;">
                 ${printContent.outerHTML}
               </div>
             </body>
@@ -49,28 +45,22 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
         `;
 
         await (window as any).electron.printSilent({ html: fullHtml });
-        onClose(); // Cerrar automáticamente después de enviar a imprimir
+        console.log('✅ [Print] Orden enviada a la impresora.');
+        onClose(); 
         return;
       } catch (err) {
-        console.error('Error en impresión silenciosa de Electron:', err);
+        console.error('❌ [Print] Error en impresión de Electron:', err);
       }
     }
 
-    // Fallback: Método tradicional de iframe para navegador (PWA)
+    // Fallback: Navegador / PWA (Mostrará cuadro de diálogo por seguridad del navegador)
+    console.log('🌐 [Print] Entorno Web detectado. Usando diálogo de impresión del navegador.');
     const oldIframe = document.getElementById('ticket-print-iframe');
-    if (oldIframe) {
-      oldIframe.remove();
-    }
+    if (oldIframe) oldIframe.remove();
 
     const iframe = document.createElement('iframe');
     iframe.id = 'ticket-print-iframe';
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    
+    iframe.style.display = 'none';
     document.body.appendChild(iframe);
 
     const doc = iframe.contentWindow?.document;
@@ -84,52 +74,38 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
     doc.write(`
       <html>
         <head>
-          <title>Imprimir Ticket</title>
           ${styles}
           <style>
-            @page {
-              size: 58mm auto;
-              margin: 0;
-            }
-            body {
-              width: 58mm;
-              margin: 0;
-              padding: 0;
-              background-color: white;
-            }
+            @page { size: 58mm auto; margin: 0; }
+            body { width: 58mm; margin: 0; padding: 0; }
           </style>
         </head>
-        <body onload="setTimeout(function() { window.focus(); window.print(); }, 200)">
-          <div style="width: 58mm; max-width: 58mm; margin: 0; padding: 0;">
-            ${printContent.outerHTML}
-          </div>
+        <body onload="window.print();">
+          ${printContent.outerHTML}
         </body>
       </html>
     `);
     doc.close();
   };
 
-  // Auto-print when modal opens
   useEffect(() => {
     if (isOpen && data) {
       const timer = setTimeout(() => {
         handlePrint();
-        // Si no es electron, cerramos el modal después de un tiempo para permitir que el diálogo del navegador abra
-        if (!(window as any).electron?.isElectron) {
-          // Un delay un poco más largo para el PWA asegura que el navegador capture el comando de impresión
-          setTimeout(onClose, 1000);
+        const isElectron = (window as any).electron?.isElectron;
+        if (!isElectron) {
+          // Reducimos el tiempo de cierre para que sea casi instantáneo en modo kiosko
+          setTimeout(onClose, 500);
         }
-      }, 300); 
+      }, 100); 
       return () => clearTimeout(timer);
     }
   }, [isOpen, data]);
 
   if (!isOpen || !data) return null;
 
-  // Renderizado oculto: Usamos visibilidad escondida pero mantenemos dimensiones mínimas 
-  // para que el navegador no ignore el renderizado del contenido.
   return (
-    <div className="fixed top-0 left-0 z-[-1] opacity-0 pointer-events-none overflow-hidden" style={{ width: '1px', height: '1px' }}>
+    <div className="fixed top-0 left-0 z-[-1] opacity-0 pointer-events-none" style={{ width: '1px', height: '1px' }}>
       <div id="print-area">
         <Ticket58mm data={data} />
       </div>
