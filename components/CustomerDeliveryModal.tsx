@@ -72,15 +72,20 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
     if (!isOpen) return null;
 
     const handleSaveAndAccept = async () => {
+        console.log('🔘 [Modal] Click en Confirmar Datos. info:', customerInfo);
         if (onSaveCustomer && customerInfo.phone && customerInfo.name) {
+            console.log('⏳ [Modal] Llamando a onSaveCustomer...');
             setIsSaving(true);
             try {
                 await onSaveCustomer(customerInfo);
+                console.log('✅ [Modal] onSaveCustomer completado.');
             } catch (err) {
-                console.error("Error saving customer automatically:", err);
+                console.error("❌ [Modal] Error al guardar cliente:", err);
             } finally {
                 setIsSaving(false);
             }
+        } else {
+            console.warn('⚠️ [Modal] No se cumple la condición para guardar (falta nombre o tel)');
         }
         onAccept();
     };
@@ -139,15 +144,35 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                                 className="bg-transparent border-none p-0 text-xl font-black text-[#181511] focus:ring-0 outline-none w-full placeholder:text-gray-200"
                                 placeholder="741 000 0000"
                             />
-                            {onSearchByPhone && (
-                                <button 
-                                    onClick={onSearchByPhone}
-                                    className="bg-[#181511] text-white p-2 rounded-lg hover:bg-black active:scale-90 transition-all flex items-center justify-center"
-                                    title="Cargar datos de este teléfono"
-                                >
-                                    <span className="material-icons-round text-sm">download</span>
-                                </button>
-                            )}
+                            <div className="flex gap-1">
+                                {onSaveCustomer && (
+                                    <button 
+                                        onClick={async () => {
+                                            if (!customerInfo.phone || !customerInfo.name) {
+                                                alert('⚠️ Por favor ingresa al menos nombre y teléfono para guardar.');
+                                                return;
+                                            }
+                                            setIsSaving(true);
+                                            await onSaveCustomer(customerInfo);
+                                            setIsSaving(false);
+                                        }}
+                                        disabled={isSaving}
+                                        className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700 active:scale-90 transition-all flex items-center justify-center disabled:opacity-50"
+                                        title="Guardar Cliente ahora"
+                                    >
+                                        <span className="material-icons-round text-sm">{isSaving ? 'sync' : 'save'}</span>
+                                    </button>
+                                )}
+                                {onSearchByPhone && (
+                                    <button 
+                                        onClick={onSearchByPhone}
+                                        className="bg-[#181511] text-white p-2 rounded-lg hover:bg-black active:scale-90 transition-all flex items-center justify-center"
+                                        title="Cargar datos de este teléfono"
+                                    >
+                                        <span className="material-icons-round text-sm">download</span>
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         {customerInsights && (
                             <div className="absolute -bottom-2 right-2 bg-amber-500 text-white text-[8px] font-black px-2 py-0.5 rounded-md uppercase animate-in fade-in zoom-in-90">

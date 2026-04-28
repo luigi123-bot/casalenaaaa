@@ -74,26 +74,33 @@ export default function AdminUsersPage() {
             // 2. Profiles Table (Clientes Registrados)
             let profilesData: any[] = [];
             try {
-                const { data } = await supabase
+                // Intentar buscar por rol, si falla es que la columna no existe
+                const { data, error } = await supabase
                     .from('profiles')
-                    .select('*')
-                    .in('role', ['cliente', 'CLIENTE', 'Cliente']);
-                if (data) profilesData = data;
-            } catch (e) { console.warn(e); }
+                    .select('*');
+                
+                if (data) {
+                    profilesData = data.filter((p: any) => 
+                        ['cliente', 'CLIENTE', 'Cliente'].includes(p.role) || !p.role
+                    );
+                }
+            } catch (e) { console.warn('Error en profiles:', e); }
 
             // 3. Usuarios Table (Legacy)
             let usuariosData: any[] = [];
             try {
+                // Tabla legacy 'usuarios', solo si existe
                 const { data } = await supabase
                     .from('usuarios')
-                    .select('*')
-                    .in('role', ['cliente', 'CLIENTE', 'Cliente']);
+                    .select('*');
 
                 if (data) {
                     const existingIds = new Set(profilesData.map(p => p.id));
-                    usuariosData = data.filter(u => !existingIds.has(u.id));
+                    usuariosData = data.filter((u: any) => 
+                        !existingIds.has(u.id) && (['cliente', 'CLIENTE', 'Cliente'].includes(u.role) || !u.role)
+                    );
                 }
-            } catch (e) { console.warn(e); }
+            } catch (e) { /* Tabla legacy puede no existir */ }
 
             // Combine
             const combined = [

@@ -58,24 +58,48 @@ app.on('activate', function () {
 
 // IPC Handler for Silent Printing
 ipcMain.handle('print-silent', async (event, options) => {
-    if (!mainWindow) return { success: false, error: 'No window' };
+    const { html, printerName } = options || {};
 
     try {
-        // Silent print to default printer
-        // 'silent: true' prints without dialog
-        // 'printBackground: true' ensures styles/colors print correctly
-        // 'deviceName': can specify a printer name if needed, defaults to system default
-        await mainWindow.webContents.print({
-            silent: true,
-            printBackground: true,
-            deviceName: options?.printerName || '', // Empty string = default printer
-            margins: {
-                marginType: 'none', // Critical for 58mm thermal printers
-            }
-        });
+        if (html) {
+            // Create a hidden window for printing specific HTML content
+            let printWindow = new BrowserWindow({
+                show: false,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true
+                }
+            });
+
+            // Load the HTML content
+            await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+            // Print silently
+            await new Promise((resolve, reject) => {
+                printWindow.webContents.print({
+                    silent: true,
+                    printBackground: true,
+                    deviceName: printerName || '',
+                    margins: { marginType: 'none' }
+                }, (success, failureReason) => {
+                    printWindow.close();
+                    if (success) resolve();
+                    else reject(new Error(failureReason));
+                });
+            });
+        } else {
+            // Fallback: Print the main window if no HTML provided
+            if (!mainWindow) return { success: false, error: 'No window' };
+            await mainWindow.webContents.print({
+                silent: true,
+                printBackground: true,
+                deviceName: printerName || '',
+                margins: { marginType: 'none' }
+            });
+        }
         return { success: true };
     } catch (error) {
-        console.error('Failed to print:', error);
+        console.error('❌ [Main] Failed to print:', error);
         return { success: false, error: error.message };
     }
 });

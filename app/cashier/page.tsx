@@ -1524,47 +1524,41 @@ export default function CashierPage() {
     // Removed the restricted useEffect for fetching - replaced by global listener
 
     const handleSaveCustomer = async (info: any) => {
+        console.log('🚀 [Cashier] Intentando guardar cliente vía API...', info);
         try {
-            const phoneClean = info.phone.trim();
+            if (!info.phone) throw new Error('El teléfono es obligatorio');
             
-            // Check if exists first to warn
-            const { data: existing } = await supabase
-                .from('customers')
-                .select('id, full_name')
-                .eq('phone', phoneClean)
-                .maybeSingle();
-
-            if (existing) {
-                // If it exists, we still update it but we notify
-                console.log('ℹ️ [Cashier] El cliente ya existe. Actualizando datos...');
-            }
-
-            const { error } = await supabase
-                .from('customers')
-                .upsert({
-                    phone: phoneClean,
+            const response = await fetch('/api/cashier/customers/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone: info.phone.trim(),
                     full_name: info.name,
-                    address: info.address || [info.street, info.neighborhood, info.reference].filter(Boolean).join(', ') || '',
-                }, { onConflict: 'phone' });
+                    address: info.address || [info.street, info.neighborhood, info.reference].filter(Boolean).join(', ') || ''
+                })
+            });
 
-            if (error) throw error;
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Error desconocido en el servidor');
+            }
             
-            console.log(`✅ [Cashier] Cliente guardado exitosamente: ${info.name} (${phoneClean})`);
-            alert('✅ Cliente guardado correctamente');
+            console.log(`✅ [Cashier] Cliente guardado con éxito vía API.`);
             
             // Feedback visual
             const toast = document.createElement('div');
-            toast.className = `fixed top-4 right-4 ${existing ? 'bg-amber-500' : 'bg-blue-600'} text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in`;
-            toast.innerHTML = `<span class="material-icons-round align-middle mr-2">${existing ? 'sync' : 'person_add'}</span> ${existing ? 'Datos de Cliente Actualizados' : 'Cliente Guardado Exitosamente'}`;
+            toast.className = `fixed top-4 right-4 bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in`;
+            toast.innerHTML = `<span class="material-icons-round align-middle mr-2">person_add</span> Cliente Guardado / Actualizado`;
             document.body.appendChild(toast);
             setTimeout(() => { 
-                toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10'); 
-                setTimeout(() => toast.remove(), 300); 
+                toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10');
+                setTimeout(() => toast.remove(), 300);
             }, 3000);
-            
-        } catch (err: any) {
-            console.error('Error saving customer:', err);
-            alert('Error al guardar cliente: ' + err.message);
+
+        } catch (error: any) {
+            console.error('🛑 [Cashier] ERROR AL GUARDAR CLIENTE:', error.message);
+            alert('Error al guardar cliente: ' + error.message);
         }
     };
 
@@ -2340,6 +2334,7 @@ export default function CashierPage() {
                                                     setCart(loadedCart);
                                                     
                                                     setShowOpenTabsModal(false);
+                                                    setShowPaymentModal(true);
                                                 }}
                                                 className="flex-1 flex items-center justify-center gap-2 bg-[#181511] text-white py-3 rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 shadow-lg"
                                             >

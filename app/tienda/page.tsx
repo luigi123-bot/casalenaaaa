@@ -439,7 +439,7 @@ export default function TiendaPage() {
                     .gte('created_at', todayStr + 'T00:00:00')
                     .lte('created_at', todayStr + 'T23:59:59')
                     .order('ticket_number', { ascending: true });
-                
+
                 if (usedTickets && usedTickets.length > 0) {
                     const usedNumbers = new Set(usedTickets.map(o => Number(o.ticket_number)));
                     while (usedNumbers.has(dailySequence)) {
@@ -1074,14 +1074,14 @@ export default function TiendaPage() {
                     </div>
                     <div className="p-5 bg-gray-50/50 rounded-[28px] border border-gray-100 space-y-4 shadow-inner relative overflow-hidden group">
                         <div className="absolute top-0 right-0 w-24 h-24 bg-[#F7941D]/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110 duration-700"></div>
-                        
+
                         <h4 className="font-extrabold text-[#1D1D1F] text-[10px] uppercase tracking-widest flex items-center gap-2 relative z-10 px-1">
                             <span className="w-6 h-6 rounded-full bg-white shadow-sm flex items-center justify-center text-[#F7941D]">
                                 <span className="material-icons-round text-[14px]">location_on</span>
                             </span>
                             Detalles de Entrega
                         </h4>
-                        
+
                         <div className="space-y-3 relative z-10">
                             <div className="relative group/input">
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 material-icons-round text-sm group-focus-within/input:text-[#F7941D] transition-colors duration-300">person</span>
@@ -1178,7 +1178,7 @@ export default function TiendaPage() {
                                                 <span className="material-icons-round text-[16px]">add</span>
                                             </button>
                                         </div>
-                                        
+
                                         <button
                                             onClick={() => removeFromCart(item.cartItemId)}
                                             className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 transition-all active:scale-90"
@@ -1245,7 +1245,9 @@ export default function TiendaPage() {
                         {/* Header */}
                         <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-white rounded-t-[48px]">
                             <div className="flex flex-col">
-                                <h2 className="text-2xl font-black text-[#1D1D1F] tracking-tight leading-none mb-1">Tu Comanda</h2>
+                                <h2 className="text-2xl font-black text-[#1D1D1F] tracking-tight leading-none mb-1">Tu qUE MEKR ME PERMITA ESCRIBIR LUIS EN CUALQUIER TIPO DE TRA Y TAMAÑO PARA QUE ME APAREZCA ESA OPCION DE ELIMINAR
+
+                                </h2>
                                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{cart.length} artículos agregados</p>
                             </div>
                             <button
@@ -1258,18 +1260,18 @@ export default function TiendaPage() {
 
                         {/* Content Scrollable */}
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
-                           {/* Delivery Fields - Elegant Card Style (Mobile) */}
-                           <div className="p-6">
+                            {/* Delivery Fields - Elegant Card Style (Mobile) */}
+                            <div className="p-6">
                                 <div className="p-6 bg-white rounded-[32px] border border-gray-100 space-y-4 shadow-sm relative overflow-hidden group">
                                     <div className="absolute top-0 right-0 w-24 h-24 bg-orange-500/5 rounded-full -mr-12 -mt-12 transition-transform group-active:scale-110"></div>
-                                    
+
                                     <h4 className="font-extrabold text-[#1D1D1F] text-[11px] uppercase tracking-widest flex items-center gap-2 mb-2 relative z-10">
                                         <span className="w-7 h-7 rounded-full bg-orange-50 flex items-center justify-center text-[#F7941D]">
                                             <span className="material-icons-round text-[16px]">delivery_dining</span>
                                         </span>
                                         Dirección de Entrega
                                     </h4>
-                                    
+
                                     <div className="space-y-3 relative z-10">
                                         <div className="relative">
                                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 material-icons-round text-sm">person</span>
@@ -1330,7 +1332,7 @@ export default function TiendaPage() {
                                                     <span className="text-[9px] px-2 py-0.5 bg-gray-50 text-gray-400 rounded-full font-extrabold uppercase tracking-widest leading-none border border-gray-100">{item.selectedSize || 'Standard'}</span>
                                                     <span className="text-sm font-black text-[#1D1D1F] tabular-nums">${(item.price * item.quantity).toFixed(2)}</span>
                                                 </div>
-                                                
+
                                                 <div className="flex items-center justify-between">
                                                     <div className="flex items-center gap-2 bg-gray-50 rounded-xl p-0.5 px-1 border border-gray-100">
                                                         <button
@@ -1372,7 +1374,7 @@ export default function TiendaPage() {
                                     <p className="text-[10px] text-green-500 font-black uppercase tracking-widest bg-green-50 px-3 py-1.5 rounded-full">Envío Gratis ✓</p>
                                 </div>
                             </div>
-                            
+
                             <button
                                 onClick={() => {
                                     setShowMobileCart(false);
@@ -1424,15 +1426,15 @@ export default function TiendaPage() {
                         {/* Festive Confetti particles (decoration) */}
                         <div className="absolute top-10 left-10 w-2 h-2 rounded-full bg-yellow-400 animate-ping opacity-40"></div>
                         <div className="absolute bottom-10 right-10 w-3 h-3 rounded-full bg-orange-400 animate-ping opacity-40 delay-300"></div>
-                        
+
                         <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-tr from-green-50 to-green-100 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm relative group">
                             <div className="absolute inset-0 bg-green-500/10 rounded-full animate-pulse group-hover:animate-ping -z-10"></div>
                             <span className="material-icons-round text-[50px] sm:text-[60px] text-green-500 drop-shadow-sm">check_circle</span>
                         </div>
-                        
+
                         <h2 className="text-3xl sm:text-4xl font-black text-[#1D1D1F] mb-4 tracking-tighter uppercase italic">¡Pedido Confirmado!</h2>
                         <p className="text-[#8c785f] text-xs font-bold uppercase tracking-[0.2em] mb-6">Gracias por confiar en Casaleña 🔥</p>
-                        
+
                         {pointsEarned > 0 && (
                             <div className="bg-gradient-to-r from-[#F7941D] to-[#FFC107] p-5 rounded-[24px] mb-8 shadow-xl shadow-orange-500/20 relative overflow-hidden group">
                                 <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -1451,7 +1453,7 @@ export default function TiendaPage() {
                                 </div>
                             </div>
                         )}
-                        
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
                             {/* WhatsApp Helper */}
                             <div className="bg-[#f0fdf4] border border-[#dcfce7] rounded-[32px] p-6 text-left flex flex-col justify-between group hover:shadow-lg transition-all duration-300">
@@ -1459,7 +1461,7 @@ export default function TiendaPage() {
                                     <div className="flex items-center gap-3 mb-3">
                                         <div className="w-8 h-8 rounded-full bg-[#25D366]/10 flex items-center justify-center text-[#25D366]">
                                             <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
-                                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
                                             </svg>
                                         </div>
                                         <p className="text-xs font-black text-[#166534] uppercase tracking-widest leading-none">Confirmación</p>
@@ -1480,7 +1482,7 @@ export default function TiendaPage() {
                                     </a>
                                 )}
                             </div>
-                            
+
                             {/* Delivery Detail */}
                             <div className="bg-[#eff6ff] border border-[#dbeafe] rounded-[32px] p-6 text-left group hover:shadow-lg transition-all duration-300">
                                 <div className="flex items-center gap-3 mb-4">
@@ -1489,7 +1491,7 @@ export default function TiendaPage() {
                                     </div>
                                     <p className="text-xs font-black text-[#1e40af] uppercase tracking-widest leading-none">Destino</p>
                                 </div>
-                                
+
                                 <div className="space-y-3" style={{ transition: 'all 0.3s' }}>
                                     <div>
                                         <p className="text-[10px] text-[#1e40af]/50 font-black uppercase tracking-widest mb-1">Direccion de Envió</p>
@@ -1506,7 +1508,7 @@ export default function TiendaPage() {
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <button
                                 onClick={() => router.push('/tienda/mis-pedidos')}
