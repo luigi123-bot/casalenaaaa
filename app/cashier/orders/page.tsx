@@ -15,6 +15,7 @@ export default function CashierOrdersPage() {
     const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
     const [showQuickPay, setShowQuickPay] = useState<any | null>(null);
     const [quickPayAmount, setQuickPayAmount] = useState('');
+    const [quickPayMethod, setQuickPayMethod] = useState('efectivo');
     const [isProcessing, setIsProcessing] = useState(false);
     
     const [showChat, setShowChat] = useState(false);
@@ -64,7 +65,8 @@ export default function CashierOrdersPage() {
                 body: JSON.stringify({
                     orderId: order.id,
                     amountPaid: quickPayAmount,
-                    totalAmount: order.total_amount
+                    totalAmount: order.total_amount,
+                    paymentMethod: quickPayMethod
                 })
             });
 
@@ -368,6 +370,7 @@ export default function CashierOrdersPage() {
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         setQuickPayAmount(order.total_amount.toString());
+                                        setQuickPayMethod(order.payment_method || 'efectivo');
                                         setShowQuickPay(order);
                                     }}
                                     className="bg-green-600 text-white py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-green-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-100 active:scale-95"
@@ -429,8 +432,22 @@ export default function CashierOrdersPage() {
                             </div>
 
                             <div className="space-y-4">
+                                <div className="grid grid-cols-3 gap-2 p-1 bg-gray-100 rounded-2xl mb-2">
+                                    {['efectivo', 'tarjeta', 'transferencia'].map((m) => (
+                                        <button 
+                                            key={m} 
+                                            onClick={() => setQuickPayMethod(m)} 
+                                            className={`py-2 px-2 rounded-xl text-[10px] font-black uppercase transition-all ${quickPayMethod === m ? 'bg-white shadow-sm text-[#F7941D]' : 'text-gray-400 hover:text-gray-600'}`}
+                                        >
+                                            {m}
+                                        </button>
+                                    ))}
+                                </div>
+
                                 <div className="bg-[#f8f7f5] rounded-2xl p-4 border-2 border-gray-100 focus-within:border-[#F7941D] transition-all">
-                                    <p className="text-[9px] font-black text-gray-400 uppercase mb-1">Efectivo Recibido</p>
+                                    <p className="text-[9px] font-black text-gray-400 uppercase mb-1">
+                                        {quickPayMethod === 'efectivo' ? 'Efectivo Recibido' : 'Confirmar Monto'}
+                                    </p>
                                     <div className="flex items-center text-3xl font-black text-[#181511]">
                                         <span className="mr-2 text-gray-300">$</span>
                                         <input 

@@ -14,7 +14,7 @@ const supabase = createClient(
 
 export async function POST(request: Request) {
     try {
-        const { orderId, amountPaid, totalAmount } = await request.json();
+        const { orderId, amountPaid, totalAmount, paymentMethod } = await request.json();
         
         if (!orderId) {
             return NextResponse.json({ error: 'Order ID is required' }, { status: 400 });
@@ -28,8 +28,10 @@ export async function POST(request: Request) {
             .update({ 
                 status: 'entregado',
                 payment_status: 'paid',
+                payment_method: paymentMethod || 'efectivo',
                 pago_con: paid,
-                cambio: change
+                cambio: change,
+                updated_at: new Date().toISOString()
             })
             .eq('id', orderId)
             .select();

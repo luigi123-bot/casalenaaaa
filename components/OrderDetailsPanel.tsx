@@ -156,7 +156,12 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
         if (updating) return;
         setUpdating(true);
         try {
-            await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
+            const updateData: any = { status: newStatus };
+            if (newStatus === 'entregado') {
+                updateData.payment_status = 'paid';
+                updateData.updated_at = new Date().toISOString();
+            }
+            await supabase.from('orders').update(updateData).eq('id', order.id);
             if (onStatusChange) onStatusChange();
             onClose();
         } catch (error: any) {

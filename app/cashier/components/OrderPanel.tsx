@@ -204,7 +204,8 @@ export default function OrderPanel({ cartItems, onUpdateQuantity, onClearCart }:
 
             const orderPayload = {
                 user_id: user.id,
-                status: 'pendiente',
+                status: 'entregado', // Se marca como entregado al cobrar
+                payment_status: 'paid',
                 total_amount: total,
                 tax_amount: tax,
                 order_type: orderTypeKey,
@@ -212,6 +213,8 @@ export default function OrderPanel({ cartItems, onUpdateQuantity, onClearCart }:
                 customer_name: customerData.name || null,
                 phone_number: customerData.phone || null,
                 delivery_address: customerData.address || null,
+                pago_con: paymentMethod === 'efectivo' ? (parseFloat(amountPaid) || total) : total,
+                cambio: paymentMethod === 'efectivo' ? change : 0,
             };
 
             const itemsPayload = cartItems.map(item => ({

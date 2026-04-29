@@ -15,39 +15,56 @@ const supabase = createClient(
     }
 );
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
-
-        // 1. Calcular rango de fecha (Hoy Local 00:00)
-        // Nota: El servidor corre en UTC, pero queremos el "Hoy" del restaurante (MX -6h)
-        // Para simplificar y ser precisos, usamos el desplazamiento de México
         const now = new Date();
-        const mxOffset = -6; // UTC-6
-        const mxTime = new Date(now.getTime() + mxOffset * 3600 * 1000);
-        
-        const startOfDay = new Date(mxTime);
-        startOfDay.setUTCHours(0, 0, 0, 0);
-        
-        // Ajustar de vuelta a UTC para la base de datos
-        const utcStart = new Date(startOfDay.getTime() - mxOffset * 3600 * 1000).toISOString();
+        const { searchParams } = new URL(req.url);
+        const sessionId = searchParams.get('sessionId');
+        const userId = searchParams.get('userId');
 
-        console.log(`[API-Cierre] Consultando ventas desde (UTC): ${utcStart}`);
+        let filterStart = "";
+        let filterUser = userId;
 
-        // 2. Consultar pedidos
-        const validStatuses = ['entregado', 'completado', 'listo', 'finalizado', 'confirmado'];
-        
-        const { data: orders, error } = await supabase
+        // Si tenemos sesión, obtenemos la fecha exacta de apertura
+        if (sessionId) {
+            const { data: session } = await supabase
+                .from('cashier_sessions')
+                .select('opened_at, user_id')
+                .eq('id', sessionId)
+                .single();
+            
+            if (session) {
+                filterStart = session.opened_at;
+                if (!filterUser) filterUser = session.user_id;
+            }
+        }
+
+        // Fallback a inicio del día si no hay sesión
+        if (!filterStart) {
+            const mxOffset = -6; // UTC-6
+            const mxTime = new Date(now.getTime() + mxOffset * 3600 * 1000);
+            const startOfDay = new Date(mxTime);
+            startOfDay.setUTCHours(0, 0, 0, 0);
+            filterStart = new Date(startOfDay.getTime() - mxOffset * 3600 * 1000).toISOString();
+        }
+
+        console.log(`[API-Cierre] Consultando ventas para user:${filterUser || 'all'} desde: ${filterStart}`);
+
+        let query = supabase
             .from('orders')
-            .select('id, total_amount, payment_method, order_type, created_at, order_items(product_name, quantity)')
-            .gte('created_at', utcStart)
-            .in('status', validStatuses);
+            .select('id, ticket_number, total_amount, payment_method, order_type, status, created_at, order_items(product_name, quantity)')
+            .gte('created_at', filterStart);
 
+        if (filterUser) {
+            query = query.eq('user_id', filterUser);
+        }
+
+        const { data: orders, error } = await query;
         if (error) throw error;
 
-        // 3. Procesar cálculos en el servidor
         const summary = {
             totalVentas: 0,
-            totalOrdenes: orders?.length || 0,
+            totalOrdenes: 0,
             ventasEfectivo: 0,
             ventasTarjeta: 0,
             ventasOtro: 0,
@@ -55,22 +72,41 @@ export async function GET() {
             ordenesPorTipo: [] as any[],
             topProductos: [] as any[],
             ticketPromedio: 0,
-            fechaTurno: now.toLocaleDateString('es-MX', { day: '2-digit', month: 'long' })
+            fechaTurno: now.toLocaleDateString('es-MX', { day: '2-digit', month: 'long' }),
+            ordenesList: [] as any[],
+            canceladas: { count: 0, total: 0 },
+            ventasPorHora: Array(24).fill(0).map((_, i) => ({ hora: i, total: 0, count: 0 }))
         };
 
         const productMap: Record<string, number> = {};
         const tipoMap: Record<string, { count: number, total: number }> = {};
+        const validStatuses = ['entregado', 'completado', 'listo', 'finalizado', 'confirmado'];
 
         orders?.forEach((order: any) => {
             const total = parseFloat(order.total_amount) || 0;
+            const hour = new Date(order.created_at).getHours();
+
+            if (order.status === 'cancelado') {
+                summary.canceladas.count += 1;
+                summary.canceladas.total += total;
+                return;
+            }
+
+            if (!validStatuses.includes(order.status)) return;
+
             summary.totalVentas += total;
+            summary.totalOrdenes += 1;
+
+            // Ventas por hora
+            summary.ventasPorHora[hour].total += total;
+            summary.ventasPorHora[hour].count += 1;
 
             // Por método de pago
             const method = (order.payment_method || '').toLowerCase();
             if (method.includes('efectivo')) summary.ventasEfectivo += total;
             else if (method.includes('tarjeta')) summary.ventasTarjeta += total;
             else if (method.includes('transfer')) summary.ventasOtro += total;
-            else summary.ventasEfectivo += total; // Fallback
+            else summary.ventasEfectivo += total;
 
             // Por tipo
             const tipo = order.order_type || 'comedor';
@@ -85,12 +121,23 @@ export async function GET() {
                 productMap[name] = (productMap[name] || 0) + qty;
                 summary.totalProductos += qty;
             });
+
+            // Agregar a la lista simplificada
+            summary.ordenesList.push({
+                id: order.id,
+                ticket: order.ticket_number,
+                total: total,
+                metodo: order.payment_method,
+                tipo: order.order_type,
+                status: order.status,
+                hora: new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+            });
         });
 
         // Formatear mapas a arrays
         summary.topProductos = Object.entries(productMap)
             .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
+            .slice(0, 10)
             .map(([name, qty]) => ({ name, qty }));
 
         summary.ordenesPorTipo = Object.entries(tipoMap)

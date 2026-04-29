@@ -313,17 +313,18 @@ export default function CashierPage() {
 
         // ─── VERIFICACIÓN INSTANTÁNEA DE LOCALSTORAGE ───────────────────────────
         const checkLocalShift = () => {
+            if (!user?.id) return false;
             try {
                 const dateStr = new Date().toLocaleDateString('sv-SE');
-                const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
+                const saved = localStorage.getItem(`caja_casalena_${user.id}_${dateStr}`);
                 if (saved) {
                     const shift = JSON.parse(saved);
                     if (shift.openedAt && !shift.closedAt) return true;
                 }
-                // Búsqueda extendida: turno abierto ayer que sigue activo
+                // Búsqueda extendida: turno abierto ayer que sigue activo para este usuario
                 for (let i = 0; i < localStorage.length; i++) {
                     const key = localStorage.key(i);
-                    if (key?.startsWith('caja_casalena_')) {
+                    if (key?.startsWith(`caja_casalena_${user.id}_`)) {
                         const val = localStorage.getItem(key);
                         if (val) {
                             try {
@@ -390,13 +391,12 @@ export default function CashierPage() {
                     return;
                 }
 
-                // Verificar sesión activa en DB o localStorage
+                // Verificar sesión activa en DB o localStorage para ESTE usuario específico
                 const { data: activeSessions } = await supabase
                     .from('cashier_sessions')
                     .select('id')
                     .eq('status', 'open')
-                    .gte('opened_at', startOfDay.toISOString())
-                    .lte('opened_at', endOfDay.toISOString())
+                    .eq('user_id', user.id) // Filtro crucial para independencia
                     .limit(1);
 
                 if (!isEffectActive) return;
@@ -447,6 +447,7 @@ export default function CashierPage() {
                             .from('cashier_sessions')
                             .insert([{
                                 cashier_name: cashierName,
+                                user_id: user?.id, // Guardar ID del usuario
                                 initial_fund: info.fondo,
                                 notes: info.notas,
                                 status: 'open',
@@ -476,8 +477,8 @@ export default function CashierPage() {
             const sessionId = sessionData?.[0]?.id;
             const dateStr = new Date().toLocaleDateString('sv-SE');
             
-            // Guardar en LocalStorage para redundancia y persistencia rápida
-            localStorage.setItem(`caja_casalena_${dateStr}`, JSON.stringify({
+            // Guardar en LocalStorage para redundancia y persistencia rápida (Key por usuario)
+            localStorage.setItem(`caja_casalena_${user?.id}_${dateStr}`, JSON.stringify({
                 sessionId: sessionId,
                 openedAt: new Date().toISOString(),
                 fondo: info.fondo,
@@ -491,7 +492,7 @@ export default function CashierPage() {
             console.error('❌ [Shift] Error al registrar apertura en la base de datos:', err);
             // Fallback: al menos permitir que el cajero trabaje aunque falle la escritura (modo offline)
             const dateStr = new Date().toLocaleDateString('sv-SE');
-            localStorage.setItem(`caja_casalena_${dateStr}`, JSON.stringify({
+            localStorage.setItem(`caja_casalena_${user?.id}_${dateStr}`, JSON.stringify({
                 openedAt: new Date().toISOString(),
                 fondo: info.fondo,
                 notas: info.notas,
@@ -503,11 +504,11 @@ export default function CashierPage() {
     
     const handleCloseShiftSuccess = () => {
          const dateStr = new Date().toLocaleDateString('sv-SE');
-         const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
+         const saved = localStorage.getItem(`caja_casalena_${user?.id}_${dateStr}`);
          if (saved) {
              const shift = JSON.parse(saved);
              shift.closedAt = new Date().toISOString();
-             localStorage.setItem(`caja_casalena_${dateStr}`, JSON.stringify(shift));
+             localStorage.setItem(`caja_casalena_${user?.id}_${dateStr}`, JSON.stringify(shift));
              setShiftState('closed');
          }
     };
@@ -2946,6 +2947,7 @@ export default function CashierPage() {
             {showCierreCaja && (
                 <CierreCajaModal
                     cashierName={cashierName}
+                    userId={user?.id}
                     onClose={() => setShowCierreCaja(false)}
                     mustClose={shiftState === 'must_close'}
                     onCloseSuccess={handleCloseShiftSuccess}

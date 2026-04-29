@@ -18,12 +18,13 @@ interface CierreData {
 
 interface CierreCajaModalProps {
     cashierName: string;
+    userId?: string;
     onClose: () => void;
     onCloseSuccess?: () => void;
     mustClose?: boolean;
 }
 
-export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, mustClose = false }: CierreCajaModalProps) {
+export default function CierreCajaModal({ cashierName, userId, onClose, onCloseSuccess, mustClose = false }: CierreCajaModalProps) {
     const [data, setData] = useState<CierreData | null>(null);
     const [loading, setLoading] = useState(true);
     const [fondoInicial, setFondoInicial] = useState('');
@@ -44,11 +45,16 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
         try {
             // Recuperar el momento exacto en que se abrió la caja desde localStorage
             const dateStr = new Date().toLocaleDateString('sv-SE');
-            const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
+            const saved = localStorage.getItem(`caja_casalena_${userId || ''}_${dateStr}`);
+            const shift = saved ? JSON.parse(saved) : null;
             console.log('📡 [Cierre] Consultando resumen al servidor (API)...');
             
+            const searchParams = new URLSearchParams();
+            if (shift?.sessionId) searchParams.set('sessionId', shift.sessionId);
+            if (userId) searchParams.set('userId', userId);
+            
             const res = await Promise.race([
-                fetch('/api/cashier/closure-summary'),
+                fetch(`/api/cashier/closure-summary?${searchParams.toString()}`),
                 new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))
             ]);
 
@@ -76,7 +82,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
         console.log('🔄 [Cierre] Montando componente / Re-ejecutando useEffect');
         const loadInitialShiftInfo = () => {
             const dateStr = new Date().toLocaleDateString('sv-SE');
-            const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
+            const saved = localStorage.getItem(`caja_casalena_${userId || ''}_${dateStr}`);
             if (saved) {
                 const shift = JSON.parse(saved);
                 if (shift.fondo) {
@@ -109,7 +115,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
         setSaving(true);
         try {
             const dateStr = new Date().toLocaleDateString('sv-SE');
-            const saved = localStorage.getItem(`caja_casalena_${dateStr}`);
+            const saved = localStorage.getItem(`caja_casalena_${userId || ''}_${dateStr}`);
             const shift = saved ? JSON.parse(saved) : null;
 
             // Datos comunes calculados del día
@@ -184,7 +190,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
             // 3. Marcar como cerrado en LocalStorage para evitar re-aperturas fantasma
             try {
                 const dateStr = new Date().toLocaleDateString('sv-SE');
-                const key = `caja_casalena_${dateStr}`;
+                const key = `caja_casalena_${userId || ''}_${dateStr}`;
                 const current = localStorage.getItem(key);
                 if (current) {
                     const parsed = JSON.parse(current);
@@ -193,7 +199,7 @@ export default function CierreCajaModal({ cashierName, onClose, onCloseSuccess, 
                 // Limpiar cualquier otra sesión abierta vieja
                 for (let i = 0; i < localStorage.length; i++) {
                     const k = localStorage.key(i);
-                    if (k?.startsWith('caja_casalena_')) {
+                    if (k?.startsWith(`caja_casalena_${userId || ''}_`)) {
                         const val = localStorage.getItem(k);
                         if (val) {
                             const s = JSON.parse(val);
