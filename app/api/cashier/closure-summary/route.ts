@@ -62,6 +62,15 @@ export async function GET(req: Request) {
         const { data: orders, error } = await query;
         if (error) throw error;
 
+        console.log(`[API-Cierre] 📦 Pedidos encontrados para el cierre: ${orders?.length || 0}`);
+        if (orders && orders.length > 0) {
+            const statusSummary = orders.reduce((acc: any, o: any) => {
+                acc[o.status] = (acc[o.status] || 0) + 1;
+                return acc;
+            }, {});
+            console.log(`[API-Cierre] Resumen de estados encontrados:`, statusSummary);
+        }
+
         const summary = {
             totalVentas: 0,
             totalOrdenes: 0,
@@ -80,54 +89,53 @@ export async function GET(req: Request) {
 
         const productMap: Record<string, number> = {};
         const tipoMap: Record<string, { count: number, total: number }> = {};
-        const validStatuses = ['entregado', 'completado', 'listo', 'finalizado', 'confirmado'];
 
         orders?.forEach((order: any) => {
             const total = parseFloat(order.total_amount) || 0;
             const hour = new Date(order.created_at).getHours();
 
+            // Los pedidos cancelados se cuentan aparte y no suman a la venta total
             if (order.status === 'cancelado') {
                 summary.canceladas.count += 1;
                 summary.canceladas.total += total;
-                return;
+            } else {
+                // Incluimos TODO lo demás (entregado, listo, preparando, pendiente, etc.)
+                // tal como solicitó el usuario ("independiente si se pagaron o siguen en cocina")
+                summary.totalVentas += total;
+                summary.totalOrdenes += 1;
+
+                // Ventas por hora
+                summary.ventasPorHora[hour].total += total;
+                summary.ventasPorHora[hour].count += 1;
+
+                // Por método de pago
+                const method = (order.payment_method || 'efectivo').toLowerCase();
+                if (method.includes('efectivo')) summary.ventasEfectivo += total;
+                else if (method.includes('tarjeta')) summary.ventasTarjeta += total;
+                else if (method.includes('transfer')) summary.ventasOtro += total;
+                else summary.ventasEfectivo += total;
+
+                // Por tipo
+                const tipo = order.order_type || 'comedor';
+                if (!tipoMap[tipo]) tipoMap[tipo] = { count: 0, total: 0 };
+                tipoMap[tipo].count += 1;
+                tipoMap[tipo].total += total;
+
+                // Productos
+                (order.order_items as any[])?.forEach((item: any) => {
+                    const name = item.product_name || 'Producto';
+                    const qty = item.quantity || 1;
+                    productMap[name] = (productMap[name] || 0) + qty;
+                    summary.totalProductos += qty;
+                });
             }
 
-            if (!validStatuses.includes(order.status)) return;
-
-            summary.totalVentas += total;
-            summary.totalOrdenes += 1;
-
-            // Ventas por hora
-            summary.ventasPorHora[hour].total += total;
-            summary.ventasPorHora[hour].count += 1;
-
-            // Por método de pago
-            const method = (order.payment_method || '').toLowerCase();
-            if (method.includes('efectivo')) summary.ventasEfectivo += total;
-            else if (method.includes('tarjeta')) summary.ventasTarjeta += total;
-            else if (method.includes('transfer')) summary.ventasOtro += total;
-            else summary.ventasEfectivo += total;
-
-            // Por tipo
-            const tipo = order.order_type || 'comedor';
-            if (!tipoMap[tipo]) tipoMap[tipo] = { count: 0, total: 0 };
-            tipoMap[tipo].count += 1;
-            tipoMap[tipo].total += total;
-
-            // Productos
-            (order.order_items as any[])?.forEach((item: any) => {
-                const name = item.product_name || 'Producto';
-                const qty = item.quantity || 1;
-                productMap[name] = (productMap[name] || 0) + qty;
-                summary.totalProductos += qty;
-            });
-
-            // Agregar a la lista simplificada
+            // Agregar a la lista de órdenes (incluyendo cancelados para transparencia)
             summary.ordenesList.push({
                 id: order.id,
                 ticket: order.ticket_number,
                 total: total,
-                metodo: order.payment_method,
+                metodo: order.payment_method || 'N/A',
                 tipo: order.order_type,
                 status: order.status,
                 hora: new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })

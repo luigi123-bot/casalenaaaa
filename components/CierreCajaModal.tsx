@@ -43,14 +43,24 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
         setLoading(true);
         setError(null);
         try {
-            // Recuperar el momento exacto en que se abrió la caja desde localStorage
-            const dateStr = new Date().toLocaleDateString('sv-SE');
-            const saved = localStorage.getItem(`caja_casalena_${userId || ''}_${dateStr}`);
-            const shift = saved ? JSON.parse(saved) : null;
+            // 1. Obtener la sesión activa directamente de la API (reemplaza localStorage)
+            const statusRes = await fetch(`/api/cashier/sessions/status?userId=${userId || ''}`);
+            if (!statusRes.ok) throw new Error('No se pudo verificar la sesión activa');
+            const { isOpen, session } = await statusRes.json();
+            
+            if (!isOpen || !session) {
+                 throw new Error('No se encontró una sesión de caja abierta en la base de datos.');
+            }
+
+            // Establecer el fondo inicial desde la base de datos
+            if (session.initial_fund !== undefined) {
+                setFondoInicial(session.initial_fund.toString());
+            }
+
             console.log('📡 [Cierre] Consultando resumen al servidor (API)...');
             
             const searchParams = new URLSearchParams();
-            if (shift?.sessionId) searchParams.set('sessionId', shift.sessionId);
+            searchParams.set('sessionId', session.id);
             if (userId) searchParams.set('userId', userId);
             
             const res = await Promise.race([
@@ -76,22 +86,10 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [userId]);
 
     useEffect(() => {
         console.log('🔄 [Cierre] Montando componente / Re-ejecutando useEffect');
-        const loadInitialShiftInfo = () => {
-            const dateStr = new Date().toLocaleDateString('sv-SE');
-            const saved = localStorage.getItem(`caja_casalena_${userId || ''}_${dateStr}`);
-            if (saved) {
-                const shift = JSON.parse(saved);
-                if (shift.fondo) {
-                    setFondoInicial(shift.fondo.toString());
-                    console.log('🔄 [Cierre] Fondo inicial recuperado:', shift.fondo);
-                }
-            }
-        };
-        loadInitialShiftInfo();
         fetchCierreData(); 
 
         // Respaldo final: si después de 40s sigue cargando, forzar cierre del loader
@@ -114,10 +112,6 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
     const handleConfirmarCierre = async () => {
         setSaving(true);
         try {
-            const dateStr = new Date().toLocaleDateString('sv-SE');
-            const saved = localStorage.getItem(`caja_casalena_${userId || ''}_${dateStr}`);
-            const shift = saved ? JSON.parse(saved) : null;
-
             // Datos comunes calculados del día
             const metrics = {
                 total_orders: data?.totalOrdenes || 0,
@@ -139,13 +133,28 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
                 closed_at: new Date().toISOString()
             };
 
-            // 1. Actualizar Sesión (Nueva Tabla)
-            if (shift && shift.sessionId) {
+            // 1. Obtener Sesión Activa Directo de BD
+            const { data: activeSession, error: checkErr } = await supabase
+                .from('cashier_sessions')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('status', 'open')
+                .order('opened_at', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (checkErr && checkErr.code !== 'PGRST116') {
+                console.warn('[Cierre] Error buscando sesión activa en DB:', checkErr);
+            }
+
+            if (activeSession) {
                  await Promise.race([
-                    supabase.from('cashier_sessions').update(metrics).eq('id', shift.sessionId),
+                    supabase.from('cashier_sessions').update(metrics).eq('id', activeSession.id),
                     new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout al actualizar base de datos')), 8000))
                  ]);
                 console.log('✅ [Shift] Sesión actualizada exitosamente en cashier_sessions.');
+            } else {
+                console.warn('⚠️ [Shift] No se encontró una sesión ABIERTA en BD para este usuario. Guardando de todos modos en historial.');
             }
 
             // 2. Guardar en Historial (Tabla Antigua compatible)
@@ -187,30 +196,16 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
                 return;
             }
 
-            // 3. Marcar como cerrado en LocalStorage para evitar re-aperturas fantasma
+            // 3. Limpiar cualquier basura de LocalStorage (Legacy cleanup)
             try {
-                const dateStr = new Date().toLocaleDateString('sv-SE');
-                const key = `caja_casalena_${userId || ''}_${dateStr}`;
-                const current = localStorage.getItem(key);
-                if (current) {
-                    const parsed = JSON.parse(current);
-                    localStorage.setItem(key, JSON.stringify({ ...parsed, closedAt: new Date().toISOString() }));
-                }
-                // Limpiar cualquier otra sesión abierta vieja
                 for (let i = 0; i < localStorage.length; i++) {
                     const k = localStorage.key(i);
-                    if (k?.startsWith(`caja_casalena_${userId || ''}_`)) {
-                        const val = localStorage.getItem(k);
-                        if (val) {
-                            const s = JSON.parse(val);
-                            if (!s.closedAt) {
-                                localStorage.setItem(k, JSON.stringify({ ...s, closedAt: new Date().toISOString() }));
-                            }
-                        }
+                    if (k?.startsWith(`caja_casalena_`)) {
+                        localStorage.removeItem(k);
                     }
                 }
             } catch (e) {
-                console.warn('[Cierre] No se pudo actualizar localStorage, pero la DB sí se actualizó.');
+                console.warn('[Cierre] No se pudo limpiar localStorage.');
             }
 
             setStep('done');

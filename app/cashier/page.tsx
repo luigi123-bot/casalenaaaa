@@ -312,69 +312,20 @@ export default function CashierPage() {
     useEffect(() => {
         let isEffectActive = true;
 
-        // ─── VERIFICACIÓN INSTANTÁNEA DE LOCALSTORAGE ───────────────────────────
-        const checkLocalShift = () => {
-            if (!user?.id) return false;
+        const evaluateShiftStrict = async () => {
             try {
-                const dateStr = new Date().toLocaleDateString('sv-SE');
-                const saved = localStorage.getItem(`caja_casalena_${user.id}_${dateStr}`);
-                if (saved) {
-                    const shift = JSON.parse(saved);
-                    if (shift.openedAt && !shift.closedAt) return true;
-                }
-                // Búsqueda extendida: turno abierto ayer que sigue activo para este usuario
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key?.startsWith(`caja_casalena_${user.id}_`)) {
-                        const val = localStorage.getItem(key);
-                        if (val) {
-                            try {
-                                const s = JSON.parse(val);
-                                if (s.openedAt && !s.closedAt) {
-                                    const ageHours = (new Date().getTime() - new Date(s.openedAt).getTime()) / (1000 * 3600);
-                                    if (ageHours < 24) return true;
-                                }
-                            } catch (e) {}
-                        }
-                    }
-                }
-            } catch (e) {}
-            return false;
-        };
-
-        // ─── VERIFICACIÓN ÚNICA AL MONTAR ────────────────────────────────────────
-        // Una vez que shiftState === 'open', NO se vuelve a verificar.
-        // El turno permanece abierto hasta que el cajero lo cierre manualmente.
-        const evaluateShiftOnce = async () => {
-            try {
-                const startOfDay = new Date();
-                startOfDay.setHours(0, 0, 0, 0);
-                const endOfDay = new Date();
-                endOfDay.setHours(23, 59, 59, 999);
-
-                const result = await Promise.race([
-                    (async () => {
-                        try {
-                            const res = await supabase.auth.getUser();
-                            return { type: 'success' as const, ...res };
-                        } catch (err) {
-                            return { type: 'error' as const, error: err };
-                        }
-                    })(),
-                    new Promise<{ type: 'timeout' }>(res => setTimeout(() => res({ type: 'timeout' }), 5000))
-                ]);
-
+                // 1. Obtener usuario actual
+                const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+                
                 if (!isEffectActive) return;
 
-                if (result.type === 'timeout' || result.type === 'error') {
-                    const locallyOpen = checkLocalShift();
-                    setShiftState(locallyOpen ? 'open' : 'must_open');
+                if (authError || !authUser) {
+                    console.error('[Shift] Error de autenticación o sin sesión:', authError);
+                    setShiftState('closed');
                     return;
                 }
 
-                const authUser = result.data?.user;
-                if (!authUser) { setShiftState('closed'); return; }
-
+                // 2. Verificar rol de administrador
                 const { data: profile } = await supabase
                     .from('profiles')
                     .select('role, full_name')
@@ -386,53 +337,43 @@ export default function CashierPage() {
                 const isAdminUser = profile?.role === 'administrador' || profile?.role === 'admin';
                 setIsAdmin(isAdminUser);
 
-                // Admin siempre tiene acceso sin apertura de caja
+                // Admin siempre tiene acceso sin apertura de caja estricta, pero igual mostramos su estado si existe
                 if (isAdminUser) {
-                    if (isEffectActive) setShiftState('open');
+                    setShiftState('open');
                     return;
                 }
 
-                // Verificar sesión activa en DB o localStorage para ESTE usuario específico
-                const { data: activeSessions } = await supabase
-                    .from('cashier_sessions')
-                    .select('id')
-                    .eq('status', 'open')
-                    .eq('user_id', authUser.id) // Filtro crucial para independencia
-                    .limit(1);
-
+                // 3. Verificación ESTRICTA a través de la API (Para esquivar bloqueos de RLS en el cliente)
+                const res = await fetch(`/api/cashier/sessions/status?userId=${authUser.id}`);
+                
                 if (!isEffectActive) return;
 
-                const hasActiveDbSession = activeSessions && activeSessions.length > 0;
-                const locallyOpen = checkLocalShift();
+                if (!res.ok) {
+                    console.error('[Shift] Error consultando estado en API:', await res.text());
+                    setShiftState('must_open');
+                    return;
+                }
 
-                if (hasActiveDbSession || locallyOpen) {
+                const { isOpen, session } = await res.json();
+
+                // 4. Decision: Abierta vs Cerrada
+                if (isOpen && session) {
+                    console.log(`✅ [Shift] Caja verificada como ABIERTA en BD (Sesión: ${session.id})`);
                     setShiftState('open');
                 } else {
+                    console.log('🔒 [Shift] Caja verificada como CERRADA en BD. Requiere apertura.');
                     setShiftState('must_open');
                 }
+
             } catch (err: any) {
                 if (isAbortError(err) || !isEffectActive) return;
-                console.error('[Shift] ❌ Error evaluando turno:', err);
-                setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
+                console.error('[Shift] ❌ Error crítico evaluando turno en BD:', err);
+                setShiftState('must_open'); // Default safe: block operations
             }
         };
 
-        // Si localStorage ya tiene turno abierto → estado inmediato, verificación en background
-        const alreadyOpen = checkLocalShift();
-        if (alreadyOpen) {
-            setShiftState('open');
-            // Verificar en background solo para sincronizar isAdmin, sin cambiar el estado
-            evaluateShiftOnce().catch(() => {});
-        } else {
-            // Safety fallback: si Supabase no responde en 5s, pedir apertura
-            const safetyId = setTimeout(() => {
-                if (isEffectActive) setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
-            }, 5000);
-            evaluateShiftOnce().catch(() => {}).finally(() => clearTimeout(safetyId));
-        }
-
-        // ── SIN setInterval — la sesión no se re-verifica automáticamente ────────
-        // El turno permanece abierto hasta que el cajero presione "Cerrar Caja".
+        // Ejecutar la evaluación estricta en la BD
+        evaluateShiftStrict();
 
         return () => { isEffectActive = false; };
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -440,77 +381,43 @@ export default function CashierPage() {
     const handleOpenShift = async (info: { fondo: number, notas: string }) => {
         setShiftState('checking'); // Show loading while processing
         try {
-            // Guardar en la base de datos a través de la API
-            const result = await Promise.race([
-                (async () => {
-                    try {
-                        const res = await fetch('/api/cashier/sessions/open', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                cashier_name: cashierName,
-                                user_id: user?.id,
-                                initial_fund: info.fondo,
-                                notes: info.notas
-                            })
-                        });
-                        
-                        if (!res.ok) throw new Error('Error en API de apertura');
-                        const data = await res.json();
-                        return { type: 'success' as const, data: data.session };
-                    } catch (err) {
-                        return { type: 'error' as const, error: err };
-                    }
-                })(),
-                new Promise<{ type: 'timeout' }>(res => setTimeout(() => res({ type: 'timeout' }), 12000))
-            ]);
-
-            if (result.type === 'timeout' || result.type === 'error') {
-                 console.warn('[Shift] ⚠️ No se pudo registrar apertura en DB (Timeout/Error), usando modo local.');
+            // Guardar en la base de datos a través de la API estrictamente
+            const res = await fetch('/api/cashier/sessions/open', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cashier_name: cashierName,
+                    user_id: user?.id,
+                    initial_fund: info.fondo,
+                    notes: info.notas
+                })
+            });
+            
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error || 'Error al conectar con la base de datos');
             }
-
-            const sessionData = result.type === 'success' ? result.data : null;
-            const sessionId = sessionData?.id;
-            const dateStr = new Date().toLocaleDateString('sv-SE');
             
-            // Guardar en LocalStorage para redundancia y persistencia rápida (Key por usuario)
-            localStorage.setItem(`caja_casalena_${user?.id}_${dateStr}`, JSON.stringify({
-                sessionId: sessionId,
-                openedAt: new Date().toISOString(),
-                fondo: info.fondo,
-                notas: info.notas,
-                closedAt: null
-            }));
+            const data = await res.json();
             
-            setShiftState('open');
-            if (sessionId) {
-                console.log('✅ [Shift] Apertura de caja registrada en el servidor:', sessionId);
+            if (data.success && data.session) {
+                console.log('✅ [Shift] Apertura de caja registrada en el servidor:', data.session.id);
+                setShiftState('open');
             } else {
-                console.info('ℹ️ [Shift] Trabajando en modo local (el servidor no respondió a tiempo)');
+                throw new Error('Respuesta inválida del servidor');
             }
-        } catch (err) {
+
+        } catch (err: any) {
             console.error('❌ [Shift] Error al registrar apertura en la base de datos:', err);
-            // Fallback: al menos permitir que el cajero trabaje aunque falle la escritura (modo offline)
-            const dateStr = new Date().toLocaleDateString('sv-SE');
-            localStorage.setItem(`caja_casalena_${user?.id}_${dateStr}`, JSON.stringify({
-                openedAt: new Date().toISOString(),
-                fondo: info.fondo,
-                notas: info.notas,
-                closedAt: null
-            }));
-            setShiftState('open');
+            alert(`No se pudo abrir la caja: ${err.message}. La caja DEBE registrarse en el servidor para operar.`);
+            setShiftState('must_open');
         }
     };
     
     const handleCloseShiftSuccess = () => {
-         const dateStr = new Date().toLocaleDateString('sv-SE');
-         const saved = localStorage.getItem(`caja_casalena_${user?.id}_${dateStr}`);
-         if (saved) {
-             const shift = JSON.parse(saved);
-             shift.closedAt = new Date().toISOString();
-             localStorage.setItem(`caja_casalena_${user?.id}_${dateStr}`, JSON.stringify(shift));
-             setShiftState('closed');
-         }
+         setShiftState('closed');
+         // Recargar para forzar una re-evaluación limpia desde la base de datos
+         window.location.reload();
     };
 
     useEffect(() => {
