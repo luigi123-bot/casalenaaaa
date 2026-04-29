@@ -11,7 +11,14 @@ const withPWA = require("@ducanh2912/next-pwa").default({
   disable: process.env.NODE_ENV === "development",
   workboxOptions: {
     disableDevLogs: true,
-    exclude: [/\.exe$/], // Don't precache large installers
+    exclude: [
+      /\.exe$/,
+      // Excluir scripts de terceros que no se pueden cachear offline
+      /googletagmanager\.com/,
+      /google-analytics\.com/,
+      /analytics\.google\.com/,
+      /gtag/,
+    ],
     runtimeCaching: [
       {
         urlPattern: /^https:\/\/fonts\.(?:gstatic)\.com\/.*/i,

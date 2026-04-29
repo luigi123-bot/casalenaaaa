@@ -71,7 +71,7 @@ export default function CashierPage() {
     const isOnline = true; // Placeholder or use navigator.onLine if needed, but per request we skip offline handling logic
     const pendingCount = 0;
     const isSyncing = false;
-    const { user } = useAuth();
+    const { user, loading: authLoading } = useAuth();
     const cashierName = user?.full_name || 'CAJERO';
 
     // ── SESIÓN KEEP-ALIVE ────────────────────────────────────────────────────────
@@ -310,46 +310,45 @@ export default function CashierPage() {
     }, []);
 
     useEffect(() => {
+        // Esperar a que AuthContext termine de cargar antes de verificar
+        if (authLoading) return;
+
         let isEffectActive = true;
 
         const evaluateShiftStrict = async () => {
             try {
-                // 1. Obtener usuario actual
-                const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
-                
-                if (!isEffectActive) return;
+                console.log('[Shift] 🔄 Verificando sesión...');
 
-                if (authError || !authUser) {
-                    console.error('[Shift] Error de autenticación o sin sesión:', authError);
+                // 1. Usar el user ya resuelto por AuthContext (sin llamadas extra a Supabase)
+                if (!user) {
+                    console.warn('[Shift] Sin usuario autenticado.');
                     setShiftState('closed');
                     return;
                 }
 
-                // 2. Verificar rol de administrador
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('role, full_name')
-                    .eq('id', authUser.id)
-                    .single();
+                console.log('[Shift] 👤 Usuario:', user.id, '| Rol:', user.role);
 
-                if (!isEffectActive) return;
-
-                const isAdminUser = profile?.role === 'administrador' || profile?.role === 'admin';
+                // 2. Verificar rol de administrador desde AuthContext (sin query extra)
+                const isAdminUser = user.role === 'administrador';
                 setIsAdmin(isAdminUser);
 
-                // Admin siempre tiene acceso sin apertura de caja estricta, pero igual mostramos su estado si existe
                 if (isAdminUser) {
+                    console.log('[Shift] 👑 Admin detectado, acceso directo.');
                     setShiftState('open');
                     return;
                 }
 
-                // 3. Verificación ESTRICTA a través de la API (Para esquivar bloqueos de RLS en el cliente)
-                const res = await fetch(`/api/cashier/sessions/status?userId=${authUser.id}`);
-                
+                // 3. Verificación ESTRICTA a través de la API (con timeout)
+                console.log('[Shift] 🔍 Consultando estado de caja en API...');
+                const res = await Promise.race([
+                    fetch(`/api/cashier/sessions/status?userId=${user.id}`),
+                    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout-api')), 8000))
+                ]) as Response;
+
                 if (!isEffectActive) return;
 
                 if (!res.ok) {
-                    console.error('[Shift] Error consultando estado en API:', await res.text());
+                    console.error('[Shift] Error en API de estado:', await res.text());
                     setShiftState('must_open');
                     return;
                 }
@@ -358,25 +357,33 @@ export default function CashierPage() {
 
                 // 4. Decision: Abierta vs Cerrada
                 if (isOpen && session) {
-                    console.log(`✅ [Shift] Caja verificada como ABIERTA en BD (Sesión: ${session.id})`);
+                    console.log(`✅ [Shift] Caja ABIERTA (Sesión: ${session.id})`);
                     setShiftState('open');
                 } else {
-                    console.log('🔒 [Shift] Caja verificada como CERRADA en BD. Requiere apertura.');
+                    console.log('🔒 [Shift] Caja CERRADA. Requiere apertura.');
                     setShiftState('must_open');
                 }
 
             } catch (err: any) {
-                if (isAbortError(err) || !isEffectActive) return;
-                console.error('[Shift] ❌ Error crítico evaluando turno en BD:', err);
-                setShiftState('must_open'); // Default safe: block operations
+                if (!isEffectActive) return;
+                if (isAbortError(err)) return;
+                console.warn('[Shift] ⚠️ Error en verificación:', err.message);
+                setShiftState('must_open');
             }
         };
 
-        // Ejecutar la evaluación estricta en la BD
-        evaluateShiftStrict();
+        // Safety global: si después de 12s sigue en 'checking', forzar must_open
+        const globalSafety = setTimeout(() => {
+            if (isEffectActive) {
+                console.warn('[Shift] ⏱️ Safety timeout — forzando pantalla de apertura');
+                setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
+            }
+        }, 12000);
 
-        return () => { isEffectActive = false; };
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+        evaluateShiftStrict().finally(() => clearTimeout(globalSafety));
+
+        return () => { isEffectActive = false; clearTimeout(globalSafety); };
+    }, [authLoading, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleOpenShift = async (info: { fondo: number, notas: string }) => {
         setShiftState('checking'); // Show loading while processing

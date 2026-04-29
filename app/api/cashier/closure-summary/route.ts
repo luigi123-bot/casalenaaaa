@@ -17,49 +17,27 @@ const supabase = createClient(
 
 export async function GET(req: Request) {
     try {
+        // Siempre usamos el inicio del día actual en horario México (UTC-6)
+        // Esto garantiza que se incluyan TODOS los pedidos del día, 
+        // independientemente de la hora exacta de apertura de caja.
         const now = new Date();
-        const { searchParams } = new URL(req.url);
-        const sessionId = searchParams.get('sessionId');
-        const userId = searchParams.get('userId');
+        const mxOffset = -6; // UTC-6
+        const mxNow = new Date(now.getTime() + mxOffset * 3600 * 1000);
+        const startOfDayMx = new Date(mxNow);
+        startOfDayMx.setUTCHours(0, 0, 0, 0);
+        // Convertir de vuelta a UTC para la query
+        const filterStart = new Date(startOfDayMx.getTime() - mxOffset * 3600 * 1000).toISOString();
 
-        let filterStart = "";
-        let filterUser = userId;
+        console.log(`[API-Cierre] Consultando TODOS los pedidos desde: ${filterStart}`);
 
-        // Si tenemos sesión, obtenemos la fecha exacta de apertura
-        if (sessionId) {
-            const { data: session } = await supabase
-                .from('cashier_sessions')
-                .select('opened_at, user_id')
-                .eq('id', sessionId)
-                .single();
-            
-            if (session) {
-                filterStart = session.opened_at;
-                if (!filterUser) filterUser = session.user_id;
-            }
-        }
-
-        // Fallback a inicio del día si no hay sesión
-        if (!filterStart) {
-            const mxOffset = -6; // UTC-6
-            const mxTime = new Date(now.getTime() + mxOffset * 3600 * 1000);
-            const startOfDay = new Date(mxTime);
-            startOfDay.setUTCHours(0, 0, 0, 0);
-            filterStart = new Date(startOfDay.getTime() - mxOffset * 3600 * 1000).toISOString();
-        }
-
-        console.log(`[API-Cierre] Consultando ventas para user:${filterUser || 'all'} desde: ${filterStart}`);
-
-        let query = supabase
+        // ⚠️ NO filtramos por user_id porque los pedidos se crean con user_id: null.
+        // Se incluyen todos los pedidos desde la apertura de caja hasta ahora.
+        const { data: orders, error } = await supabase
             .from('orders')
             .select('id, ticket_number, total_amount, payment_method, order_type, status, created_at, order_items(product_name, quantity)')
-            .gte('created_at', filterStart);
+            .gte('created_at', filterStart)
+            .neq('status', 'cancelado'); // Excluimos cancelados del total, pero los contamos aparte
 
-        if (filterUser) {
-            query = query.eq('user_id', filterUser);
-        }
-
-        const { data: orders, error } = await query;
         if (error) throw error;
 
         console.log(`[API-Cierre] 📦 Pedidos encontrados para el cierre: ${orders?.length || 0}`);
