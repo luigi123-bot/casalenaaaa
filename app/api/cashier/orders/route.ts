@@ -16,6 +16,7 @@ export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
         const timeFilter = searchParams.get('timeFilter') || 'today';
+        const userId = searchParams.get('userId');
         
         let query = supabase
             .from('orders')
@@ -29,8 +30,13 @@ export async function GET(request: Request) {
                     selected_size,
                     extras
                 )
-            `)
-            .order('created_at', { ascending: false });
+            `);
+
+        if (userId) {
+            query = query.eq('user_id', userId);
+        }
+
+        query = query.order('created_at', { ascending: false });
 
         // Apply time filter
         if (timeFilter === 'today') {

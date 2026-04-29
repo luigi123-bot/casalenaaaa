@@ -17,6 +17,7 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const timeFilter = searchParams.get('timeFilter') || 'all';
         const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 100;
+        const userId = searchParams.get('userId');
         
         let query = supabase
             .from('orders')
@@ -29,9 +30,13 @@ export async function GET(request: Request) {
                         description
                     )
                 )
-            `)
-            .order('created_at', { ascending: false })
-            .limit(limit);
+            `);
+
+        if (userId) {
+            query = query.eq('user_id', userId);
+        }
+
+        query = query.order('created_at', { ascending: false }).limit(limit);
 
         // Apply time filter
         if (timeFilter === 'today') {

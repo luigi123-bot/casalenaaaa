@@ -139,6 +139,7 @@ export default function CashierPage() {
     const [cart, setCart] = useState<CartItem[]>([]);
     const [orderType, setOrderType] = useState<OrderType>('dine-in');
 
+
     // Payment State
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [amountPaid, setAmountPaid] = useState('');
@@ -371,13 +372,13 @@ export default function CashierPage() {
                     return;
                 }
 
-                const user = result.data?.user;
-                if (!user) { setShiftState('closed'); return; }
+                const authUser = result.data?.user;
+                if (!authUser) { setShiftState('closed'); return; }
 
                 const { data: profile } = await supabase
                     .from('profiles')
                     .select('role, full_name')
-                    .eq('id', user.id)
+                    .eq('id', authUser.id)
                     .single();
 
                 if (!isEffectActive) return;
@@ -396,7 +397,7 @@ export default function CashierPage() {
                     .from('cashier_sessions')
                     .select('id')
                     .eq('status', 'open')
-                    .eq('user_id', user.id) // Filtro crucial para independencia
+                    .eq('user_id', authUser.id) // Filtro crucial para independencia
                     .limit(1);
 
                 if (!isEffectActive) return;
@@ -439,42 +440,37 @@ export default function CashierPage() {
     const handleOpenShift = async (info: { fondo: number, notas: string }) => {
         setShiftState('checking'); // Show loading while processing
         try {
-            // Guardar en la base de datos (Supabase) con timeout silencioso
+            // Guardar en la base de datos a través de la API
             const result = await Promise.race([
                 (async () => {
                     try {
-                        const res = await supabase
-                            .from('cashier_sessions')
-                            .insert([{
+                        const res = await fetch('/api/cashier/sessions/open', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
                                 cashier_name: cashierName,
-                                user_id: user?.id, // Guardar ID del usuario
+                                user_id: user?.id,
                                 initial_fund: info.fondo,
-                                notes: info.notas,
-                                status: 'open',
-                                opened_at: new Date().toISOString()
-                            }])
-                            .select();
-                        return { type: 'success' as const, ...res };
+                                notes: info.notas
+                            })
+                        });
+                        
+                        if (!res.ok) throw new Error('Error en API de apertura');
+                        const data = await res.json();
+                        return { type: 'success' as const, data: data.session };
                     } catch (err) {
                         return { type: 'error' as const, error: err };
                     }
                 })(),
-                new Promise<{ type: 'timeout' }>(res => setTimeout(() => res({ type: 'timeout' }), 10000))
+                new Promise<{ type: 'timeout' }>(res => setTimeout(() => res({ type: 'timeout' }), 12000))
             ]);
 
             if (result.type === 'timeout' || result.type === 'error') {
-                 console.warn('[Shift] ⚠️ No se pudo registrar apertura en DB, usando modo local.', result);
-                 // No lanzamos error, permitimos que el flujo siga con el fallback de localStorage
+                 console.warn('[Shift] ⚠️ No se pudo registrar apertura en DB (Timeout/Error), usando modo local.');
             }
 
-            const error = result.type === 'success' ? result.error : null;
             const sessionData = result.type === 'success' ? result.data : null;
-
-            if (error) {
-                console.error('❌ [Shift] Error en apertura (DB):', error);
-            }
-            
-            const sessionId = sessionData?.[0]?.id;
+            const sessionId = sessionData?.id;
             const dateStr = new Date().toLocaleDateString('sv-SE');
             
             // Guardar en LocalStorage para redundancia y persistencia rápida (Key por usuario)
@@ -487,7 +483,11 @@ export default function CashierPage() {
             }));
             
             setShiftState('open');
-            console.log('✅ [Shift] Apertura de caja registrada en el servidor:', sessionId);
+            if (sessionId) {
+                console.log('✅ [Shift] Apertura de caja registrada en el servidor:', sessionId);
+            } else {
+                console.info('ℹ️ [Shift] Trabajando en modo local (el servidor no respondió a tiempo)');
+            }
         } catch (err) {
             console.error('❌ [Shift] Error al registrar apertura en la base de datos:', err);
             // Fallback: al menos permitir que el cajero trabaje aunque falle la escritura (modo offline)
@@ -523,7 +523,11 @@ export default function CashierPage() {
             console.log(`✅ [Shift] Aceptando pedido #${orderId}...`);
             const { error } = await supabase
                 .from('orders')
-                .update({ status: 'preparando' })
+                .update({ 
+                    status: 'preparando',
+                    user_id: user?.id,
+                    cashier_name: cashierName
+                })
                 .eq('id', orderId);
 
             if (error) throw error;
@@ -1269,6 +1273,7 @@ export default function CashierPage() {
                 const orderPayload: any = {
                     user_id: userId,
                     status: finalStatus,
+                    payment_status: isFinalPayment ? 'paid' : 'pending',
                     total_amount: cartTotals.total,
                     tax_amount: cartTotals.tax,
                     order_type: orderType,
@@ -1277,6 +1282,8 @@ export default function CashierPage() {
                     phone_number: orderType === 'dine-in' ? null : customerInfo.phone,
                     delivery_address: orderType === 'delivery' ? customerInfo.address : null,
                     table_number: orderType === 'dine-in' ? tableNumber : null,
+                    pago_con: (overridePaymentMethod || paymentMethod).toLowerCase().trim() === 'efectivo' ? (parseFloat(amountPaid) || cartTotals.total) : cartTotals.total,
+                    cambio: (overridePaymentMethod || paymentMethod).toLowerCase().trim() === 'efectivo' ? Math.max(0, (parseFloat(amountPaid) || cartTotals.total) - cartTotals.total) : 0,
                     updated_at: new Date().toISOString(),
                     cashier_name: cashierName
                 };
@@ -1505,7 +1512,9 @@ export default function CashierPage() {
     const fetchRecentOrders = async (showLoading = true) => {
         if (showLoading) setRecentOrdersLoading(true);
         try {
-            const res = await fetch('/api/cashier/orders/list');
+            const userId = user?.id;
+            const url = userId ? `/api/cashier/orders/list?userId=${userId}` : '/api/cashier/orders/list';
+            const res = await fetch(url);
             if (!res.ok) throw new Error('Error al obtener lista de órdenes');
             
             const data = await res.json();
@@ -2192,7 +2201,7 @@ export default function CashierPage() {
                             <div>
                                 <h2 className="text-2xl font-black text-[#181511] tracking-tight">Cuentas Abiertas</h2>
                                 <p className="text-xs text-[#8c785f] font-bold mt-0.5">
-                                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length} cuenta(s) pendiente(s) de cobro
+                                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').length} cuenta(s) pendiente(s) de cobro
                                 </p>
                             </div>
                             <button
@@ -2205,13 +2214,13 @@ export default function CashierPage() {
 
                         {/* List */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status)).length === 0 ? (
+                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full opacity-20 gap-4">
                                     <span className="material-icons-round text-6xl">receipt_long</span>
                                     <p className="font-black text-sm uppercase tracking-widest">Sin cuentas abiertas</p>
                                 </div>
                             ) : (
-                                recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).map(order => (
+                                recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').map(order => (
                                     <div key={order.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                                         {/* Card header */}
                                         <div className="flex items-center justify-between p-4 border-b border-gray-50">

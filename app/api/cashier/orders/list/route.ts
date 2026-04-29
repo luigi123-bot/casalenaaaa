@@ -15,10 +15,13 @@ const supabase = createClient(
     }
 );
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
+        const { searchParams } = new URL(req.url);
+        const userId = searchParams.get('userId');
+
         // 1. Obtener Cuentas Abiertas (Pendientes, Preparando, Listo)
-        const { data: openData, error: openErr } = await supabase
+        let queryOpen = supabase
             .from('orders')
             .select(`
                 *,
@@ -33,12 +36,18 @@ export async function GET() {
                 )
             `)
             .in('status', ['pendiente', 'preparando', 'listo'])
-            .order('created_at', { ascending: false });
+            .neq('payment_status', 'paid');
+
+        if (userId) {
+            queryOpen = queryOpen.eq('user_id', userId);
+        }
+
+        const { data: openData, error: openErr } = await queryOpen.order('created_at', { ascending: false });
 
         if (openErr) throw openErr;
 
-        // 2. Obtener Historial Reciente (Entregado, Cancelado, Confirmado)
-        const { data: historyData, error: historyErr } = await supabase
+        // 2. Obtener Historial Reciente (Entregado, Cancelado, Confirmado o cualquier Pagado)
+        let queryHistory = supabase
             .from('orders')
             .select(`
                 *,
@@ -52,7 +61,13 @@ export async function GET() {
                     notes
                 )
             `)
-            .in('status', ['entregado', 'cancelado', 'confirmado'])
+            .or('status.in.(entregado,cancelado,confirmado),payment_status.eq.paid');
+
+        if (userId) {
+            queryHistory = queryHistory.eq('user_id', userId);
+        }
+
+        const { data: historyData, error: historyErr } = await queryHistory
             .order('created_at', { ascending: false })
             .limit(30);
 

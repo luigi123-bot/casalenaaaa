@@ -285,9 +285,9 @@ export default function CashierSidebar({
                         <span className="material-icons-round text-sm">receipt_long</span>
                         <span className="text-[9px] font-black uppercase">Cuentas Abiertas</span>
                     </div>
-                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length > 0 && (
+                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').length > 0 && (
                         <span className="bg-purple-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">
-                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length}
+                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').length}
                         </span>
                     )}
                 </button>

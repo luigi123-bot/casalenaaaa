@@ -21,6 +21,15 @@ export default function CashierOrdersPage() {
     const [showChat, setShowChat] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
     const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'all'>('today');
+    const [user, setUser] = useState<any>(null);
+
+    useEffect(() => {
+        const getUser = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            setUser(user);
+        };
+        getUser();
+    }, []);
 
     useEffect(() => {
         fetchOrders();
@@ -44,7 +53,8 @@ export default function CashierOrdersPage() {
 
     const fetchOrders = async () => {
         try {
-            const res = await fetch(`/api/orders?timeFilter=${timeFilter}`);
+            const userId = (await supabase.auth.getUser()).data.user?.id;
+            const res = await fetch(`/api/orders?timeFilter=${timeFilter}${userId ? `&userId=${userId}` : ''}`);
             if (!res.ok) throw new Error('Failed to fetch orders');
             const data = await res.json();
             setOrders(data || []);
