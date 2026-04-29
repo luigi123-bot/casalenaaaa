@@ -168,6 +168,7 @@ export default function OrdersView() {
                             <th className="px-6 py-5 font-bold text-[#8c785f] text-[10px] uppercase tracking-widest text-center">Tipo</th>
                             <th className="px-6 py-5 font-bold text-[#8c785f] text-[10px] uppercase tracking-widest text-center">Estado</th>
                             <th className="px-6 py-5 font-bold text-[#8c785f] text-[10px] uppercase tracking-widest text-right">Monto</th>
+                            <th className="px-6 py-5 font-bold text-[#8c785f] text-[10px] uppercase tracking-widest text-center">Rastrear</th>
                             <th className="px-6 py-5 font-bold text-[#8c785f] text-[10px] uppercase tracking-widest text-right">Caja</th>
                         </tr>
                     </thead>
@@ -175,12 +176,12 @@ export default function OrdersView() {
                         {loading ? (
                             [...Array(5)].map((_, i) => (
                                 <tr key={i} className="animate-pulse">
-                                    <td colSpan={7} className="px-6 py-8"><div className="h-6 bg-gray-100 rounded-lg w-full"></div></td>
+                                    <td colSpan={8} className="px-6 py-8"><div className="h-6 bg-gray-100 rounded-lg w-full"></div></td>
                                 </tr>
                             ))
                         ) : filteredOrders.length === 0 ? (
                             <tr>
-                                <td colSpan={7} className="px-6 py-20 text-center">
+                                <td colSpan={8} className="px-6 py-20 text-center">
                                     <div className="flex flex-col items-center gap-3">
                                         <span className="material-symbols-outlined text-4xl text-gray-200">receipt_long</span>
                                         <p className="text-[#8c785f] font-bold">Sin resultados para esta búsqueda</p>
@@ -211,6 +212,22 @@ export default function OrdersView() {
                                         {getStatusBadge(order.status)}
                                     </td>
                                     <td className="px-6 py-5 text-right font-black text-[#181511]">${order.total_amount.toFixed(2)}</td>
+                                    <td className="px-6 py-5 text-center" onClick={(e) => e.stopPropagation()}>
+                                        {order.order_type === 'delivery' ? (
+                                            <a
+                                                href={`/tracking?id=${order.id}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={() => console.log(`[Admin] 🗺️ Abriendo rastreo del pedido #${order.id} (ticket: ${order.ticket_number})`)}
+                                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg text-[10px] font-black uppercase hover:bg-blue-600 hover:text-white transition-all"
+                                            >
+                                                <span className="material-symbols-outlined text-sm">location_on</span>
+                                                GPS
+                                            </a>
+                                        ) : (
+                                            <span className="text-gray-300 text-xs font-bold">—</span>
+                                        )}
+                                    </td>
                                     <td className="px-6 py-5 text-right">
                                         <button className="p-2 rounded-full group-hover:bg-primary/20 text-primary transition-colors">
                                             <span className="material-symbols-outlined text-xl">open_in_new</span>

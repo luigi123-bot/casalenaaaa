@@ -53,13 +53,15 @@ export default function CashierOrdersPage() {
 
     const fetchOrders = async () => {
         try {
-            const userId = (await supabase.auth.getUser()).data.user?.id;
-            const res = await fetch(`/api/orders?timeFilter=${timeFilter}${userId ? `&userId=${userId}` : ''}`);
+            console.log(`[Rastreo] 📋 Cargando pedidos | timeFilter=${timeFilter}`);
+            // ⚠️ NO pasamos userId — los pedidos tienen user_id:null en la BD
+            const res = await fetch(`/api/orders?timeFilter=${timeFilter}`);
             if (!res.ok) throw new Error('Failed to fetch orders');
             const data = await res.json();
+            console.log(`[Rastreo] ✅ ${data?.length || 0} pedidos recibidos`);
             setOrders(data || []);
         } catch (error) {
-            console.error('Error fetching orders:', error);
+            console.error('[Rastreo] ❌ Error cargando pedidos:', error);
         } finally {
             setLoading(false);
         }
@@ -399,6 +401,23 @@ export default function CashierOrdersPage() {
                                     PRE-VENTA
                                 </button>
                             </div>
+
+                            {/* Tracking button for delivery orders */}
+                            {order.order_type === 'delivery' && (
+                                <a
+                                    href={`/tracking?id=${order.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        console.log(`[Rastreo] 🗺️ Abriendo rastreo del pedido #${order.id} | Cliente: ${order.customer_name}`);
+                                    }}
+                                    className="w-full mt-2 flex items-center justify-center gap-2 text-blue-600 bg-blue-50 border border-blue-200 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all active:scale-95"
+                                >
+                                    <span className="material-icons-round text-sm">location_on</span>
+                                    VER EN MAPA GPS
+                                </a>
+                            )}
                             
                             <button 
                                 onClick={() => setSelectedOrder(order)}

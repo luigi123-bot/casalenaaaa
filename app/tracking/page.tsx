@@ -31,10 +31,13 @@ function TrackingContent() {
             }
 
             if (!orderId) {
+                console.error('[Tracking] ❌ ID de pedido inválido o no proporcionado. URL:', window.location.href);
                 setError('ID de pedido inválido o no proporcionado');
                 setLoading(false);
                 return;
             }
+
+            console.log(`[Tracking] 🔍 Buscando pedido #${orderId}...`);
 
             const { data: orderData, error: orderErr } = await supabase
                 .from('orders')
@@ -43,10 +46,19 @@ function TrackingContent() {
                 .single();
 
             if (orderErr || !orderData) {
+                console.error('[Tracking] ❌ Pedido no encontrado:', orderErr);
                 setError('Pedido no encontrado');
                 setLoading(false);
                 return;
             }
+
+            console.log(`[Tracking] ✅ Pedido encontrado:`, {
+                id: orderData.id,
+                status: orderData.status,
+                tipo: orderData.order_type,
+                driver_id: orderData.driver_id,
+                direccion: orderData.delivery_address
+            });
 
             setOrder(orderData);
 
@@ -54,6 +66,7 @@ function TrackingContent() {
             if (orderData.delivery_address) {
                 const addressStr = orderData.delivery_address;
                 const cleanAddress = addressStr.split('(')[0].split(',')[0].trim();
+                console.log(`[Tracking] 📍 Geocodificando dirección: "${addressStr}"`);
 
                 const fetchGeo = async (q: string) => {
                     try {
@@ -66,25 +79,36 @@ function TrackingContent() {
                 const startGeo = async () => {
                     let coords = await fetchGeo(addressStr);
                     if (!coords) coords = await fetchGeo(cleanAddress);
-                    if (!coords) coords = [16.6850, -98.4100]; // Fallback to city center
+                    if (!coords) {
+                        console.warn('[Tracking] ⚠️ No se pudo geocodificar la dirección. Usando fallback de ciudad.');
+                        coords = [16.6850, -98.4100];
+                    } else {
+                        console.log(`[Tracking] 📍 Coordenadas resueltas:`, coords);
+                    }
                     setDestination(coords);
                 };
                 startGeo();
             } else {
-                 setDestination([16.6850, -98.4100]); // fallback pickup
+                 console.log('[Tracking] ℹ️ Sin dirección de entrega. Pedido de mostrador/comedor.');
+                 setDestination([16.6850, -98.4100]);
             }
 
             if (orderData.driver_id) {
+                console.log(`[Tracking] 🛵 Buscando repartidor ID: ${orderData.driver_id}`);
                 const { data: driverData } = await supabase
                     .from('delivery_drivers')
                     .select('*')
                     .eq('id', orderData.driver_id)
                     .single();
                 
-                if (driverData) setDriver(driverData);
+                if (driverData) {
+                    console.log(`[Tracking] 👤 Repartidor:`, { nombre: driverData.full_name, vehiculo: driverData.vehicle_type });
+                    setDriver(driverData);
+                }
 
                 // Fetch initial static location directly from table just in case broadcast is asleep
                 if (driverData?.current_lat && driverData?.current_lng) {
+                    console.log(`[Tracking] 📡 Ubicación inicial del repartidor: [${driverData.current_lat}, ${driverData.current_lng}]`);
                      setDriverLocation([driverData.current_lat, driverData.current_lng]);
                 }
 
@@ -93,22 +117,26 @@ function TrackingContent() {
                 
                 channel.on('broadcast', { event: 'location_update' }, (payload) => {
                     const { lat, lng } = payload.payload;
+                    console.log(`[Tracking] 📡 Actualización de ubicación → lat:${lat}, lng:${lng}`);
                     setDriverLocation([lat, lng]);
                     
                     // Simple ETA: calculate straight-line distance, assume 30km/h
-                    // 1 deg is roughly 111km.
                     if (destination) {
                         const distDeg = Math.sqrt(Math.pow(lat - destination[0], 2) + Math.pow(lng - destination[1], 2));
                         const distKm = distDeg * 111;
-                        const speedKmph = 30; // 30 km/h avg in city
+                        const speedKmph = 30;
                         const timeHours = distKm / speedKmph;
-                        setEtaSeconds(Math.max(60, Math.floor(timeHours * 3600))); // Min 1 minute
+                        const eta = Math.max(60, Math.floor(timeHours * 3600));
+                        console.log(`[Tracking] ⏱️ ETA calculado: ${Math.ceil(eta/60)} minutos (distancia: ${distKm.toFixed(2)}km)`);
+                        setEtaSeconds(eta);
                     }
                 }).subscribe();
 
                 return () => {
                     supabase.removeChannel(channel);
                 }
+            } else {
+                console.log('[Tracking] ℹ️ Sin repartidor asignado aún.');
             }
 
             setLoading(false);

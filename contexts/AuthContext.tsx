@@ -120,9 +120,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const signOut = async () => {
         try {
-            await supabase.auth.signOut();
+            // Fuerza el cierre de sesión local, ignorando errores de red si el servidor no responde
+            await supabase.auth.signOut({ scope: 'local' });
         } catch (error) {
             console.error('Error signing out:', error);
+            // Limpieza manual agresiva del token de Supabase en caso de error crítico
+            try {
+                Object.keys(window.localStorage).forEach(key => {
+                    if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
+                        window.localStorage.removeItem(key);
+                    }
+                });
+            } catch (e) {
+                console.error('Could not clear local storage manually');
+            }
         } finally {
             setUser(null);
             window.location.href = '/tienda';

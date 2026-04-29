@@ -71,7 +71,7 @@ export default function CashierPage() {
     const isOnline = true; // Placeholder or use navigator.onLine if needed, but per request we skip offline handling logic
     const pendingCount = 0;
     const isSyncing = false;
-    const { user, loading: authLoading } = useAuth();
+    const { user, loading: authLoading, signOut } = useAuth();
     const cashierName = user?.full_name || 'CAJERO';
 
     // ── SESIÓN KEEP-ALIVE ────────────────────────────────────────────────────────
@@ -1415,11 +1415,9 @@ export default function CashierPage() {
 
     const handleLogout = async () => {
         try {
-            await supabase.auth.signOut();
+            await signOut();
         } catch (error) {
             console.error('Error al cerrar sesión:', error);
-        } finally {
-            window.location.href = '/tienda';
         }
     };
 

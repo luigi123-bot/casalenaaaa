@@ -32,11 +32,32 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
     const [step, setStep] = useState<'summary' | 'count' | 'gastos' | 'confirm' | 'done'>('summary');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
     // Gastos state
     const [gastosCombustible, setGastosCombustible] = useState('');
     const [gastosInsumoCocina, setGastosInsumoCocina] = useState('');
     const [gastosInsumoLimpieza, setGastosInsumoLimpieza] = useState('');
+
+    useEffect(() => {
+        if (!userId) return;
+        const e = localStorage.getItem(`caja_casalena_efectivo_${userId}`);
+        const gc = localStorage.getItem(`caja_casalena_gcom_${userId}`);
+        const gk = localStorage.getItem(`caja_casalena_gcoc_${userId}`);
+        const gl = localStorage.getItem(`caja_casalena_glim_${userId}`);
+        if (e) setEfectivoContado(e);
+        if (gc) setGastosCombustible(gc);
+        if (gk) setGastosInsumoCocina(gk);
+        if (gl) setGastosInsumoLimpieza(gl);
+    }, [userId]);
+
+    useEffect(() => {
+        if (!userId) return;
+        localStorage.setItem(`caja_casalena_efectivo_${userId}`, efectivoContado);
+        localStorage.setItem(`caja_casalena_gcom_${userId}`, gastosCombustible);
+        localStorage.setItem(`caja_casalena_gcoc_${userId}`, gastosInsumoCocina);
+        localStorage.setItem(`caja_casalena_glim_${userId}`, gastosInsumoLimpieza);
+    }, [efectivoContado, gastosCombustible, gastosInsumoCocina, gastosInsumoLimpieza, userId]);
 
     const fetchCierreData = useCallback(async () => {
         console.log('🚀 [Cierre] Iniciando proceso de cálculo de ventas...');
@@ -56,6 +77,8 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
             if (session.initial_fund !== undefined) {
                 setFondoInicial(session.initial_fund.toString());
             }
+            
+            setActiveSessionId(session.id);
 
             console.log('📡 [Cierre] Consultando resumen al servidor (API)...');
             
@@ -133,32 +156,10 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
                 closed_at: new Date().toISOString()
             };
 
-            // 1. Obtener Sesión Activa Directo de BD
-            const { data: activeSession, error: checkErr } = await supabase
-                .from('cashier_sessions')
-                .select('id')
-                .eq('user_id', userId)
-                .eq('status', 'open')
-                .order('opened_at', { ascending: false })
-                .limit(1)
-                .single();
-
-            if (checkErr && checkErr.code !== 'PGRST116') {
-                console.warn('[Cierre] Error buscando sesión activa en DB:', checkErr);
+            if (!activeSessionId) {
+                throw new Error('No se identificó la sesión activa. Por favor, cierra este panel y vuelve a abrirlo.');
             }
 
-            if (activeSession) {
-                 await Promise.race([
-                    supabase.from('cashier_sessions').update(metrics).eq('id', activeSession.id),
-                    new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout al actualizar base de datos')), 8000))
-                 ]);
-                console.log('✅ [Shift] Sesión actualizada exitosamente en cashier_sessions.');
-            } else {
-                console.warn('⚠️ [Shift] No se encontró una sesión ABIERTA en BD para este usuario. Guardando de todos modos en historial.');
-            }
-
-            // 2. Guardar en Historial (Tabla Antigua compatible)
-            // IMPORTANTE: Esta tabla usa nombres en ESPAÑOL
             const legacyPayload = {
                 fecha_turno: `${data?.fechaTurno}${totalGastos > 0 ? ` | GASTOS: ${totalGastos.toFixed(2)}` : ''}`,
                 cajero: cashierName,
@@ -181,29 +182,29 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
             };
 
             const res = await Promise.race([
-                fetch('/api/admin/closures', {
+                fetch('/api/cashier/sessions/close', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(legacyPayload)
+                    body: JSON.stringify({ activeSessionId, metrics, legacyPayload })
                 }),
-                new Promise<any>((_, rej) => setTimeout(() => rej(new Error('TIMEOUT_API')), 10000))
+                new Promise<any>((_, rej) => setTimeout(() => rej(new Error('TIMEOUT_API_CLOSE')), 15000))
             ]);
 
             if (!res.ok) {
-                const errData = await res.json();
-                setError(errData.error || 'Error en la respuesta del servidor');
-                setSaving(false);
-                return;
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || 'Error en la respuesta del servidor al cerrar la sesión.');
             }
 
             // 3. Limpiar cualquier basura de LocalStorage (Legacy cleanup)
             try {
+                const keysToRemove: string[] = [];
                 for (let i = 0; i < localStorage.length; i++) {
                     const k = localStorage.key(i);
-                    if (k?.startsWith(`caja_casalena_`)) {
-                        localStorage.removeItem(k);
+                    if (k?.startsWith('caja_casalena_')) {
+                        keysToRemove.push(k);
                     }
                 }
+                keysToRemove.forEach(k => localStorage.removeItem(k));
             } catch (e) {
                 console.warn('[Cierre] No se pudo limpiar localStorage.');
             }
@@ -212,7 +213,7 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
             console.log('🏁 [Cierre] Proceso de cierre completado.');
         } catch (error: any) {
             console.error('🛑 [Cierre] Error catastrófico cerrando caja:', error);
-            alert(`No se pudo cerrar la caja: ${error.message || 'Error de conexión'}. Verifica tu conexión a internet o habla con el administrador.`);
+            setError(error.message || 'Error de conexión al cerrar la caja');
         } finally {
             setSaving(false);
         }
@@ -313,14 +314,47 @@ ${data.topProductos.length > 0 ? `<div class="section">Top Productos del Dia</di
   <p style="margin-top:8px">${cashierName.toUpperCase()}</p>
   <p style="margin-top:10px;font-size:7px">Documento de control interno - No valido como comprobante fiscal</p>
 </div>
-<script>window.onload=function(){window.print();window.onafterprint=function(){window.close()}};</script>
+<script>
+window.onload = function() {
+    setTimeout(function() {
+        window.print();
+    }, 500);
+};
+</script>
 </body>
 </html>`;
 
-        const win = window.open('', '_blank', 'width=500,height=900');
-        if (win) {
-            win.document.write(ticketHtml);
-            win.document.close();
+        const isElectron = typeof window !== 'undefined' && 
+                          ((window as any).electron?.isElectron || navigator.userAgent.toLowerCase().includes('electron'));
+
+        if (isElectron && (window as any).electron?.printSilent) {
+            console.log('🖥️ [Print Cierre] Entorno Electron detectado. Iniciando impresión silenciosa...');
+            (window as any).electron.printSilent({ html: ticketHtml })
+                .then(() => console.log('✅ [Print Cierre] Orden enviada a la impresora.'))
+                .catch((err: any) => console.error('❌ [Print Cierre] Error en impresión de Electron:', err));
+            return;
+        }
+
+        console.log('🌐 [Print Cierre] Entorno Web detectado. Usando diálogo de impresión del navegador.');
+        const oldIframe = document.getElementById('cierre-print-iframe');
+        if (oldIframe) oldIframe.remove();
+
+        const iframe = document.createElement('iframe');
+        iframe.id = 'cierre-print-iframe';
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+            doc.open();
+            doc.write(ticketHtml);
+            doc.close();
+            
+            // Clean up iframe after 10s
+            setTimeout(() => {
+                const f = document.getElementById('cierre-print-iframe');
+                if (f) f.remove();
+            }, 10000);
         }
     };
 
@@ -596,6 +630,13 @@ ${data.topProductos.length > 0 ? `<div class="section">Top Productos del Dia</di
                                 <h3 className="text-xl font-black text-[#181511] mt-3">¿Confirmar Cierre?</h3>
                                 <p className="text-sm text-[#8c785f] mt-1">Esta acción cerrará el turno del día.</p>
                             </div>
+
+                            {error && (
+                                <div className="bg-red-50 text-red-600 border border-red-200 rounded-xl p-4 text-sm font-bold flex items-start gap-2 animate-in slide-in-from-top-2">
+                                    <span className="material-symbols-outlined">error</span>
+                                    <p>{error}</p>
+                                </div>
+                            )}
 
                             <div className="bg-gray-50 rounded-2xl border border-gray-100 divide-y divide-gray-100 text-sm">
                                 {[

@@ -17,8 +17,9 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const timeFilter = searchParams.get('timeFilter') || 'all';
         const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 100;
-        const userId = searchParams.get('userId');
         
+        console.log(`[API-Orders] 📋 Consultando pedidos | timeFilter=${timeFilter} | limit=${limit}`);
+
         let query = supabase
             .from('orders')
             .select(`
@@ -32,9 +33,8 @@ export async function GET(request: Request) {
                 )
             `);
 
-        if (userId) {
-            query = query.eq('user_id', userId);
-        }
+        // ⚠️ NO filtramos por user_id — los pedidos se crean con user_id: null
+        // Todos los pedidos pertenecen a la operación del restaurante.
 
         query = query.order('created_at', { ascending: false }).limit(limit);
 
@@ -53,6 +53,7 @@ export async function GET(request: Request) {
 
         if (error) throw error;
         
+        console.log(`[API-Orders] ✅ ${data?.length || 0} pedidos encontrados`);
         return NextResponse.json(data || []);
     } catch (error: any) {
         console.error('Error in unified orders API:', error);
