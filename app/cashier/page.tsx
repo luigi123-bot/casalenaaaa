@@ -1695,26 +1695,30 @@ export default function CashierPage() {
                                                 
                                                 <div className="relative z-10">
                                                     <div className="flex justify-between items-start mb-6">
-                                                        <div>
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.ticket_number || 'S/N'}</span>
-                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                                                                    order.status === 'entregado' ? 'bg-green-100 text-green-700' :
-                                                                    ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'bg-purple-100 text-purple-700 border border-purple-200' :
-                                                                    order.status === 'confirmado' ? 'bg-blue-100 text-blue-700' :
-                                                                    'bg-orange-100 text-orange-700'
-                                                                }`}>
-                                                                    {order.status === 'entregado' ? 'Finalizado' : ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'En Mesa' : order.status === 'confirmado' ? 'Recibido' : order.status}
-                                                                </span>
-                                                            </div>
-                                                            <p className="text-xl font-black text-[#181511] tracking-tight">
-                                                                {order.customer_name || (order.table_number ? `Mesa #${order.table_number}` : `Ticket #${order.ticket_number || order.id.toString().slice(-5)}`)}
-                                                            </p>
-                                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                                                                {new Date(order.created_at).toLocaleTimeString()} • {order.order_type === 'delivery' ? 'Domicilio' : 'Local'}
-                                                            </p>
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.ticket_number || 'S/N'}</span>
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                                                order.status === 'entregado' ? 'bg-green-100 text-green-700' :
+                                                                ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'bg-purple-100 text-purple-700 border border-purple-200' :
+                                                                order.status === 'confirmado' ? 'bg-blue-100 text-blue-700' :
+                                                                'bg-orange-100 text-orange-700'
+                                                            }`}>
+                                                                {order.status === 'entregado' ? 'Finalizado' : ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'En Mesa' : order.status === 'confirmado' ? 'Recibido' : order.status}
+                                                            </span>
                                                         </div>
-                                                        <p className="text-2xl font-black text-[#181511] tracking-tighter">${order.total_amount.toFixed(2)}</p>
+                                                    </div>
+                                                    <div className="flex items-start justify-between mb-4">
+                                                        <div>
+                                                            <p className="text-xl font-black text-[#181511] tracking-tight leading-none mb-1">
+                                                                {order.customer_name || (order.table_number ? `Mesa #${order.table_number}` : `Orden #${order.ticket_number || order.id.toString().slice(-4).toUpperCase()}`)}
+                                                            </p>
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                                    {new Date(order.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} • {order.order_type === 'delivery' ? 'Domicilio' : 'Local'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-2xl font-black text-[#181511] tracking-tighter leading-none">${order.total_amount.toFixed(2)}</p>
                                                     </div>
 
                                                     <div className="space-y-2 mb-6">
@@ -1726,7 +1730,7 @@ export default function CashierPage() {
                                                         ))}
                                                     </div>
 
-                                                    <div className="flex gap-2">
+                                                    <div className="grid grid-cols-2 gap-2 mt-auto">
                                                         {['pendiente', 'preparando', 'listo'].includes(order.status) && (
                                                             <>
                                                                 <button 
@@ -1763,9 +1767,10 @@ export default function CashierPage() {
                                                                         }));
                                                                         setCart(loadedCart);
                                                                     }}
-                                                                    className="flex-1 bg-purple-50 text-purple-600 border-2 border-purple-200 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-100 transition-colors shadow-sm active:scale-95"
+                                                                    className="bg-purple-50 text-purple-600 border border-purple-100 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-purple-100 transition-all active:scale-95 flex items-center justify-center gap-1.5"
                                                                 >
-                                                                    Abrir Comanda
+                                                                    <span className="material-icons-round text-sm">edit_note</span>
+                                                                    Abrir
                                                                 </button>
                                                                 <button 
                                                                     onClick={() => {
@@ -1798,7 +1803,7 @@ export default function CashierPage() {
                                                                             setShowPaymentModal(true);
                                                                         }, 150);
                                                                     }}
-                                                                    className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-colors shadow-sm active:scale-95 flex items-center justify-center gap-1"
+                                                                    className="bg-[#181511] text-white py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-1.5"
                                                                 >
                                                                     <span className="material-icons-round text-sm">payments</span>
                                                                     Cobrar
@@ -1818,10 +1823,10 @@ export default function CashierPage() {
                                                                 }));
                                                                 handleWhatsAppShare(order, mappedItems);
                                                             }}
-                                                            className="size-12 shrink-0 bg-green-500 text-white rounded-2xl flex items-center justify-center hover:bg-green-600 transition-colors shadow-lg active:scale-95"
-                                                            title="WhatsApp"
+                                                            className="bg-green-500 text-white py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-green-600 transition-all active:scale-95 flex items-center justify-center gap-1.5"
                                                         >
-                                                            <span className="material-icons-round">whatsapp</span>
+                                                            <span className="material-icons-round text-sm">send</span>
+                                                            WhatsApp
                                                         </button>
                                                         <button 
                                                             onClick={() => {
@@ -1834,8 +1839,9 @@ export default function CashierPage() {
                                                                 }));
                                                                 handleOpenTicketModal(order, mappedItems);
                                                             }}
-                                                            className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-[#181511]/80 transition-colors shadow-lg active:scale-95"
+                                                            className="bg-[#181511]/10 text-[#181511] py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-[#181511]/20 transition-all active:scale-95 flex items-center justify-center gap-1.5"
                                                         >
+                                                            <span className="material-icons-round text-sm">receipt_long</span>
                                                             Ticket
                                                         </button>
                                                     </div>
