@@ -295,10 +295,24 @@ export default function CashierOrdersPage() {
                         </div>
                     ))
                 ) : filteredOrders.length === 0 ? (
-                    <div className="col-span-full bg-white rounded-2xl p-12 text-center border border-gray-200">
-                        <span className="material-icons-round text-6xl text-gray-200 mb-3">receipt_long</span>
-                        <p className="text-[#8c785f] font-bold">No hay órdenes para mostrar</p>
-                        <p className="text-xs text-gray-400 mt-1">Intenta cambiar los filtros</p>
+                    <div className="col-span-full bg-white rounded-[2rem] p-20 text-center border-2 border-dashed border-gray-100 animate-in fade-in zoom-in duration-500">
+                        <div className="size-24 bg-gray-50 text-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <span className="material-icons-round text-5xl">receipt_long</span>
+                        </div>
+                        <h3 className="text-2xl font-black text-[#181511] mb-2">No se encontraron pedidos</h3>
+                        <p className="text-[#8c785f] text-sm max-w-sm mx-auto font-medium">
+                            No pudimos encontrar órdenes que coincidan con los filtros actuales o la búsqueda seleccionada.
+                        </p>
+                        <button 
+                            onClick={() => {
+                                setStatusFilter('Todos');
+                                setTimeFilter('today');
+                                setSearchTerm('');
+                            }}
+                            className="mt-8 px-8 py-3 bg-[#181511] text-white rounded-xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-gray-200"
+                        >
+                            Ver Todos los Pedidos
+                        </button>
                     </div>
                 ) : (
                     filteredOrders.map((order) => (

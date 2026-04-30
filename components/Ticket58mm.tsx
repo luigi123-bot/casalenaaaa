@@ -18,6 +18,7 @@ export interface TicketData {
         metodo_pago: string;
         pago_con?: number;
         cambio?: number;
+        ticket_number?: number;
         is_pre_ticket?: boolean; // Flag to show "PRE-CUENTA"
     };
     cliente?: {
@@ -129,8 +130,13 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }: Ticket58mmProps) => {
 
             {/* 4. DETALLES OPERATIVOS */}
             <div className="w-full px-1 text-[11px] font-bold space-y-0.5 mt-1 border-b border-dashed border-black pb-1">
+                <div className="bg-black py-1 px-2 border border-black mb-1">
+                    <p className="text-white font-black uppercase text-center text-[16px]">
+                        ORDEN #{data.pedido.ticket_number || data.pedido.id.toString().slice(-4)}
+                    </p>
+                </div>
                 <div className="bg-gray-100 py-1 px-2 border border-black mb-1">
-                    <p className="text-black font-black uppercase text-center text-[12px]">ATENDIDO POR: {data.atendido_por || 'ADMIN'}</p>
+                    <p className="text-black font-black uppercase text-center text-[10px]">ATENDIDO POR: {data.atendido_por || 'ADMIN'}</p>
                 </div>
                 <div className="flex justify-between uppercase px-1">
                     <span>FOLIO:</span>

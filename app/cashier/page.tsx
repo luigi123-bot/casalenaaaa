@@ -1129,6 +1129,7 @@ export default function CashierPage() {
                 pago_con: parseFloat(amountPaid) || 0,
                 cambio: Math.max(0, (parseFloat(amountPaid) || 0) - orderData.total_amount),
                 is_pre_ticket: orderData.is_pre_ticket || false,
+                ticket_number: orderData.ticket_number,
             },
             productos: items.map(it => {
                 // Map extra IDs to names
@@ -1641,9 +1642,8 @@ export default function CashierPage() {
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                    {recentOrders
-                                        .filter(o => {
-                                            // Search Filter Logic
+                                    {(() => {
+                                        const filtered = recentOrders.filter(o => {
                                             if (searchQuery.trim()) {
                                                 const query = searchQuery.toLowerCase().replace('#', '');
                                                 const matchesSearch = 
@@ -1655,173 +1655,194 @@ export default function CashierPage() {
                                                 if (!matchesSearch) return false;
                                             }
 
-                                            // Status Filter Logic
                                             if (recentOrdersFilter === 'Todos') return true;
                                             if (recentOrdersFilter === 'Abiertas') return ['pendiente', 'preparando', 'listo'].includes(o.status) && o.order_type === 'dine-in';
                                             if (recentOrdersFilter === 'Pendiente') return o.status === 'confirmado';
                                             if (recentOrdersFilter === 'Preparando') return o.status === 'preparando' || o.status === 'listo';
                                             if (recentOrdersFilter === 'Entregado') return o.status === 'entregado';
                                             return true;
-                                        })
-                                        .map((order) => (
-                                        <div key={order.id} className="bg-white rounded-3xl border border-gray-100 p-6 hover:shadow-xl transition-all group overflow-hidden relative">
-                                            <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-500 opacity-50"></div>
-                                            
-                                            <div className="relative z-10">
-                                                <div className="flex justify-between items-start mb-6">
-                                                    <div>
-                                                        <div className="flex items-center gap-2 mb-1">
-                                                            <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.ticket_number || 'S/N'}</span>
-                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                                                                order.status === 'entregado' ? 'bg-green-100 text-green-700' :
-                                                                ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'bg-purple-100 text-purple-700 border border-purple-200' :
-                                                                order.status === 'confirmado' ? 'bg-blue-100 text-blue-700' :
-                                                                'bg-orange-100 text-orange-700'
-                                                            }`}>
-                                                                {order.status === 'entregado' ? 'Finalizado' : ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'En Mesa' : order.status === 'confirmado' ? 'Recibido' : order.status}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-xl font-black text-[#181511] tracking-tight">
-                                                            {order.customer_name || (order.table_number ? `Mesa #${order.table_number}` : `Ticket #${order.ticket_number || order.id.toString().slice(-5)}`)}
-                                                        </p>
-                                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                                                            {new Date(order.created_at).toLocaleTimeString()} • {order.order_type === 'delivery' ? 'Domicilio' : 'Local'}
-                                                        </p>
+                                        });
+
+                                        if (filtered.length === 0) {
+                                            return (
+                                                <div className="col-span-full h-96 flex flex-col items-center justify-center text-center p-8 animate-in fade-in zoom-in duration-500">
+                                                    <div className="size-24 bg-gray-50 text-gray-200 rounded-full flex items-center justify-center mb-6">
+                                                        <span className="material-icons-round text-5xl">{searchQuery ? 'search_off' : 'receipt_long'}</span>
                                                     </div>
-                                                    <p className="text-2xl font-black text-[#181511] tracking-tighter">${order.total_amount.toFixed(2)}</p>
-                                                </div>
-
-                                                <div className="space-y-2 mb-6">
-                                                    {order.order_items?.map((item: any, i: number) => (
-                                                        <div key={i} className="flex justify-between items-center text-xs">
-                                                            <span className="text-[#8c785f] font-medium"><span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}</span>
-                                                            <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-
-                                                <div className="flex gap-2">
-                                                    {['pendiente', 'preparando', 'listo'].includes(order.status) && (
-                                                        <>
-                                                            <button 
-                                                                onClick={() => {
-                                                                    setShowOrdersView(false);
-                                                                    setOrderType(order.order_type || 'dine-in');
-                                                                    setTableNumber(order.table_number || '');
-                                                                    setActiveOrderId(order.id);
-                                                                    setPaymentMethod(order.payment_method || 'efectivo');
-                                                                    setCustomerInfo({
-                                                                        name: order.customer_name || '',
-                                                                        phone: order.phone_number || '',
-                                                                        address: order.delivery_address || '',
-                                                                        street: (order.delivery_address || '').split(',')[0] || '',
-                                                                        neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                                        reference: ''
-                                                                    });
-                                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                                        id: item.product_id || 0,
-                                                                        name: item.product_name,
-                                                                        price: item.unit_price,
-                                                                        quantity: item.quantity,
-                                                                        selectedSize: item.selected_size,
-                                                                        extras: (function() {
-                                                                            if (!item.extras) return [];
-                                                                            if (typeof item.extras === 'string') {
-                                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                                            }
-                                                                            if (Array.isArray(item.extras)) return item.extras;
-                                                                            return [];
-                                                                        })(),
-                                                                        note: item.notes || '',
-                                                                        cartItemId: Math.random().toString(36).substr(2, 9)
-                                                                    }));
-                                                                    setCart(loadedCart);
-                                                                }}
-                                                                className="flex-1 bg-purple-50 text-purple-600 border-2 border-purple-200 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-100 transition-colors shadow-sm active:scale-95"
-                                                            >
-                                                                Abrir Comanda
-                                                            </button>
-                                                            <button 
-                                                                onClick={() => {
-                                                                    setShowOrdersView(false);
-                                                                    setOrderType(order.order_type || 'dine-in');
-                                                                    setTableNumber(order.table_number || '');
-                                                                    setActiveOrderId(order.id);
-                                                                    setPaymentMethod(order.payment_method || 'efectivo');
-                                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                                        id: item.product_id || 0,
-                                                                        name: item.product_name,
-                                                                        price: item.unit_price,
-                                                                        quantity: item.quantity,
-                                                                        selectedSize: item.selected_size,
-                                                                        extras: (function() {
-                                                                            if (!item.extras) return [];
-                                                                            if (typeof item.extras === 'string') {
-                                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                                            }
-                                                                            if (Array.isArray(item.extras)) return item.extras;
-                                                                            return [];
-                                                                        })(),
-                                                                        note: item.notes || '',
-                                                                        cartItemId: Math.random().toString(36).substr(2, 9)
-                                                                    }));
-                                                                    setCart(loadedCart);
-                                                                    setTimeout(() => {
-                                                                        isProcessingOrder.current = false;
-                                                                        setOrderLoading(false);
-                                                                        setShowPaymentModal(true);
-                                                                    }, 150);
-                                                                }}
-                                                                className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-colors shadow-sm active:scale-95 flex items-center justify-center gap-1"
-                                                            >
-                                                                <span className="material-icons-round text-sm">payments</span>
-                                                                Cobrar
-                                                            </button>
-                                                        </>
+                                                    <h3 className="text-2xl font-black text-[#181511] mb-2">
+                                                        {searchQuery ? 'No se encontró el pedido' : 'Sin pedidos registrados'}
+                                                    </h3>
+                                                    <p className="text-[#8c785f] text-sm max-w-xs mx-auto font-medium">
+                                                        {searchQuery 
+                                                            ? `No pudimos encontrar nada que coincida con "${searchQuery}". Revisa el ID o el nombre.`
+                                                            : 'Aún no hay pedidos en esta categoría para el periodo actual.'}
+                                                    </p>
+                                                    {searchQuery && (
+                                                        <button 
+                                                            onClick={() => setSearchQuery('')}
+                                                            className="mt-8 px-8 py-3 bg-[#181511] text-white rounded-xl font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all"
+                                                        >
+                                                            Limpiar Búsqueda
+                                                        </button>
                                                     )}
-                                                    <button 
-                                                        onClick={() => {
-                                                            const mappedItems = (order.order_items || []).map((it: any) => ({
-                                                                quantity: it.quantity || 0,
-                                                                name: it.product_name || '',
-                                                                price: it.unit_price || 0,
-                                                                product_name: it.product_name,
-                                                                unit_price: it.unit_price,
-                                                                selected_size: it.selected_size,
-                                                                notes: it.notes
-                                                            }));
-                                                            handleWhatsAppShare(order, mappedItems);
-                                                        }}
-                                                        className="size-12 shrink-0 bg-green-500 text-white rounded-2xl flex items-center justify-center hover:bg-green-600 transition-colors shadow-lg active:scale-95"
-                                                        title="WhatsApp"
-                                                    >
-                                                        <span className="material-icons-round">whatsapp</span>
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => {
-                                                            const mappedItems = (order.order_items || []).map((it: any) => ({
-                                                                quantity: it.quantity || 0,
-                                                                name: it.product_name || '',
-                                                                price: it.unit_price || 0,
-                                                                selectedSize: it.selected_size,
-                                                                extras: it.extras
-                                                            }));
-                                                            handleOpenTicketModal(order, mappedItems);
-                                                        }}
-                                                        className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-[#181511]/80 transition-colors shadow-lg active:scale-95"
-                                                    >
-                                                        Ticket
-                                                    </button>
+                                                </div>
+                                            );
+                                        }
+
+                                        return filtered.map((order) => (
+                                            <div key={order.id} className="bg-white rounded-3xl border border-gray-100 p-6 hover:shadow-xl transition-all group overflow-hidden relative">
+                                                <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-500 opacity-50"></div>
+                                                
+                                                <div className="relative z-10">
+                                                    <div className="flex justify-between items-start mb-6">
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.ticket_number || 'S/N'}</span>
+                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                                                    order.status === 'entregado' ? 'bg-green-100 text-green-700' :
+                                                                    ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'bg-purple-100 text-purple-700 border border-purple-200' :
+                                                                    order.status === 'confirmado' ? 'bg-blue-100 text-blue-700' :
+                                                                    'bg-orange-100 text-orange-700'
+                                                                }`}>
+                                                                    {order.status === 'entregado' ? 'Finalizado' : ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'En Mesa' : order.status === 'confirmado' ? 'Recibido' : order.status}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-xl font-black text-[#181511] tracking-tight">
+                                                                {order.customer_name || (order.table_number ? `Mesa #${order.table_number}` : `Ticket #${order.ticket_number || order.id.toString().slice(-5)}`)}
+                                                            </p>
+                                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                                {new Date(order.created_at).toLocaleTimeString()} • {order.order_type === 'delivery' ? 'Domicilio' : 'Local'}
+                                                            </p>
+                                                        </div>
+                                                        <p className="text-2xl font-black text-[#181511] tracking-tighter">${order.total_amount.toFixed(2)}</p>
+                                                    </div>
+
+                                                    <div className="space-y-2 mb-6">
+                                                        {order.order_items?.map((item: any, i: number) => (
+                                                            <div key={i} className="flex justify-between items-center text-xs">
+                                                                <span className="text-[#8c785f] font-medium"><span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}</span>
+                                                                <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+
+                                                    <div className="flex gap-2">
+                                                        {['pendiente', 'preparando', 'listo'].includes(order.status) && (
+                                                            <>
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setShowOrdersView(false);
+                                                                        setOrderType(order.order_type || 'dine-in');
+                                                                        setTableNumber(order.table_number || '');
+                                                                        setActiveOrderId(order.id);
+                                                                        setPaymentMethod(order.payment_method || 'efectivo');
+                                                                        setCustomerInfo({
+                                                                            name: order.customer_name || '',
+                                                                            phone: order.phone_number || '',
+                                                                            address: order.delivery_address || '',
+                                                                            street: (order.delivery_address || '').split(',')[0] || '',
+                                                                            neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                                            reference: ''
+                                                                        });
+                                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                                            id: item.product_id || 0,
+                                                                            name: item.product_name,
+                                                                            price: item.unit_price,
+                                                                            quantity: item.quantity,
+                                                                            selectedSize: item.selected_size,
+                                                                            extras: (function() {
+                                                                                if (!item.extras) return [];
+                                                                                if (typeof item.extras === 'string') {
+                                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                                }
+                                                                                if (Array.isArray(item.extras)) return item.extras;
+                                                                                return [];
+                                                                            })(),
+                                                                            note: item.notes || '',
+                                                                            cartItemId: Math.random().toString(36).substr(2, 9)
+                                                                        }));
+                                                                        setCart(loadedCart);
+                                                                    }}
+                                                                    className="flex-1 bg-purple-50 text-purple-600 border-2 border-purple-200 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-100 transition-colors shadow-sm active:scale-95"
+                                                                >
+                                                                    Abrir Comanda
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setShowOrdersView(false);
+                                                                        setOrderType(order.order_type || 'dine-in');
+                                                                        setTableNumber(order.table_number || '');
+                                                                        setActiveOrderId(order.id);
+                                                                        setPaymentMethod(order.payment_method || 'efectivo');
+                                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                                            id: item.product_id || 0,
+                                                                            name: item.product_name,
+                                                                            price: item.unit_price,
+                                                                            quantity: item.quantity,
+                                                                            selectedSize: item.selected_size,
+                                                                            extras: (function() {
+                                                                                if (!item.extras) return [];
+                                                                                if (typeof item.extras === 'string') {
+                                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                                }
+                                                                                if (Array.isArray(item.extras)) return item.extras;
+                                                                                return [];
+                                                                            })(),
+                                                                            note: item.notes || '',
+                                                                            cartItemId: Math.random().toString(36).substr(2, 9)
+                                                                        }));
+                                                                        setCart(loadedCart);
+                                                                        setTimeout(() => {
+                                                                            isProcessingOrder.current = false;
+                                                                            setOrderLoading(false);
+                                                                            setShowPaymentModal(true);
+                                                                        }, 150);
+                                                                    }}
+                                                                    className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-colors shadow-sm active:scale-95 flex items-center justify-center gap-1"
+                                                                >
+                                                                    <span className="material-icons-round text-sm">payments</span>
+                                                                    Cobrar
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        <button 
+                                                            onClick={() => {
+                                                                const mappedItems = (order.order_items || []).map((it: any) => ({
+                                                                    quantity: it.quantity || 0,
+                                                                    name: it.product_name || '',
+                                                                    price: it.unit_price || 0,
+                                                                    product_name: it.product_name,
+                                                                    unit_price: it.unit_price,
+                                                                    selected_size: it.selected_size,
+                                                                    notes: it.notes
+                                                                }));
+                                                                handleWhatsAppShare(order, mappedItems);
+                                                            }}
+                                                            className="size-12 shrink-0 bg-green-500 text-white rounded-2xl flex items-center justify-center hover:bg-green-600 transition-colors shadow-lg active:scale-95"
+                                                            title="WhatsApp"
+                                                        >
+                                                            <span className="material-icons-round">whatsapp</span>
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => {
+                                                                const mappedItems = (order.order_items || []).map((it: any) => ({
+                                                                    quantity: it.quantity || 0,
+                                                                    name: it.product_name || '',
+                                                                    price: it.unit_price || 0,
+                                                                    selectedSize: it.selected_size,
+                                                                    extras: it.extras
+                                                                }));
+                                                                handleOpenTicketModal(order, mappedItems);
+                                                            }}
+                                                            className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-[#181511]/80 transition-colors shadow-lg active:scale-95"
+                                                        >
+                                                            Ticket
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                    {recentOrders.length === 0 && (
-                                        <div className="col-span-full h-96 flex flex-col items-center justify-center opacity-30">
-                                            <span className="material-icons-round text-8xl mb-4">receipt_long</span>
-                                            <p className="text-xl font-black uppercase tracking-tighter">No hay pedidos registrados</p>
-                                        </div>
-                                    )}
+                                        ));
+                                    })()}
                                 </div>
                             )}
                         </section>
@@ -2127,9 +2148,23 @@ export default function CashierPage() {
                         {/* List */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                             {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full opacity-20 gap-4">
-                                    <span className="material-icons-round text-6xl">receipt_long</span>
-                                    <p className="font-black text-sm uppercase tracking-widest">Sin cuentas abiertas</p>
+                                <div className="flex flex-col items-center justify-center h-full text-center p-6 animate-in fade-in zoom-in duration-300">
+                                    <div className="size-20 bg-gray-50 text-gray-200 rounded-full flex items-center justify-center mb-6">
+                                        <span className="material-icons-round text-4xl">receipt_long</span>
+                                    </div>
+                                    <h3 className="text-xl font-black text-[#181511] mb-2">Sin Cuentas Abiertas</h3>
+                                    <p className="text-[#8c785f] text-sm max-w-[200px] font-medium leading-relaxed">
+                                        No hay pedidos activos en este momento. ¡Todo está al día!
+                                    </p>
+                                    <button 
+                                        onClick={() => {
+                                            setShowOpenTabsModal(false);
+                                            setOrderType('dine-in');
+                                        }}
+                                        className="mt-8 px-6 py-3 bg-[#f7951d] text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-orange-100 active:scale-95 transition-all"
+                                    >
+                                        Comenzar Nueva Orden
+                                    </button>
                                 </div>
                             ) : (
                                 recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').map(order => (

@@ -16,8 +16,22 @@ interface ReportTableProps {
 }
 
 export default function ReportTable({ data, getStatusBadgeClass }: ReportTableProps) {
+    if (!data || data.length === 0) {
+        return (
+            <div className="bg-white rounded-3xl border border-[#e6e1db] p-16 text-center shadow-sm">
+                <div className="size-20 bg-gray-50 text-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <span className="material-symbols-outlined text-4xl">analytics</span>
+                </div>
+                <h3 className="text-xl font-black text-[#181511] mb-2">No hay datos para mostrar</h3>
+                <p className="text-[#8c785f] text-sm max-w-xs mx-auto">
+                    No se encontraron registros para los filtros seleccionados. Intenta ajustando las fechas o categorías.
+                </p>
+            </div>
+        );
+    }
+
     return (
-        <div className="bg-white rounded-xl border border-[#e6e1db] shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-[#e6e1db] shadow-sm overflow-hidden animate-in fade-in duration-500">
             <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                     <thead>
@@ -32,10 +46,10 @@ export default function ReportTable({ data, getStatusBadgeClass }: ReportTablePr
                     </thead>
                     <tbody className="divide-y divide-[#e6e1db]">
                         {data.map((row) => (
-                            <tr key={row.id} className="hover:bg-gray-50">
+                            <tr key={row.id} className="hover:bg-gray-50 transition-colors">
                                 <td className="px-6 py-4 text-sm font-bold text-[#181511]">#{row.id}</td>
                                 <td className="px-6 py-4 text-sm text-[#8c785f]">
-                                    {row.date} <span className="text-xs ml-1">{row.time}</span>
+                                    {row.date} <span className="text-xs ml-1 opacity-60">{row.time}</span>
                                 </td>
                                 <td className="px-6 py-4 text-sm text-[#181511] max-w-xs truncate" title={row.items}>
                                     {row.items}
@@ -43,7 +57,7 @@ export default function ReportTable({ data, getStatusBadgeClass }: ReportTablePr
                                 <td className="px-6 py-4 text-sm font-bold text-[#181511]">${row.amount.toFixed(2)}</td>
                                 <td className="px-6 py-4 text-sm text-[#181511] capitalize">{row.payment_method}</td>
                                 <td className="px-6 py-4 text-center">
-                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusBadgeClass(row.status)}`}>
+                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${getStatusBadgeClass(row.status)}`}>
                                         {row.status}
                                     </span>
                                 </td>

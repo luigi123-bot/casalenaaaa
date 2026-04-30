@@ -74,13 +74,29 @@ export async function POST(req: Request) {
             await supabase.from('order_items').delete().eq('order_id', orderId);
         } else {
             // Nueva orden
-            // Generar número de ticket diario buscando el primer hueco disponible
-            const today = new Date().toLocaleDateString('en-CA');
+            // Generar número de ticket buscando el primer hueco disponible desde la última apertura de caja
+            let lastSessionStart = new Date().toLocaleDateString('en-CA') + 'T00:00:00';
+            
+            try {
+                const { data: lastSession } = await supabase
+                    .from('cashier_sessions')
+                    .select('opened_at')
+                    .order('opened_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                
+                if (lastSession?.opened_at) {
+                    lastSessionStart = lastSession.opened_at;
+                    console.log(`[API-SaveOrder] Calculando ticket desde última apertura: ${lastSessionStart}`);
+                }
+            } catch (err) {
+                console.error('[API-SaveOrder] Error obteniendo última sesión:', err);
+            }
+
             const { data: ticketData } = await supabase
                 .from('orders')
                 .select('ticket_number')
-                .gte('created_at', today + 'T00:00:00')
-                .lte('created_at', today + 'T23:59:59')
+                .gte('created_at', lastSessionStart)
                 .order('ticket_number', { ascending: true });
 
             let dailySequence = 1;
