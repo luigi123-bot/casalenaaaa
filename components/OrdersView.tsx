@@ -35,15 +35,29 @@ export default function OrdersView() {
     });
 
     useEffect(() => {
-        filterOrders();
-    }, [orders, searchTerm, statusFilter]);
+        // Debounce search to avoid too many requests
+        const timer = setTimeout(() => {
+            fetchOrders();
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [searchTerm, statusFilter]);
 
     const fetchOrders = async () => {
         try {
-            const res = await fetch('/api/orders?timeFilter=all');
+            setLoading(true);
+            const params = new URLSearchParams({
+                status: statusFilter,
+                search: searchTerm,
+                limit: '100'
+            });
+            
+            console.log(`[OrdersView] 🔍 Fetching orders: status=${statusFilter}, search=${searchTerm}`);
+            const res = await fetch(`/api/admin/orders?${params.toString()}`);
             if (!res.ok) throw new Error('Failed to fetch orders');
             const data = await res.json();
-            setOrders(data || []);
+            
+            setOrders(data.orders || []);
+            setFilteredOrders(data.orders || []);
         } catch (error) {
             console.error('Error fetching orders:', error);
         } finally {
@@ -51,35 +65,7 @@ export default function OrdersView() {
         }
     };
 
-    const filterOrders = () => {
-        let result = [...orders];
-
-        if (statusFilter !== 'Todos') {
-            const statusMap: { [key: string]: string[] } = {
-                'Finalizado': ['entregado', 'completado'],
-                'Preparando': ['confirmado', 'preparando'],
-                'Listo': ['listo'],
-                'Cancelado': ['cancelado'],
-                'Pendiente': ['pendiente']
-            };
-            const possibleStatuses = statusMap[statusFilter];
-            if (possibleStatuses) {
-                result = result.filter(o => possibleStatuses.includes(o.status));
-            }
-        }
-
-        if (searchTerm) {
-            const lowerTerm = searchTerm.toLowerCase();
-            result = result.filter(o =>
-                o.id.toString().includes(lowerTerm) ||
-                (o.ticket_number && o.ticket_number.toString().includes(lowerTerm)) ||
-                (o.customer_name && o.customer_name.toLowerCase().includes(lowerTerm)) ||
-                o.total_amount.toString().includes(lowerTerm)
-            );
-        }
-
-        setFilteredOrders(result);
-    };
+    // El filtrado ahora se maneja del lado del servidor para mayor eficiencia
 
     const formatDate = (dateString: string) => {
         const date = new Date(dateString);
