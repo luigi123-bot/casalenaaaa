@@ -15,8 +15,12 @@ function createWindow() {
         },
         title: 'Casaleña POS',
         show: false, // Don't show until ready to prevent white flicker
-        icon: path.join(__dirname, '../app/icon.png')
+        icon: path.join(__dirname, '../app/icon.png'),
+        autoHideMenuBar: true
     });
+
+    mainWindow.setMenuBarVisibility(false);
+    mainWindow.maximize();
 
     // Load content: prefer environment variable, default to production URL
     // The ELECTRON_START_URL environment variable will be set by package.json scripts for development.

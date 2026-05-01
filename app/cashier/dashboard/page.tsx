@@ -172,7 +172,7 @@ export default function CashierDashboard() {
             </div>
 
             {/* Quick Actions */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
                 <Link
                     href="/cashier"
                     className="bg-white rounded-xl p-4 border border-gray-200 hover:border-[#F7941D] hover:shadow-md transition-all group"
@@ -216,6 +216,18 @@ export default function CashierDashboard() {
                     <h3 className="font-black text-sm text-[#181511] mb-1">Inventario</h3>
                     <p className="text-[10px] text-[#8c785f]">Stock</p>
                 </Link>
+
+                <a
+                    href="/CasalenaPOS.exe"
+                    download
+                    className="bg-white rounded-xl p-4 border border-gray-200 hover:border-[#F7941D] hover:shadow-md transition-all group"
+                >
+                    <div className="size-12 bg-gray-50 rounded-xl flex items-center justify-center mb-3 group-hover:bg-gray-800 transition-colors">
+                        <span className="material-icons-round text-2xl text-gray-700 group-hover:text-white">desktop_windows</span>
+                    </div>
+                    <h3 className="font-black text-sm text-[#181511] mb-1">App Escritorio</h3>
+                    <p className="text-[10px] text-[#8c785f]">Descargar Windows</p>
+                </a>
             </div>
 
             {/* Recent Orders */}
