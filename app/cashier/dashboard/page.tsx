@@ -29,40 +29,20 @@ export default function CashierDashboard() {
     const fetchDashboardData = useCallback(async () => {
         setLoading(true);
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const { data: orders } = await supabase
-            .from('orders')
-            .select('*')
-            .gte('created_at', today.toISOString());
-
-        if (orders) {
-            const todayRevenue = orders
-                .filter(o => o.status !== 'cancelado')
-                .reduce((sum, o) => sum + o.total_amount, 0);
-
-            setStats({
-                todayOrders: orders.length,
-                todayRevenue,
-                pendingOrders: orders.filter(o =>
-                    ['pendiente', 'confirmado', 'preparando'].includes(o.status)
-                ).length,
-                readyOrders: orders.filter(o => o.status === 'listo').length
-            });
+        try {
+            const response = await fetch('/api/cashier/dashboard');
+            if (response.ok) {
+                const data = await response.json();
+                setStats(data.stats);
+                setRecentOrders(data.recentOrders);
+            } else {
+                console.error('Failed to fetch dashboard data');
+            }
+        } catch (error) {
+            console.error('Error fetching dashboard data:', error);
+        } finally {
+            setLoading(false);
         }
-
-        const { data: recent } = await supabase
-            .from('orders')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(5);
-
-        if (recent) {
-            setRecentOrders(recent);
-        }
-
-        setLoading(false);
     }, []);
 
     useEffect(() => {
