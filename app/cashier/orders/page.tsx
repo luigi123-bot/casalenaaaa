@@ -110,9 +110,9 @@ export default function CashierOrdersPage() {
                 const statusMap: { [key: string]: string[] } = {
                     'Finalizado': ['entregado', 'completado'],
                     'Preparando': ['confirmado', 'preparando'],
-                    'Abiertas': ['pendiente', 'preparando', 'listo'],
+                    'Abiertas': ['pendiente', 'confirmado', 'preparando', 'listo'],
                     'Listos': ['listo'],
-                    'cancelado': ['cancelado'],
+                    'Cancelado': ['cancelado'],
                     'Pendiente': ['pendiente']
                 };
                 const possibleStatuses = statusMap[statusFilter];
@@ -267,7 +267,7 @@ export default function CashierOrdersPage() {
                     { label: 'PickUp', icon: 'shopping_bag' },
                     { label: 'Domicilio', icon: 'delivery_dining' },
                     { label: 'Finalizado', icon: 'check_circle' },
-                    { label: 'cancelado', icon: 'cancel' },
+                    { label: 'Cancelado', icon: 'cancel' },
                 ].map((filter) => {
                     const isActive = statusFilter === filter.label;
                     return (
