@@ -25,6 +25,28 @@ export default function CashierDashboard() {
     const [showNotifications, setShowNotifications] = useState(false);
     const [showChat, setShowChat] = useState(false);
     const [unreadNotifications, setUnreadNotifications] = useState(0);
+    const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+    useEffect(() => {
+        const handler = (e: any) => {
+            e.preventDefault();
+            setDeferredPrompt(e);
+        };
+        window.addEventListener('beforeinstallprompt', handler);
+        return () => window.removeEventListener('beforeinstallprompt', handler);
+    }, []);
+
+    const handleInstallMobile = async () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') {
+                setDeferredPrompt(null);
+            }
+        } else {
+            alert('Para instalar en celular:\n\n📱 iPhone (Safari): Toca el botón de "Compartir" y selecciona "Agregar a Inicio".\n\n🤖 Android (Chrome): Toca el menú de los 3 puntos y selecciona "Agregar a la pantalla principal".');
+        }
+    };
 
     const fetchDashboardData = useCallback(async () => {
         setLoading(true);
@@ -172,7 +194,7 @@ export default function CashierDashboard() {
             </div>
 
             {/* Quick Actions */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
                 <Link
                     href="/cashier"
                     className="bg-white rounded-xl p-4 border border-gray-200 hover:border-[#F7941D] hover:shadow-md transition-all group"
@@ -228,6 +250,17 @@ export default function CashierDashboard() {
                     <h3 className="font-black text-sm text-[#181511] mb-1">App Escritorio</h3>
                     <p className="text-[10px] text-[#8c785f]">Descargar Windows</p>
                 </a>
+
+                <button
+                    onClick={handleInstallMobile}
+                    className="bg-white rounded-xl p-4 border border-gray-200 hover:border-[#F7941D] hover:shadow-md transition-all group text-left"
+                >
+                    <div className="size-12 bg-gray-50 rounded-xl flex items-center justify-center mb-3 group-hover:bg-gray-800 transition-colors">
+                        <span className="material-icons-round text-2xl text-gray-700 group-hover:text-white">phone_iphone</span>
+                    </div>
+                    <h3 className="font-black text-sm text-[#181511] mb-1">App Celular</h3>
+                    <p className="text-[10px] text-[#8c785f]">Instalar (Android/iOS)</p>
+                </button>
             </div>
 
             {/* Recent Orders */}
