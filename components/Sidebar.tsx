@@ -60,22 +60,42 @@ function SidebarComponent() {
     const { user, loading, signOut } = useAuth();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isWindows, setIsWindows] = useState(false);
+    const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
     useEffect(() => {
         const userAgent = navigator.userAgent.toLowerCase();
         const isWin = userAgent.includes('win');
         const isDesktop = !/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
         setIsWindows(isWin || isDesktop);
+
+        const handler = (e: any) => {
+            e.preventDefault();
+            setDeferredPrompt(e);
+        };
+        window.addEventListener('beforeinstallprompt', handler);
+        return () => window.removeEventListener('beforeinstallprompt', handler);
     }, []);
 
     const handleDownloadDesktop = useCallback(() => {
         const link = document.createElement('a');
-        link.href = '/Casalena POS.exe';
-        link.download = 'Casalena POS.exe';
+        link.href = '/CasalenaPOS.exe';
+        link.download = 'CasalenaPOS.exe';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     }, []);
+
+    const handleInstallMobile = async () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') {
+                setDeferredPrompt(null);
+            }
+        } else {
+            alert('Para instalar en celular:\n\n📱 iPhone (Safari): Toca el botón de "Compartir" y selecciona "Agregar a Inicio".\n\n🤖 Android (Chrome): Toca el menú de los 3 puntos y selecciona "Agregar a la pantalla principal".');
+        }
+    };
 
     // Determine which items to show based on role
     const normalizedRole = user?.role?.toLowerCase() || 'cliente';
@@ -184,15 +204,21 @@ function SidebarComponent() {
                         </Link>
                     ) : (
                         <div className="flex flex-col gap-1">
-                            {isWindows && (
-                                <button
-                                    onClick={handleDownloadDesktop}
-                                    className="flex w-full items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden h-11 rounded-xl text-[#F7941D] hover:bg-orange-50 cursor-pointer transition-all border border-orange-100 mb-1"
-                                >
-                                    <span className="material-icons-round text-2xl shrink-0 flex items-center justify-center">laptop_windows</span>
-                                    <span className="ml-4 text-xs font-black whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0">Descargar APP</span>
-                                </button>
-                            )}
+                            <button
+                                onClick={handleDownloadDesktop}
+                                className="flex w-full items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden h-11 rounded-xl text-[#F7941D] hover:bg-orange-50 cursor-pointer transition-all border border-orange-100"
+                            >
+                                <span className="material-icons-round text-2xl shrink-0 flex items-center justify-center">desktop_windows</span>
+                                <span className="ml-4 text-[11px] font-black whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0">App Escritorio</span>
+                            </button>
+
+                            <button
+                                onClick={handleInstallMobile}
+                                className="flex w-full items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden h-11 rounded-xl text-[#F7941D] hover:bg-orange-50 cursor-pointer transition-all border border-orange-100 mb-1"
+                            >
+                                <span className="material-icons-round text-2xl shrink-0 flex items-center justify-center">phone_iphone</span>
+                                <span className="ml-4 text-[11px] font-black whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0">App Celular</span>
+                            </button>
 
                             <button
                                 onClick={async () => {
