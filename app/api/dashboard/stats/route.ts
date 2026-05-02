@@ -2,7 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 // Revalidate every 2 minutes — stats don't need to be real-time
-export const revalidate = 120;
+export const dynamic = 'force-dynamic';
+export const runtime = 'edge';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

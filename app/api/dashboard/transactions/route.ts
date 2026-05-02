@@ -2,7 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 // Short cache — transactions update frequently but don't need to be instant
-export const revalidate = 30;
+export const dynamic = 'force-dynamic';
+export const runtime = 'edge';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
