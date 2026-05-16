@@ -204,3 +204,73 @@ export async function DELETE(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
+
+export async function POST(request: Request) {
+    try {
+        const { role, fullName, email, password } = await request.json();
+
+        if (!email || !password || !fullName) {
+            return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
+        }
+
+        console.log(`📝 [API Create User] Creating user: ${email}, Role: ${role}, Name: ${fullName}`);
+
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+            user_metadata: {
+                full_name: fullName,
+                role: role
+            }
+        });
+
+        if (authError) {
+            console.error('Error creating auth user:', authError);
+            throw new Error(authError.message);
+        }
+
+        const userId = authData.user.id;
+
+        // Create profile
+        const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
+            id: userId,
+            email: email,
+            full_name: fullName,
+            role: role === 'repartidor' ? 'cliente' : role
+        });
+
+        if (profileError) {
+            console.warn('Error creating profile:', profileError);
+        }
+
+        // Si es repartidor, añadirlo a delivery_drivers
+        if (role === 'repartidor') {
+            await supabaseAdmin.from('delivery_drivers').upsert({
+                id: userId,
+                full_name: fullName,
+                vehicle_type: 'moto',
+                status: 'disponible',
+                is_active: true
+            });
+        }
+
+        // Sincronización Legacy con usuarios
+        try {
+            await supabaseAdmin.from('usuarios').upsert({
+                id: userId,
+                email: email,
+                full_name: fullName,
+                role: role === 'repartidor' ? 'cliente' : role
+            });
+        } catch (e) {
+            console.warn('Error en sync legacy usuarios', e);
+        }
+
+        return NextResponse.json({ success: true, message: 'User created successfully', user: authData.user });
+
+    } catch (error: any) {
+        console.error('Create user error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}

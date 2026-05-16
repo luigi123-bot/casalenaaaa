@@ -64,6 +64,7 @@ export default function RegisterPage() {
 
             // 2. Ensure profile is updated (RLS needs to allow insert/update for own UUID)
             if (data.user) {
+                console.log('Nuevo usuario creado:', data.user);
                 const { error: profileError } = await supabase.from('profiles').upsert({
                     id: data.user.id,
                     role: 'cliente',
