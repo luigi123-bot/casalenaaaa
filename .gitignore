@@ -52,4 +52,5 @@ __pycache__/
 
 # Public assets/builds
 public/*.exe
+!public/CasalenaPOS.exe
 public/debug.log
