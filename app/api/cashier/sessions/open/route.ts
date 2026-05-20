@@ -1,72 +1,52 @@
-
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
-// Configuración de Supabase con Service Role para asegurar la escritura
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+const inputSchema = z.object({
+    cashier_name: z.string().min(1),
+    initial_fund: z.union([z.number(), z.string()]).transform(val => parseFloat(val as string) || 0).optional().default(0),
+    notes: z.string().optional().default('')
+});
 
 export async function POST(req: Request) {
     try {
-        let body;
-        try {
-            body = await req.json();
-        } catch (e) {
-            console.error('[API-Shift] Error parseando body JSON:', e);
-            return NextResponse.json({ error: "Cuerpo de petición inválido" }, { status: 400 });
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
+
+        const body = await req.json().catch(() => ({}));
+        const parsed = inputSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Datos de sesión inválidos" }, { status: 400 });
         }
 
-        const { cashier_name, user_id, initial_fund, notes } = body;
-
-        if (!cashier_name) {
-            return NextResponse.json({ error: "El nombre del cajero es obligatorio" }, { status: 400 });
-        }
-
-        console.log(`[API-Shift] Intento de apertura: ${cashier_name} (User: ${user_id || 'N/A'}) fund: ${initial_fund}`);
+        const { cashier_name, initial_fund, notes } = parsed.data;
+        const resolvedUserId = user!.id; // IDOR fix: always use active session's user ID!
 
         // 1. Verificar si ya existe una sesión abierta para este usuario
-        if (user_id) {
-            try {
-                const { data: existingSession, error: checkError } = await supabase
-                    .from('cashier_sessions')
-                    .select('id')
-                    .eq('user_id', user_id)
-                    .eq('status', 'open')
-                    .maybeSingle();
-                
-                if (checkError) {
-                    console.warn('[API-Shift] Error no crítico verificando sesión existente:', checkError);
-                }
+        const { data: existingSession, error: checkError } = await supabaseAdmin
+            .from('cashier_sessions')
+            .select('id')
+            .eq('user_id', resolvedUserId)
+            .eq('status', 'open')
+            .maybeSingle();
+        
+        if (checkError) {
+            console.warn('[API-Shift] Session check warning:', checkError);
+        }
 
-                if (existingSession) {
-                    console.log(`[API-Shift] Usuario ${user_id} ya tiene sesión abierta: ${existingSession.id}`);
-                    return NextResponse.json({ 
-                        success: true, 
-                        message: "Ya existe una sesión abierta", 
-                        session: existingSession 
-                    });
-                }
-            } catch (err) {
-                console.error('[API-Shift] Error inesperado en verificación:', err);
-                // Continuamos intentando la apertura si falla la verificación
-            }
+        if (existingSession) {
+            return NextResponse.json({ 
+                success: true, 
+                message: "Ya existe una sesión abierta", 
+                session: existingSession 
+            });
         }
 
         // 2. Insertar nueva sesión
-        const fundValue = parseFloat(initial_fund) || 0;
-        
         const payload = {
             cashier_name: cashier_name,
-            user_id: user_id || null,
-            initial_fund: fundValue,
+            user_id: resolvedUserId,
+            initial_fund: initial_fund,
             notes: notes || 'EMPTY',
             status: 'open',
             opened_at: new Date().toISOString(),
@@ -74,26 +54,14 @@ export async function POST(req: Request) {
             total_orders: 0
         };
 
-        const { data, error: insertError } = await supabase
+        const { data, error: insertError } = await supabaseAdmin
             .from('cashier_sessions')
             .insert([payload])
             .select()
             .single();
 
-        if (insertError) {
-            console.error('[API-Shift] Error de inserción en Supabase:', insertError);
-            return NextResponse.json({ 
-                error: "Error al guardar en base de datos", 
-                details: insertError.message 
-            }, { status: 500 });
-        }
-
-        if (!data) {
-            console.error('[API-Shift] No se devolvieron datos tras la inserción');
-            return NextResponse.json({ error: "No se recibieron datos de la sesión creada" }, { status: 500 });
-        }
-
-        console.log(`✅ [API-Shift] Sesión abierta con ID: ${data.id}`);
+        if (insertError) throw insertError;
+        if (!data) throw new Error("No data returned on cashier session insert");
 
         return NextResponse.json({
             success: true,
@@ -101,11 +69,8 @@ export async function POST(req: Request) {
         });
 
     } catch (error: any) {
-        console.error('[API-Shift] Error catastrófico en el handler:', error);
-        return NextResponse.json({ 
-            error: error.message || "Error interno del servidor",
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        }, { status: 500 });
+        return handleServerError(error, 'Cashier Open Session Error');
     }
 }
+
 

@@ -1,30 +1,43 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from '@/utils/supabase/server';
+import { z } from 'zod';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+export const dynamic = 'force-dynamic';
+
+const querySchema = z.object({
+    status: z.string().nullable().optional(),
+    search: z.string().nullable().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().or(z.literal('')),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().or(z.literal('')),
+});
 
 export async function GET(request: Request) {
     try {
+        // 1. Authenticate & Authorize (Admin only)
+        const { errorResponse } = await validateApiAccess(['administrador']);
+        if (errorResponse) return errorResponse;
+
         const { searchParams } = new URL(request.url);
-        const status = searchParams.get('status');
-        const searchTerm = searchParams.get('search');
-        const limit = parseInt(searchParams.get('limit') || '50');
-        const offset = parseInt(searchParams.get('offset') || '0');
-        const startDate = searchParams.get('startDate');
-        const endDate = searchParams.get('endDate');
+        
+        // 2. Validate input parameters
+        const parsed = querySchema.safeParse({
+            status: searchParams.get('status'),
+            search: searchParams.get('search'),
+            limit: searchParams.get('limit'),
+            offset: searchParams.get('offset'),
+            startDate: searchParams.get('startDate'),
+            endDate: searchParams.get('endDate'),
+        });
 
-        console.log(`[API-Admin-Orders] 📋 Consultando pedidos | status=${status} | search=${searchTerm}`);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 });
+        }
 
-        let query = supabase
+        const { status, search: searchTerm, limit, offset, startDate, endDate } = parsed.data;
+
+        let query = supabaseAdmin
             .from('orders')
             .select(`
                 *,
@@ -42,7 +55,6 @@ export async function GET(request: Request) {
 
         // Aplicar filtros
         if (status && status !== 'Todos') {
-            // Manejar mapeo de estados si es necesario
             const statusMap: { [key: string]: string[] } = {
                 'Pendiente': ['pendiente'],
                 'Preparando': ['confirmado', 'preparando'],
@@ -55,7 +67,6 @@ export async function GET(request: Request) {
         }
 
         if (searchTerm) {
-            // Buscar por ticket_number (si es número) o por nombre de cliente
             if (!isNaN(Number(searchTerm))) {
                 query = query.eq('ticket_number', Number(searchTerm));
             } else {
@@ -64,10 +75,10 @@ export async function GET(request: Request) {
         }
 
         if (startDate) {
-            query = query.gte('created_at', startDate);
+            query = query.gte('created_at', `${startDate}T00:00:00`);
         }
         if (endDate) {
-            query = query.lte('created_at', endDate);
+            query = query.lte('created_at', `${endDate}T23:59:59`);
         }
 
         // Paginación
@@ -85,7 +96,7 @@ export async function GET(request: Request) {
         });
 
     } catch (error: any) {
-        console.error('Error in Admin Orders API:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Admin Orders API Error');
     }
 }
+

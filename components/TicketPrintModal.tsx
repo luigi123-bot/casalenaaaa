@@ -2,6 +2,7 @@
 
 import React, { useEffect } from 'react';
 import Ticket58mm, { TicketData } from './Ticket58mm';
+import DOMPurify from 'dompurify';
 
 interface TicketPrintModalProps {
   isOpen: boolean;
@@ -15,12 +16,17 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
     const printContent = document.getElementById('print-area');
     if (!printContent) return;
 
+    // Sanitizar outerHTML para evitar ataques XSS durante la impresión
+    const cleanOuterHtml = DOMPurify.sanitize(printContent.outerHTML, {
+      ADD_TAGS: ['style', 'svg', 'path', 'circle', 'rect'],
+      ADD_ATTR: ['style', 'class', 'id', 'd', 'fill', 'stroke', 'width', 'height']
+    });
+
     // Detectar si estamos en el entorno de escritorio (Electron)
     const isElectron = typeof window !== 'undefined' && 
                       ((window as any).electron?.isElectron || navigator.userAgent.toLowerCase().includes('electron'));
 
     if (isElectron) {
-      console.log('🖥️ [Print] Entorno Electron detectado. Iniciando impresión silenciosa...');
       try {
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
           .map(node => node.outerHTML)
@@ -38,23 +44,22 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
             </head>
             <body>
               <div style="width: 58mm; overflow: hidden;">
-                ${printContent.outerHTML}
+                ${cleanOuterHtml}
               </div>
             </body>
           </html>
         `;
 
         await (window as any).electron.printSilent({ html: fullHtml });
-        console.log('✅ [Print] Orden enviada a la impresora.');
         onClose(); 
         return;
       } catch (err) {
-        console.error('❌ [Print] Error en impresión de Electron:', err);
+        // Safe console output, no client personal information exposed
+        console.error('[Print] Error in Electron printing process');
       }
     }
 
     // Fallback: Navegador / PWA (Mostrará cuadro de diálogo por seguridad del navegador)
-    console.log('🌐 [Print] Entorno Web detectado. Usando diálogo de impresión del navegador.');
     const oldIframe = document.getElementById('ticket-print-iframe');
     if (oldIframe) oldIframe.remove();
 
@@ -81,7 +86,7 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
           </style>
         </head>
         <body onload="window.print();">
-          ${printContent.outerHTML}
+          ${cleanOuterHtml}
         </body>
       </html>
     `);
@@ -94,7 +99,6 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
         handlePrint();
         const isElectron = (window as any).electron?.isElectron;
         if (!isElectron) {
-          // Reducimos el tiempo de cierre para que sea casi instantáneo en modo kiosko
           setTimeout(onClose, 500);
         }
       }, 100); 
@@ -114,3 +118,4 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
 };
 
 export default TicketPrintModal;
+

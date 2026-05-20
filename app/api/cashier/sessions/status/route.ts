@@ -1,43 +1,42 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
 export const dynamic = 'force-dynamic';
-export const runtime = 'edge';
 
-// Configuramos Supabase con Service Role para asegurar que pueda leer sin importar el RLS
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+const querySchema = z.object({
+    userId: z.string().uuid().nullable().optional()
+});
 
 export async function GET(req: Request) {
     try {
-        const { searchParams } = new URL(req.url);
-        const userId = searchParams.get('userId');
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
 
-        if (!userId) {
-            return NextResponse.json({ error: "Falta el userId" }, { status: 400 });
+        const { searchParams } = new URL(req.url);
+        const parsed = querySchema.safeParse({
+            userId: searchParams.get('userId') || null
+        });
+
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Parámetros inválidos" }, { status: 400 });
         }
 
-        const { data: activeSession, error } = await supabase
+        // IDOR Prevention: Only admins can query another user's session status
+        const resolvedUserId = (parsed.data.userId && user!.role === 'administrador') 
+            ? parsed.data.userId 
+            : user!.id;
+
+        const { data: activeSession, error } = await supabaseAdmin
             .from('cashier_sessions')
             .select('id, opened_at, initial_fund')
             .eq('status', 'open')
-            .eq('user_id', userId)
+            .eq('user_id', resolvedUserId)
             .order('opened_at', { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
 
-        if (error && error.code !== 'PGRST116') { // Ignoramos el error "0 rows"
-            console.error('[API-Session-Status] Error Supabase:', error);
-            throw error;
-        }
+        if (error) throw error;
 
         return NextResponse.json({
             isOpen: !!activeSession,
@@ -45,7 +44,7 @@ export async function GET(req: Request) {
         });
 
     } catch (error: any) {
-        console.error('[API-Session-Status] Error:', error);
-        return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
+        return handleServerError(error, 'Cashier Session Status Error');
     }
 }
+

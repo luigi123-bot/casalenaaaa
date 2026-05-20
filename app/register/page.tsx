@@ -96,9 +96,9 @@ export default function RegisterPage() {
             // 3. Redirect to destination
             setTimeout(() => {
                 if (isCheckout) {
-                    // Save fields to localStorage for checkout auto-fill
-                    localStorage.setItem('pendingPhoneNumber', phoneNumber);
-                    localStorage.setItem('pendingDeliveryAddress', address);
+                    // Save fields to sessionStorage for checkout auto-fill
+                    sessionStorage.setItem('pendingPhoneNumber', phoneNumber);
+                    sessionStorage.setItem('pendingDeliveryAddress', address);
                     router.push(redirectPath);
                 } else {
                     router.push('/tienda');

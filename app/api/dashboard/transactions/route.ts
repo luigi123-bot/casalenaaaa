@@ -1,21 +1,30 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
-// Short cache — transactions update frequently but don't need to be instant
 export const dynamic = 'force-dynamic';
-export const runtime = 'edge';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const querySchema = z.object({
+    limit: z.coerce.number().int().positive().max(50).optional().default(10)
+});
 
 export async function GET(request: Request) {
     try {
-        const { searchParams } = new URL(request.url);
-        const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 50); // cap at 50
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
 
-        const { data: orders, error } = await supabase
+        const { searchParams } = new URL(request.url);
+        const parsed = querySchema.safeParse({
+            limit: searchParams.get('limit') || undefined
+        });
+
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 });
+        }
+
+        const { limit } = parsed.data;
+
+        const { data: orders, error } = await supabaseAdmin
             .from('orders')
             .select(`
                 id,
@@ -54,10 +63,7 @@ export async function GET(request: Request) {
         return NextResponse.json(transactions);
 
     } catch (error: any) {
-        console.error('Transactions error:', error);
-        return NextResponse.json(
-            { error: 'Error al obtener transacciones' },
-            { status: 500 }
-        );
+        return handleServerError(error, 'Dashboard Transactions API Error');
     }
 }
+

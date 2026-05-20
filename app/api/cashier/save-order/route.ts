@@ -1,36 +1,59 @@
-
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+const orderItemSchema = z.object({
+    product_name: z.string(),
+    product_id: z.string().uuid(),
+    quantity: z.number().int().positive(),
+    unit_price: z.number().nonnegative(),
+    selected_size: z.string().nullable().optional(),
+    extras: z.array(z.any()).nullable().optional(),
+    notes: z.string().nullable().optional()
+});
+
+const orderSchema = z.object({
+    id: z.string().uuid().nullable().optional(),
+    customer_name: z.string().nullable().optional(),
+    phone_number: z.string().nullable().optional(),
+    order_type: z.enum(['local', 'takeout', 'delivery']),
+    table_number: z.coerce.number().int().nullable().optional(),
+    delivery_address: z.string().nullable().optional(),
+    delivery_zone: z.string().nullable().optional(),
+    delivery_cost: z.number().nonnegative().optional().default(0),
+    total_amount: z.number().nonnegative(),
+    payment_method: z.string().optional().default('efectivo'),
+    payment_status: z.enum(['pending', 'paid', 'partially_paid']).optional().default('pending'),
+    status: z.enum(['pendiente', 'confirmado', 'preparando', 'listo', 'entregado', 'cancelado', 'completado']).optional().default('pendiente'),
+    user_id: z.string().uuid().nullable().optional()
+}).passthrough();
+
+const inputSchema = z.object({
+    order: orderSchema,
+    items: z.array(orderItemSchema)
+});
 
 export async function POST(req: Request) {
     try {
-        const body = await req.json();
-        const { order, items } = body;
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
 
-        console.log(`🚀 [API-SaveOrder] Iniciando proceso para: ${order.customer_name || 'Sin nombre'} (${order.phone_number || 'Sin Tel'})`);
-        console.log(`📦 [API-SaveOrder] Payload completo:`, JSON.stringify(body, null, 2));
+        const body = await req.json().catch(() => ({}));
+        const parsed = inputSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Datos de orden o items inválidos' }, { status: 400 });
+        }
+
+        const { order, items } = parsed.data;
 
         // 1. GESTIÓN AUTOMÁTICA DE CLIENTE (Upsert)
-        // Solo si es delivery o takeout y tiene teléfono
         if ((order.order_type === 'delivery' || order.order_type === 'takeout') && order.phone_number) {
             try {
                 const phoneClean = order.phone_number.replace(/\D/g, '');
                 if (phoneClean.length >= 7) {
-                    console.log(`👤 [API-SaveOrder] Upsert de cliente: ${phoneClean} (${order.customer_name})`);
-                    const { error: upsertError } = await supabase
+                    await supabaseAdmin
                         .from('customers')
                         .upsert({
                             phone: phoneClean,
@@ -38,16 +61,9 @@ export async function POST(req: Request) {
                             address: order.delivery_address || '',
                             last_order_at: new Date().toISOString()
                         }, { onConflict: 'phone' });
-                    
-                    if (upsertError) {
-                        console.error('❌ [API-SaveOrder] Error en upsert de cliente:', upsertError);
-                    } else {
-                        console.log('✅ [API-SaveOrder] Cliente sincronizado correctamente.');
-                    }
                 }
             } catch (err) {
-                console.warn('⚠️ [API-SaveOrder] Error no crítico guardando cliente:', err);
-                // No detenemos la orden por un error en el guardado de cliente
+                // Ignore silent non-critical client upsert fail
             }
         }
 
@@ -57,7 +73,7 @@ export async function POST(req: Request) {
 
         if (orderId) {
             // Actualizar orden existente
-            const { data, error } = await supabase
+            const { data, error } = await supabaseAdmin
                 .from('orders')
                 .update({
                     ...order,
@@ -71,14 +87,13 @@ export async function POST(req: Request) {
             createdOrder = data;
 
             // Limpiar items anteriores para re-insertar
-            await supabase.from('order_items').delete().eq('order_id', orderId);
+            await supabaseAdmin.from('order_items').delete().eq('order_id', orderId);
         } else {
             // Nueva orden
-            // Generar número de ticket buscando el primer hueco disponible desde la última apertura de caja
             let lastSessionStart = new Date().toLocaleDateString('en-CA') + 'T00:00:00';
             
             try {
-                const { data: lastSession } = await supabase
+                const { data: lastSession } = await supabaseAdmin
                     .from('cashier_sessions')
                     .select('opened_at')
                     .order('opened_at', { ascending: false })
@@ -87,13 +102,12 @@ export async function POST(req: Request) {
                 
                 if (lastSession?.opened_at) {
                     lastSessionStart = lastSession.opened_at;
-                    console.log(`[API-SaveOrder] Calculando ticket desde última apertura: ${lastSessionStart}`);
                 }
             } catch (err) {
-                console.error('[API-SaveOrder] Error obteniendo última sesión:', err);
+                // Silent catch
             }
 
-            const { data: ticketData } = await supabase
+            const { data: ticketData } = await supabaseAdmin
                 .from('orders')
                 .select('ticket_number')
                 .gte('created_at', lastSessionStart)
@@ -107,7 +121,7 @@ export async function POST(req: Request) {
                 }
             }
 
-            const { data, error } = await supabase
+            const { data, error } = await supabaseAdmin
                 .from('orders')
                 .insert({
                     ...order,
@@ -129,13 +143,11 @@ export async function POST(req: Request) {
             order_id: orderId
         }));
 
-        const { error: itemsError } = await supabase
+        const { error: itemsError } = await supabaseAdmin
             .from('order_items')
             .insert(itemsWithOrderId);
 
         if (itemsError) throw itemsError;
-
-        console.log(`✅ [API-SaveOrder] Orden ${orderId} guardada exitosamente.`);
 
         return NextResponse.json({
             success: true,
@@ -143,7 +155,7 @@ export async function POST(req: Request) {
         });
 
     } catch (error: any) {
-        console.error('❌ [API-SaveOrder] Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Cashier Save Order API Error');
     }
 }
+

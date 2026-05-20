@@ -1,25 +1,14 @@
-
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
-
 export async function GET(req: Request) {
     try {
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
+
         // Siempre usamos el inicio del día actual en horario México (UTC-6)
-        // Esto garantiza que se incluyan TODOS los pedidos del día, 
-        // independientemente de la hora exacta de apertura de caja.
         const now = new Date();
         const mxOffset = -6; // UTC-6
         const mxNow = new Date(now.getTime() + mxOffset * 3600 * 1000);
@@ -28,26 +17,13 @@ export async function GET(req: Request) {
         // Convertir de vuelta a UTC para la query
         const filterStart = new Date(startOfDayMx.getTime() - mxOffset * 3600 * 1000).toISOString();
 
-        console.log(`[API-Cierre] Consultando TODOS los pedidos desde: ${filterStart}`);
-
-        // ⚠️ NO filtramos por user_id porque los pedidos se crean con user_id: null.
-        // Se incluyen todos los pedidos desde la apertura de caja hasta ahora.
-        const { data: orders, error } = await supabase
+        const { data: orders, error } = await supabaseAdmin
             .from('orders')
             .select('id, ticket_number, total_amount, payment_method, order_type, status, created_at, order_items(product_name, quantity)')
             .gte('created_at', filterStart)
             .neq('status', 'cancelado'); // Excluimos cancelados del total, pero los contamos aparte
 
         if (error) throw error;
-
-        console.log(`[API-Cierre] 📦 Pedidos encontrados para el cierre: ${orders?.length || 0}`);
-        if (orders && orders.length > 0) {
-            const statusSummary = orders.reduce((acc: any, o: any) => {
-                acc[o.status] = (acc[o.status] || 0) + 1;
-                return acc;
-            }, {});
-            console.log(`[API-Cierre] Resumen de estados encontrados:`, statusSummary);
-        }
 
         const summary = {
             totalVentas: 0,
@@ -78,7 +54,6 @@ export async function GET(req: Request) {
                 summary.canceladas.total += total;
             } else {
                 // Incluimos TODO lo demás (entregado, listo, preparando, pendiente, etc.)
-                // tal como solicitó el usuario ("independiente si se pagaron o siguen en cocina")
                 summary.totalVentas += total;
                 summary.totalOrdenes += 1;
 
@@ -135,7 +110,7 @@ export async function GET(req: Request) {
         return NextResponse.json(summary);
 
     } catch (error: any) {
-        console.error('[API-Cierre] Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Cashier Closure Summary Error');
     }
 }
+

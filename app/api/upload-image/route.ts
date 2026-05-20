@@ -1,53 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
 
-// Initialize Supabase with service role for admin access (bypasses RLS)
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
     try {
-        console.log('📸 [UPLOAD] Starting image upload...');
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
 
         const formData = await request.formData();
         const file = formData.get('file') as File;
 
         if (!file) {
-            console.error('❌ [UPLOAD] No file provided');
             return NextResponse.json(
-                { error: 'No file provided' },
+                { error: 'No se proporcionó ningún archivo' },
                 { status: 400 }
             );
         }
 
-        console.log('📁 [UPLOAD] File details:', {
-            name: file.name,
-            type: file.type,
-            size: `${(file.size / 1024).toFixed(2)} KB`
-        });
+        // Generate unique filename and validate file type (only allow image files)
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!allowedTypes.includes(file.type)) {
+            return NextResponse.json(
+                { error: 'Tipo de archivo no permitido. Solo se permiten imágenes.' },
+                { status: 400 }
+            );
+        }
 
-        // Generate unique filename
-        const fileExt = file.name.split('.').pop();
+        const fileExt = file.name.split('.').pop() || 'png';
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-
-        console.log('🔄 [UPLOAD] Generated filename:', fileName);
 
         // Convert File to ArrayBuffer
         const arrayBuffer = await file.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
-        console.log('☁️ [UPLOAD] Uploading to Supabase Storage bucket: pizza');
-
         // Upload to Supabase Storage
-        const { data, error } = await supabase.storage
+        const { data, error } = await supabaseAdmin.storage
             .from('pizza')
             .upload(fileName, buffer, {
                 contentType: file.type,
@@ -55,22 +43,12 @@ export async function POST(request: NextRequest) {
                 upsert: false
             });
 
-        if (error) {
-            console.error('❌ [UPLOAD] Supabase Storage error:', error);
-            return NextResponse.json(
-                { error: error.message },
-                { status: 500 }
-            );
-        }
-
-        console.log('✅ [UPLOAD] File uploaded successfully:', data.path);
+        if (error) throw error;
 
         // Get public URL
-        const { data: { publicUrl } } = supabase.storage
+        const { data: { publicUrl } } = supabaseAdmin.storage
             .from('pizza')
             .getPublicUrl(fileName);
-
-        console.log('🔗 [UPLOAD] Public URL:', publicUrl);
 
         return NextResponse.json({
             success: true,
@@ -79,10 +57,7 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error) {
-        console.error('💥 [UPLOAD] Unexpected error:', error);
-        return NextResponse.json(
-            { error: 'Failed to upload image' },
-            { status: 500 }
-        );
+        return handleServerError(error, 'Upload Image API Error');
     }
 }
+

@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
+import DOMPurify from 'dompurify';
+
 
 interface CierreData {
     fechaTurno: string;
@@ -41,10 +43,10 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
 
     useEffect(() => {
         if (!userId) return;
-        const e = localStorage.getItem(`caja_casalena_efectivo_${userId}`);
-        const gc = localStorage.getItem(`caja_casalena_gcom_${userId}`);
-        const gk = localStorage.getItem(`caja_casalena_gcoc_${userId}`);
-        const gl = localStorage.getItem(`caja_casalena_glim_${userId}`);
+        const e = sessionStorage.getItem(`caja_casalena_efectivo_${userId}`);
+        const gc = sessionStorage.getItem(`caja_casalena_gcom_${userId}`);
+        const gk = sessionStorage.getItem(`caja_casalena_gcoc_${userId}`);
+        const gl = sessionStorage.getItem(`caja_casalena_glim_${userId}`);
         if (e) setEfectivoContado(e);
         if (gc) setGastosCombustible(gc);
         if (gk) setGastosInsumoCocina(gk);
@@ -53,11 +55,12 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
 
     useEffect(() => {
         if (!userId) return;
-        localStorage.setItem(`caja_casalena_efectivo_${userId}`, efectivoContado);
-        localStorage.setItem(`caja_casalena_gcom_${userId}`, gastosCombustible);
-        localStorage.setItem(`caja_casalena_gcoc_${userId}`, gastosInsumoCocina);
-        localStorage.setItem(`caja_casalena_glim_${userId}`, gastosInsumoLimpieza);
+        sessionStorage.setItem(`caja_casalena_efectivo_${userId}`, efectivoContado);
+        sessionStorage.setItem(`caja_casalena_gcom_${userId}`, gastosCombustible);
+        sessionStorage.setItem(`caja_casalena_gcoc_${userId}`, gastosInsumoCocina);
+        sessionStorage.setItem(`caja_casalena_glim_${userId}`, gastosInsumoLimpieza);
     }, [efectivoContado, gastosCombustible, gastosInsumoCocina, gastosInsumoLimpieza, userId]);
+
 
     const fetchCierreData = useCallback(async () => {
         console.log('🚀 [Cierre] Iniciando proceso de cálculo de ventas...');
@@ -195,19 +198,20 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
                 throw new Error(errData.error || 'Error en la respuesta del servidor al cerrar la sesión.');
             }
 
-            // 3. Limpiar cualquier basura de LocalStorage (Legacy cleanup)
+            // 3. Limpiar cualquier basura de sessionStorage
             try {
                 const keysToRemove: string[] = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                    const k = localStorage.key(i);
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const k = sessionStorage.key(i);
                     if (k?.startsWith('caja_casalena_')) {
                         keysToRemove.push(k);
                     }
                 }
-                keysToRemove.forEach(k => localStorage.removeItem(k));
+                keysToRemove.forEach(k => sessionStorage.removeItem(k));
             } catch (e) {
-                console.warn('[Cierre] No se pudo limpiar localStorage.');
+                // Ignore
             }
+
 
             setStep('done');
             console.log('🏁 [Cierre] Proceso de cierre completado.');
@@ -319,18 +323,20 @@ window.onload = function() {
 </body>
 </html>`;
 
+        const cleanTicketHtml = DOMPurify.sanitize(ticketHtml, {
+            ADD_TAGS: ['style', 'svg', 'path', 'circle', 'rect', 'html', 'head', 'body', 'meta', 'hr'],
+            ADD_ATTR: ['style', 'class', 'id', 'd', 'fill', 'stroke', 'width', 'height', 'lang', 'charset', 'content', 'name']
+        });
+
         const isElectron = typeof window !== 'undefined' && 
                           ((window as any).electron?.isElectron || navigator.userAgent.toLowerCase().includes('electron'));
 
         if (isElectron && (window as any).electron?.printSilent) {
-            console.log('🖥️ [Print Cierre] Entorno Electron detectado. Iniciando impresión silenciosa...');
-            (window as any).electron.printSilent({ html: ticketHtml })
-                .then(() => console.log('✅ [Print Cierre] Orden enviada a la impresora.'))
-                .catch((err: any) => console.error('❌ [Print Cierre] Error en impresión de Electron:', err));
+            (window as any).electron.printSilent({ html: cleanTicketHtml })
+                .catch((err: any) => {});
             return;
         }
 
-        console.log('🌐 [Print Cierre] Entorno Web detectado. Usando diálogo de impresión del navegador.');
         const oldIframe = document.getElementById('cierre-print-iframe');
         if (oldIframe) oldIframe.remove();
 
@@ -342,7 +348,7 @@ window.onload = function() {
         const doc = iframe.contentWindow?.document;
         if (doc) {
             doc.open();
-            doc.write(ticketHtml);
+            doc.write(cleanTicketHtml);
             doc.close();
             
             // Clean up iframe after 10s
@@ -351,6 +357,7 @@ window.onload = function() {
                 if (f) f.remove();
             }, 10000);
         }
+
     };
 
     return (

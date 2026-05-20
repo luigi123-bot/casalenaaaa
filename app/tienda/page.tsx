@@ -128,35 +128,35 @@ export default function TiendaPage() {
         }
     };
 
-    // Restore cart from localStorage after login
+    // Restore cart from sessionStorage after login
     useEffect(() => {
         if (userId) {
-            const pendingCart = localStorage.getItem('pendingCart');
-            const pendingDeliveryAddress = localStorage.getItem('pendingDeliveryAddress');
-            const pendingPhoneNumber = localStorage.getItem('pendingPhoneNumber');
+            const pendingCart = sessionStorage.getItem('pendingCart');
+            const pendingDeliveryAddress = sessionStorage.getItem('pendingDeliveryAddress');
+            const pendingPhoneNumber = sessionStorage.getItem('pendingPhoneNumber');
 
             if (pendingCart) {
                 try {
                     const parsedCart = JSON.parse(pendingCart);
                     setCart(parsedCart);
-                    console.log('✅ Carrito restaurado después del login');
                 } catch (e) {
-                    console.error('Error al restaurar carrito:', e);
+                    // Safe silent catch
                 }
-                localStorage.removeItem('pendingCart');
+                sessionStorage.removeItem('pendingCart');
             }
 
             if (pendingDeliveryAddress) {
                 setDeliveryAddress(pendingDeliveryAddress);
-                localStorage.removeItem('pendingDeliveryAddress');
+                sessionStorage.removeItem('pendingDeliveryAddress');
             }
 
             if (pendingPhoneNumber) {
                 setPhoneNumber(pendingPhoneNumber);
-                localStorage.removeItem('pendingPhoneNumber');
+                sessionStorage.removeItem('pendingPhoneNumber');
             }
         }
     }, [userId]);
+
 
     const fetchUserData = async () => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -403,15 +403,15 @@ export default function TiendaPage() {
 
         // Check if user is authenticated
         if (!userId) {
-            console.warn('⚠️ Usuario no autenticado, redirigiendo al login...');
-            // Save cart to localStorage before redirecting
-            localStorage.setItem('pendingCart', JSON.stringify(cart));
-            localStorage.setItem('pendingDeliveryAddress', deliveryAddress);
-            localStorage.setItem('pendingPhoneNumber', phoneNumber);
+            // Save cart to sessionStorage before redirecting
+            sessionStorage.setItem('pendingCart', JSON.stringify(cart));
+            sessionStorage.setItem('pendingDeliveryAddress', deliveryAddress);
+            sessionStorage.setItem('pendingPhoneNumber', phoneNumber);
             // Redirect to register with return URL
             router.push('/register?redirect=/tienda&checkout=true');
             return;
         }
+
 
         if (cart.length === 0) {
             console.warn('❌ Intento de checkout fallido: Carrito vacío');

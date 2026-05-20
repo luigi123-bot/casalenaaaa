@@ -1,21 +1,18 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-);
-
 export async function GET(req: Request) {
     try {
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
+
         const { searchParams } = new URL(req.url);
         const term = searchParams.get('term') || '';
 
         // ── Buscar en profiles (usuarios registrados con rol cliente) ─────────
-        let profilesQuery = supabase
+        let profilesQuery = supabaseAdmin
             .from('profiles')
             .select('id, full_name, phone_number, address, role')
             .eq('role', 'cliente')
@@ -29,7 +26,7 @@ export async function GET(req: Request) {
         }
 
         // ── Buscar en customers (clientes ad-hoc del cajero) ──────────────────
-        let customersQuery = supabase
+        let customersQuery = supabaseAdmin
             .from('customers')
             .select('id, full_name, phone, address')
             .order('full_name', { ascending: true })
@@ -45,6 +42,9 @@ export async function GET(req: Request) {
             profilesQuery,
             customersQuery,
         ]);
+
+        if (profilesRes.error) throw profilesRes.error;
+        if (customersRes.error) throw customersRes.error;
 
         // ── Normalizar ────────────────────────────────────────────────────────
         const normalizedProfiles = (profilesRes.data || []).map(p => ({
@@ -76,7 +76,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ customers: unique.slice(0, 60) });
 
     } catch (error: any) {
-        console.error('❌ [API-CustomerSearch] Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Cashier Customer Search Error');
     }
 }
+

@@ -1,26 +1,29 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-);
+const inputSchema = z.object({
+    phone: z.string().min(1),
+    full_name: z.string().min(1),
+    address: z.string().optional().default('')
+});
 
 export async function POST(req: Request) {
     try {
-        const body = await req.json();
-        const { phone, full_name, address } = body;
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
 
-        if (!phone) {
-            return NextResponse.json({ error: "Teléfono requerido" }, { status: 400 });
+        const body = await req.json().catch(() => ({}));
+        const parsed = inputSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Datos de cliente inválidos" }, { status: 400 });
         }
 
-        console.log(`📡 [API] Guardando cliente: ${phone} (${full_name})`);
+        const { phone, full_name, address } = parsed.data;
 
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
             .from('customers')
             .upsert({
                 phone: phone.trim(),
@@ -30,15 +33,12 @@ export async function POST(req: Request) {
             .select()
             .single();
 
-        if (error) {
-            console.error('❌ [API] Error Supabase:', error);
-            return NextResponse.json({ error: error.message }, { status: 500 });
-        }
+        if (error) throw error;
 
         return NextResponse.json({ success: true, customer: data });
 
     } catch (error: any) {
-        console.error('❌ [API] Error crítico:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Cashier Save Customer Error');
     }
 }
+

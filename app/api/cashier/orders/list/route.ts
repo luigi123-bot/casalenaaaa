@@ -1,27 +1,31 @@
-
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+const querySchema = z.object({
+    userId: z.string().uuid().nullable().optional()
+});
 
 export async function GET(req: Request) {
     try {
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
+
         const { searchParams } = new URL(req.url);
-        const userId = searchParams.get('userId');
+        const parsed = querySchema.safeParse({
+            userId: searchParams.get('userId') || null
+        });
+
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 });
+        }
+
+        const { userId } = parsed.data;
 
         // 1. Obtener Cuentas Abiertas (Pendientes, Preparando, Listo)
-        let queryOpen = supabase
+        let queryOpen = supabaseAdmin
             .from('orders')
             .select(`
                 *,
@@ -47,7 +51,7 @@ export async function GET(req: Request) {
         if (openErr) throw openErr;
 
         // 2. Obtener Historial Reciente (Entregado, Cancelado, Confirmado o cualquier Pagado)
-        let queryHistory = supabase
+        let queryHistory = supabaseAdmin
             .from('orders')
             .select(`
                 *,
@@ -80,7 +84,7 @@ export async function GET(req: Request) {
         });
 
     } catch (error: any) {
-        console.error('❌ [API-ListOrders] Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Cashier List Orders API Error');
     }
 }
+

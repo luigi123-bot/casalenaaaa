@@ -1,19 +1,28 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
-// Revalidate every 2 minutes — stats don't need to be real-time
 export const dynamic = 'force-dynamic';
-export const runtime = 'edge';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const querySchema = z.object({
+    range: z.enum(['week', 'month', 'year']).optional().default('week')
+});
 
 export async function GET(request: Request) {
     try {
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
+
         const { searchParams } = new URL(request.url);
-        const range = searchParams.get('range') || 'week'; // 'week', 'month', 'year'
+        const parsed = querySchema.safeParse({
+            range: searchParams.get('range') || undefined
+        });
+
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 });
+        }
+
+        const { range } = parsed.data;
 
         // ── Calcular rangos de fecha ANTES de la query ──────────────────────
         const now = new Date();
@@ -38,25 +47,23 @@ export async function GET(request: Request) {
 
         // ── Fetch solo el rango necesario — NO traer toda la tabla ──────────
         const [currentRes, prevRes] = await Promise.all([
-            supabase
+            supabaseAdmin
                 .from('orders')
                 .select('id, total_amount, created_at, status')
                 .gte('created_at', startDate.toISOString())
                 .lte('created_at', now.toISOString()),
-            supabase
+            supabaseAdmin
                 .from('orders')
                 .select('id, total_amount, created_at, status')
                 .gte('created_at', prevStartDate.toISOString())
                 .lte('created_at', prevEndDate.toISOString()),
         ]);
 
-        if (currentRes.error) throw new Error(`DB Error: ${currentRes.error.message}`);
-        if (prevRes.error) throw new Error(`DB Error: ${prevRes.error.message}`);
+        if (currentRes.error) throw currentRes.error;
+        if (prevRes.error) throw prevRes.error;
 
         const currentOrders = currentRes.data || [];
         const prevOrders = prevRes.data || [];
-
-        // (removed verbose console.log in production path)
 
         // Calcular Métricas
         const calculateSales = (orders: any[]) => orders.reduce((sum, o) => sum + parseFloat(o.total_amount || '0'), 0);
@@ -108,14 +115,14 @@ export async function GET(request: Request) {
 
         // ── Top Product y Category Stats en paralelo ────────────────────────
         const [topProductsRes, categoryItemsRes] = await Promise.all([
-            supabase
+            supabaseAdmin
                 .from('order_items')
                 .select(`quantity, products (name)`)
                 .limit(1),
-            supabase
+            supabaseAdmin
                 .from('order_items')
                 .select(`quantity, products (name, categories (name))`)
-                .limit(500), // cap para evitar traer miles de filas
+                .limit(500),
         ]);
 
         const topProducts = topProductsRes.data;
@@ -170,10 +177,7 @@ export async function GET(request: Request) {
         return NextResponse.json(stats);
 
     } catch (error: any) {
-        console.error('Dashboard stats error:', error);
-        return NextResponse.json(
-            { error: 'Error al obtener estadísticas' },
-            { status: 500 }
-        );
+        return handleServerError(error, 'Dashboard Stats API Error');
     }
 }
+

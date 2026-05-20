@@ -232,45 +232,45 @@ export default function CashierPage() {
     const [systemSettings, setSystemSettings] = useState<any>(null);
     const [isAdmin, setIsAdmin] = useState(false);
 
-    // --- Persistencia Local (LocalStorage) ---
+    // --- Persistencia Local (SessionStorage) ---
     const [isStateRestored, setIsStateRestored] = useState(false);
     const [isLocalStorageEnabled, setIsLocalStorageEnabled] = useState(true);
 
     useEffect(() => {
         try {
-            const savedCart = localStorage.getItem('caja_cart');
+            const savedCart = sessionStorage.getItem('caja_cart');
             if (savedCart) setCart(JSON.parse(savedCart));
 
-            const savedOrderType = localStorage.getItem('caja_orderType');
+            const savedOrderType = sessionStorage.getItem('caja_orderType');
             if (savedOrderType) setOrderType(savedOrderType as OrderType);
 
-            const savedTableNumber = localStorage.getItem('caja_tableNumber');
+            const savedTableNumber = sessionStorage.getItem('caja_tableNumber');
             if (savedTableNumber) setTableNumber(savedTableNumber);
 
-            const savedCustomerInfo = localStorage.getItem('caja_customerInfo');
+            const savedCustomerInfo = sessionStorage.getItem('caja_customerInfo');
             if (savedCustomerInfo) setCustomerInfo(JSON.parse(savedCustomerInfo));
 
-            const savedActiveOrderId = localStorage.getItem('caja_activeOrderId');
+            const savedActiveOrderId = sessionStorage.getItem('caja_activeOrderId');
             if (savedActiveOrderId) setActiveOrderId(savedActiveOrderId);
         } catch (e) {
-            console.error('Error restoring state from localStorage:', e);
+            // Safe silent catch
         } finally {
             setIsStateRestored(true);
-            // Limpiar estado de procesamiento residual al montar
             isProcessingOrder.current = false;
         }
     }, []);
 
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_cart', JSON.stringify(cart)); }, [cart, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_orderType', orderType); }, [orderType, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_tableNumber', tableNumber); }, [tableNumber, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_customerInfo', JSON.stringify(customerInfo)); }, [customerInfo, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_cart', JSON.stringify(cart)); }, [cart, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_orderType', orderType); }, [orderType, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_tableNumber', tableNumber); }, [tableNumber, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_customerInfo', JSON.stringify(customerInfo)); }, [customerInfo, isStateRestored, isLocalStorageEnabled]);
     useEffect(() => { 
         if (isStateRestored && isLocalStorageEnabled) {
-            if (activeOrderId) localStorage.setItem('caja_activeOrderId', activeOrderId); 
-            else localStorage.removeItem('caja_activeOrderId');
+            if (activeOrderId) sessionStorage.setItem('caja_activeOrderId', activeOrderId); 
+            else sessionStorage.removeItem('caja_activeOrderId');
         }
     }, [activeOrderId, isStateRestored, isLocalStorageEnabled]);
+
     // -----------------------------------------
 
     useEffect(() => {

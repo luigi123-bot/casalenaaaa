@@ -1,27 +1,38 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from '@/utils/supabase/server';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+
+const inputSchema = z.object({
+    months: z.number().int().min(1).max(12).optional().default(3)
+});
 
 export async function POST(request: Request) {
     try {
-        const { months } = await request.json();
+        // 1. Authenticate & Authorize (Admin only)
+        const { errorResponse } = await validateApiAccess(['administrador']);
+        if (errorResponse) return errorResponse;
 
         if (!process.env.GEMINI_API_KEY) {
-            return NextResponse.json({ error: "Falta GEMINI_API_KEY en las variables de entorno" }, { status: 500 });
+            return NextResponse.json({ error: "Servicio de análisis no configurado" }, { status: 500 });
         }
 
-        const startDate = new Date();
-        startDate.setMonth(startDate.getMonth() - (months || 3));
+        const body = await request.json().catch(() => ({}));
+        const parsed = inputSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Parámetros de meses inválidos" }, { status: 400 });
+        }
 
-        // 1. Obtener datos consolidados (Lógica similar al consolidador)
+        const { months } = parsed.data;
+
+        const startDate = new Date();
+        startDate.setMonth(startDate.getMonth() - months);
+
+        // Consolidated data retrieval
         const { data: orders, error } = await supabaseAdmin
             .from('orders')
             .select(`
@@ -51,7 +62,6 @@ export async function POST(request: Request) {
         if (error) throw error;
 
         const consolidatedData = orders?.flatMap(order => {
-            const date = new Date(order.created_at);
             return (order.order_items as any[])?.map(item => ({
                 t: order.created_at,
                 p: item.product_name || item.products?.name,
@@ -62,13 +72,11 @@ export async function POST(request: Request) {
             }));
         }) || [];
 
-        // 2. Preparar el modelo con fallback para asegurar compatibilidad
+        // Prepare model
         let model;
         try {
-            // Intentamos con el modelo más eficiente
             model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         } catch (e) {
-            // Si falla, usamos el modelo más compatible universalmente 
             model = genAI.getGenerativeModel({ model: "gemini-pro" });
         }
 
@@ -97,7 +105,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ insight: text });
 
     } catch (error: any) {
-        console.error('[AI ANALYSIS] Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'AI Analysis API Error');
     }
 }
+
