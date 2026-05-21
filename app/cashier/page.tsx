@@ -435,16 +435,22 @@ export default function CashierPage() {
     const handleAcceptOrder = async (orderId: number | string) => {
         try {
             console.log(`✅ [Shift] Aceptando pedido #${orderId}...`);
-            const { error } = await supabase
-                .from('orders')
-                .update({ 
+            const res = await fetch('/api/cashier/orders/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId,
                     status: 'preparando',
                     user_id: user?.id,
                     cashier_name: cashierName
                 })
-                .eq('id', orderId);
+            });
 
-            if (error) throw error;
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `HTTP ${res.status}`);
+            }
+
             fetchRecentOrders(false);
         } catch (err) {
             console.error('❌ [Shift] Error al aceptar pedido:', err);
@@ -460,23 +466,18 @@ export default function CashierPage() {
             }
         }
 
-        // Initial check for pending orders from platform/virtual
         const checkInitialPendingOrders = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('orders')
-                    .select('*, order_items(*)')
-                    .eq('status', 'pendiente')
-                    .in('order_type', ['delivery', 'takeout'])
-                    .is('cashier_name', null)
-                    .order('created_at', { ascending: true });
-
-                if (error) throw error;
+                const res = await fetch('/api/orders?status=pendiente&orderType=delivery,takeout&cashierNameNull=true');
+                if (!res.ok) throw new Error('Error al cargar pedidos pendientes');
+                const data = await res.json();
 
                 if (data && data.length > 0 && isEffectActive) {
                     console.log('🔔 [Notifications] Encontrados pedidos pendientes iniciales:', data.length);
-                    setAllPendingVirtualOrders(data);
-                    setPendingNewOrder(data[0]);
+                    // Reverse to keep oldest first (original ascending order)
+                    const sortedData = [...data].reverse();
+                    setAllPendingVirtualOrders(sortedData);
+                    setPendingNewOrder(sortedData[0]);
                     // startAlarm(); // Desactivado por solicitud del usuario
                 }
             } catch (err: any) {
@@ -736,21 +737,20 @@ export default function CashierPage() {
                     reference: parts.slice(2).join(', ') || ''
                 });
 
-                const { data: orderHistory, error: hError } = await supabase
-                    .from('orders')
-                    .select(`created_at, total_amount, order_items(product_name)`)
-                    .eq('phone_number', customerData.phone || queryTerm)
-                    .order('created_at', { ascending: false });
+                const phoneQuery = customerData.phone || queryTerm;
+                const historyRes = await fetch(`/api/orders?phone=${encodeURIComponent(phoneQuery)}`);
+                if (!historyRes.ok) throw new Error('Error al obtener historial del cliente');
+                const orderHistory = await historyRes.json();
 
-                if (!hError && orderHistory && orderHistory.length > 0) {
+                if (orderHistory && orderHistory.length > 0) {
                     const totalOrders = orderHistory.length;
-                    const totalSpent = orderHistory.reduce((acc, curr) => acc + (curr.total_amount || 0), 0);
+                    const totalSpent = (orderHistory as any[]).reduce((acc: number, curr: any) => acc + (curr.total_amount || 0), 0);
                     const lastOrderDate = orderHistory[0].created_at;
                     const lastOrderAmount = orderHistory[0].total_amount;
                     const firstOrderDate = orderHistory[orderHistory.length - 1].created_at;
 
                     const productCounts: Record<string, number> = {};
-                    orderHistory.forEach(o => {
+                    (orderHistory as any[]).forEach((o: any) => {
                         (o.order_items as any[])?.forEach((item: any) => {
                             productCounts[item.product_name] = (productCounts[item.product_name] || 0) + 1;
                         });

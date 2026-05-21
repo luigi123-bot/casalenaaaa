@@ -5,7 +5,7 @@ import { z } from "zod";
 export const dynamic = "force-dynamic";
 
 const inputSchema = z.object({
-    orderId: z.string().uuid()
+    orderId: z.coerce.number().int().positive()
 });
 
 export async function POST(req: Request) {

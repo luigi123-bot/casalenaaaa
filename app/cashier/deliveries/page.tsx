@@ -18,11 +18,14 @@ function LiveTrackerModal({ order, onClose }: { order: any, onClose: () => void 
         if (!order || !order.driver_id) return;
 
         const fetchOrderData = async () => {
-            const { data: driverData } = await supabase.from('delivery_drivers').select('*').eq('id', order.driver_id).single();
-            if (driverData) {
-                setDriver(driverData);
-                if (driverData.current_lat && driverData.current_lng) {
-                    setDriverLocation([driverData.current_lat, driverData.current_lng]);
+            const res = await fetch(`/api/cashier/drivers?id=${order.driver_id}`);
+            if (res.ok) {
+                const driverData = await res.json();
+                if (driverData) {
+                    setDriver(driverData);
+                    if (driverData.current_lat && driverData.current_lng) {
+                        setDriverLocation([driverData.current_lat, driverData.current_lng]);
+                    }
                 }
             }
 
@@ -92,32 +95,24 @@ export default function DeliveriesPage() {
     const fetchData = async () => {
         try {
             // Fetch drivers
-            const { data: driversData, error: driversError } = await supabase
-                .from('delivery_drivers')
-                .select('*')
-                .eq('is_active', true);
-
-            if (driversError) {
-                if (driversError.code === '42P01') {
+            const driversRes = await fetch('/api/cashier/drivers');
+            if (!driversRes.ok) {
+                if (driversRes.status === 404) {
                     setSchemaError(true);
                 } else {
-                    console.error('Drivers fetch error', driversError);
+                    console.error('Drivers fetch error status', driversRes.status);
                 }
             } else {
+                const driversData = await driversRes.json();
                 setDrivers(driversData || []);
             }
 
             // Fetch delivery orders (status not delivered/cancelled)
-            const { data: ordersData, error: ordersError } = await supabase
-                .from('orders')
-                .select('*, order_items(*)')
-                .eq('order_type', 'delivery')
-                .not('status', 'in', '("entregado","cancelado")')
-                .order('created_at', { ascending: false });
-
-            if (ordersError) {
-                console.error('Orders fetch error', ordersError);
+            const ordersRes = await fetch('/api/orders?orderType=delivery&excludeStatus=entregado,cancelado');
+            if (!ordersRes.ok) {
+                console.error('Orders fetch error status', ordersRes.status);
             } else {
+                const ordersData = await ordersRes.json();
                 setOrders(ordersData || []);
             }
             setLoading(false);
@@ -144,41 +139,27 @@ export default function DeliveriesPage() {
         try {
             console.log(`⏳ [AssignDriver] Guardando en BD: orders.driver_id = ${driverId}, delivery_status = 'assigned'`);
 
-            const { data, error } = await supabase
-                .from('orders')
-                .update({ 
-                    driver_id: driverId, 
+            const res = await fetch('/api/cashier/orders/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId,
+                    driver_id: driverId,
                     delivery_status: 'assigned',
                     status: 'en_camino'
                 })
-                .eq('id', orderId)
-                .select();
+            });
 
-            if (error) {
-                console.error('❌ [AssignDriver] ERROR EN orders UPDATE:', {
-                    code: error.code,
-                    message: error.message,
-                    details: error.details,
-                    hint: error.hint
-                });
-                showToast(`❌ Error al guardar: ${error.message} (${error.code})`, 'error');
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                const errMsg = errData.error || `HTTP ${res.status}`;
+                console.error('❌ [AssignDriver] ERROR EN API UPDATE:', errMsg);
+                showToast(`❌ Error al guardar: ${errMsg}`, 'error');
                 return;
             }
 
-            console.log('✅ [AssignDriver] orders actualizada correctamente. Respuesta BD:', data);
-            
-            // Update driver status
-            console.log(`⏳ [AssignDriver] Actualizando estado de repartidor a 'ocupado'...`);
-            const { error: driverErr } = await supabase
-                .from('delivery_drivers')
-                .update({ status: 'ocupado' })
-                .eq('id', driverId);
-
-            if (driverErr) {
-                console.error('⚠️ [AssignDriver] Error actualizando estado del repartidor:', driverErr);
-            } else {
-                console.log(`✅ [AssignDriver] Estado de repartidor actualizado a 'ocupado'`);
-            }
+            const resData = await res.json();
+            console.log('✅ [AssignDriver] orders actualizada correctamente. Respuesta:', resData);
 
             setSelectedOrder(null);
             await fetchData();

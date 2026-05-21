@@ -6,7 +6,12 @@ export const dynamic = 'force-dynamic';
 
 const querySchema = z.object({
     timeFilter: z.enum(['all', 'today', 'week']).optional().default('all'),
-    limit: z.coerce.number().int().positive().max(1000).optional().default(1000)
+    limit: z.coerce.number().int().positive().max(1000).optional().default(1000),
+    phone: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    orderType: z.string().nullable().optional(),
+    excludeStatus: z.string().nullable().optional(),
+    cashierNameNull: z.preprocess((val) => val === 'true', z.boolean()).optional()
 });
 
 export async function GET(request: Request) {
@@ -17,14 +22,19 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const parsed = querySchema.safeParse({
             timeFilter: searchParams.get('timeFilter') || 'all',
-            limit: searchParams.get('limit') || undefined
+            limit: searchParams.get('limit') || undefined,
+            phone: searchParams.get('phone') || null,
+            status: searchParams.get('status') || null,
+            orderType: searchParams.get('orderType') || null,
+            excludeStatus: searchParams.get('excludeStatus') || null,
+            cashierNameNull: searchParams.get('cashierNameNull') || undefined
         });
 
         if (!parsed.success) {
             return NextResponse.json({ error: "Parámetros inválidos" }, { status: 400 });
         }
 
-        const { timeFilter, limit } = parsed.data;
+        const { timeFilter, limit, phone, status, orderType, excludeStatus, cashierNameNull } = parsed.data;
 
         let query = supabaseAdmin
             .from('orders')
@@ -46,6 +56,36 @@ export async function GET(request: Request) {
             const weekAgo = new Date();
             weekAgo.setDate(weekAgo.getDate() - 7);
             query = query.gte('created_at', weekAgo.toISOString());
+        }
+
+        if (phone) {
+            query = query.eq('phone_number', phone);
+        }
+
+        if (status) {
+            query = query.eq('status', status);
+        }
+
+        if (orderType) {
+            const types = orderType.split(',').map(t => t.trim());
+            if (types.length > 1) {
+                query = query.in('order_type', types);
+            } else {
+                query = query.eq('order_type', types[0]);
+            }
+        }
+
+        if (excludeStatus) {
+            const statuses = excludeStatus.split(',').map(s => s.trim());
+            if (statuses.length > 1) {
+                query = query.not('status', 'in', `(${statuses.map(s => `"${s}"`).join(',')})`);
+            } else {
+                query = query.neq('status', statuses[0]);
+            }
+        }
+
+        if (cashierNameNull) {
+            query = query.is('cashier_name', null);
         }
 
         query = query.order('created_at', { ascending: false }).limit(limit);

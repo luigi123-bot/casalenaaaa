@@ -5,7 +5,7 @@ import { z } from 'zod';
 export const dynamic = 'force-dynamic';
 
 const inputSchema = z.object({
-    orderId: z.string().uuid(),
+    orderId: z.coerce.number().int().positive(),
     amountPaid: z.union([z.number(), z.string()]).transform(val => parseFloat(val as string) || 0).optional(),
     totalAmount: z.number().nonnegative(),
     paymentMethod: z.string().optional().default('efectivo')

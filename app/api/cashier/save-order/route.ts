@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 const orderItemSchema = z.object({
     product_name: z.string(),
-    product_id: z.string().uuid(),
+    product_id: z.coerce.number().int().positive(),
     quantity: z.number().int().positive(),
     unit_price: z.number().nonnegative(),
     selected_size: z.string().nullable().optional(),
@@ -15,10 +15,10 @@ const orderItemSchema = z.object({
 });
 
 const orderSchema = z.object({
-    id: z.string().uuid().nullable().optional(),
+    id: z.coerce.number().int().nullable().optional(),
     customer_name: z.string().nullable().optional(),
     phone_number: z.string().nullable().optional(),
-    order_type: z.enum(['local', 'takeout', 'delivery']),
+    order_type: z.enum(['local', 'takeout', 'delivery', 'dine-in', 'pickup']),
     table_number: z.coerce.number().int().nullable().optional(),
     delivery_address: z.string().nullable().optional(),
     delivery_zone: z.string().nullable().optional(),
@@ -26,7 +26,7 @@ const orderSchema = z.object({
     total_amount: z.number().nonnegative(),
     payment_method: z.string().optional().default('efectivo'),
     payment_status: z.enum(['pending', 'paid', 'partially_paid']).optional().default('pending'),
-    status: z.enum(['pendiente', 'confirmado', 'preparando', 'listo', 'entregado', 'cancelado', 'completado']).optional().default('pendiente'),
+    status: z.enum(['pendiente', 'confirmado', 'preparando', 'listo', 'entregado', 'cancelado', 'completado', 'en_camino']).optional().default('pendiente'),
     user_id: z.string().uuid().nullable().optional()
 }).passthrough();
 
@@ -71,12 +71,15 @@ export async function POST(req: Request) {
         let orderId = order.id;
         let createdOrder = null;
 
+        // Omitir columnas que podrían no existir en la base de datos de órdenes
+        const { delivery_cost, delivery_zone, ...orderPayloadToDb } = order;
+
         if (orderId) {
             // Actualizar orden existente
             const { data, error } = await supabaseAdmin
                 .from('orders')
                 .update({
-                    ...order,
+                    ...orderPayloadToDb,
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', orderId)
@@ -124,7 +127,7 @@ export async function POST(req: Request) {
             const { data, error } = await supabaseAdmin
                 .from('orders')
                 .insert({
-                    ...order,
+                    ...orderPayloadToDb,
                     ticket_number: dailySequence,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
@@ -155,7 +158,8 @@ export async function POST(req: Request) {
         });
 
     } catch (error: any) {
-        return handleServerError(error, 'Cashier Save Order API Error');
+        console.error("🛑 [SaveOrder API Error]:", error);
+        return NextResponse.json({ error: error.message || error.details || String(error) }, { status: 500 });
     }
 }
 

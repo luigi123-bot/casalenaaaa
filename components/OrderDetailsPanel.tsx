@@ -65,9 +65,12 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
         }
         const channel = supabase.channel(`admin_tracking_${selectedRepartidor}`);
         const fetchInitialLoc = async () => {
-            const { data } = await supabase.from('delivery_drivers').select('current_lat, current_lng').eq('id', selectedRepartidor).single();
-            if (data?.current_lat && data?.current_lng) {
-                setDriverLocation([data.current_lat, data.current_lng]);
+            const res = await fetch(`/api/cashier/drivers?id=${selectedRepartidor}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data?.current_lat && data?.current_lng) {
+                    setDriverLocation([data.current_lat, data.current_lng]);
+                }
             }
         };
         fetchInitialLoc();
@@ -129,8 +132,11 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
 
     useEffect(() => {
         const fetchRepartidores = async () => {
-            const { data } = await supabase.from('delivery_drivers').select('*').eq('is_active', true);
-            if (data) setRepartidores(data);
+            const res = await fetch('/api/cashier/drivers');
+            if (res.ok) {
+                const data = await res.json();
+                setRepartidores(data || []);
+            }
         };
         fetchRepartidores();
         if (order && (order as any).driver_id) {
@@ -159,9 +165,19 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
             const updateData: any = { status: newStatus };
             if (newStatus === 'entregado') {
                 updateData.payment_status = 'paid';
-                updateData.updated_at = new Date().toISOString();
             }
-            await supabase.from('orders').update(updateData).eq('id', order.id);
+            const res = await fetch('/api/cashier/orders/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: order.id,
+                    ...updateData
+                })
+            });
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `HTTP ${res.status}`);
+            }
             if (onStatusChange) onStatusChange();
             onClose();
         } catch (error: any) {
