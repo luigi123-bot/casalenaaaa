@@ -14,9 +14,10 @@ import { supabase } from '@/utils/supabase/client';
  *  4. NUNCA llama a onSessionLost si sólo hay un error de red transitorio;
  *     sólo lo hace si la sesión está definitivamente perdida (no hay refresh_token).
  */
+// ✅ FIX: Module-level constant — doesn't trigger re-renders or useCallback re-binding
+const REFRESH_INTERVAL = 20 * 60 * 1000; // 20 minutos
+
 export function useSessionKeepAlive(onSessionLost?: () => void) {
-    // 20 minutos — suficientemente frecuente para no perder la sesión de 1h
-    const REFRESH_INTERVAL = 20 * 60 * 1000;
     const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
     const isMountedRef = useRef(true);
     const isRefreshingRef = useRef(false); // Guard para evitar llamadas concurrentes

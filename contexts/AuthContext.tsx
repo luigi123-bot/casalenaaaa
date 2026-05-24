@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 
 
@@ -118,13 +118,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
     }, []);
 
-    const signOut = async () => {
+    // ✅ FIX: useCallback so signOut reference is stable across renders
+    const signOut = useCallback(async () => {
         try {
-            // Fuerza el cierre de sesión local, ignorando errores de red si el servidor no responde
             await supabase.auth.signOut({ scope: 'local' });
         } catch (error) {
             console.error('Error signing out:', error);
-            // Limpieza manual agresiva del token de Supabase en caso de error crítico
             try {
                 Object.keys(window.localStorage).forEach(key => {
                     if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
@@ -138,7 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             window.location.href = '/tienda';
         }
-    };
+    }, []);
 
     // Memoize context value — prevents re-rendering all consumers when unrelated state changes
     const value = useMemo(() => ({ user, loading, signOut }), [user, loading]);

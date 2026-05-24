@@ -65,6 +65,13 @@ interface CartItem extends Product {
 
 type OrderType = 'dine-in' | 'takeout' | 'delivery';
 
+// ✅ FIX: Module-level constant — avoids recreation on every render
+const EXTRAS_OPTIONS = [
+    { id: 'extra_ingredient', name: 'Ingrediente extra', price: 20 },
+    { id: 'extra_cheese', name: 'Extra queso', price: 35 },
+    { id: 'extra_sauce', name: 'Aderezo extra', price: 10 },
+];
+
 export default function CashierPage() {
     const router = useRouter();
     // Removed offline sync per user request
@@ -804,11 +811,6 @@ export default function CashierPage() {
         fetchActiveBanner();
     }, []);
 
-    const EXTRAS_OPTIONS = [
-        { id: 'extra_ingredient', name: 'Ingrediente extra', price: 20 },
-        { id: 'extra_cheese', name: 'Extra queso', price: 35 },
-        { id: 'extra_sauce', name: 'Aderezo extra', price: 10 },
-    ];
 
     const cartTotals = useMemo(() => {
         const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -1411,7 +1413,7 @@ export default function CashierPage() {
             }
 
             if (isEffectActive) {
-                timeoutId = setTimeout(runSync, 7000); // Poll every 7 seconds (safer)
+                timeoutId = setTimeout(runSync, 20000); // ✅ FIX: 20s (was 7s) — Realtime handles instant updates
             }
         };
 

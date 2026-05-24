@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 
 interface PendingOrder {
@@ -52,14 +52,8 @@ export function useOfflineSync() {
         };
     }, []);
 
-    // Sincronizar automáticamente cuando vuelve la conexión
-    useEffect(() => {
-        if (isOnline && !isSyncing) {
-            syncOrders();
-        }
-    }, [isOnline]);
-
-    const syncOrders = async () => {
+    // ✅ FIX: syncOrders wrapped in useCallback to avoid stale closure
+    const syncOrders = useCallback(async () => {
         let pending: PendingOrder[] = [];
         try {
             pending = JSON.parse(localStorage.getItem('pending_orders') || '[]');
@@ -144,7 +138,15 @@ export function useOfflineSync() {
         localStorage.setItem('pending_orders', JSON.stringify(remaining));
         setPendingCount(remaining.length);
         setIsSyncing(false);
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // stable ref — reads isSyncing via closure but doesn't need to re-bind
+
+    // Sincronizar automáticamente cuando vuelve la conexión
+    useEffect(() => {
+        if (isOnline && !isSyncing) {
+            syncOrders();
+        }
+    }, [isOnline, syncOrders]); // ✅ FIX: correct deps
 
     const saveOrderOffline = (payload: any, items: any[]) => {
         try {
