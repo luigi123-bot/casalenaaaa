@@ -228,46 +228,7 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
 
         const diferenciaLabel = diferencia === 0 ? '✓ CAJA CUADRADA' : diferencia > 0 ? '▲ SOBRANTE' : '▼ FALTANTE';
 
-        const ticketHtml = `<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8"/>
-<title>Cierre de Caja — Casaleña</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-width:58mm;margin:0;padding:1mm;font-size:11px;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.header{text-align:center;margin-bottom:2px}
-.logo{font-size:16px;font-weight:900;letter-spacing:1px;text-transform:uppercase}
-.sub{font-size:8px;font-weight:700;margin-top:0}
-.doc-title{margin-top:2px;background:#000;color:#fff;font-size:11px;font-weight:900;text-transform:uppercase;padding:1px 0}
-.meta{font-size:10px;font-weight:700;margin-top:2px;line-height:1.2}
-.cashier-highlight{font-size:14px;font-weight:900;background:#eee;display:block;padding:2px 0;margin:2px 0;border:1px solid #000}
-.dashed{border:none;border-top:1px dashed #000;margin:3px 0}
-.solid{border:none;border-top:1px solid #000;margin:3px 0}
-.double{border:none;border-top:2px double #000;margin:3px 0}
-.section{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;padding:1px 0;margin:4px 0 2px 0}
-.row{display:flex;justify-content:space-between;align-items:baseline;margin:1px 0}
-.row .label{font-size:10px;font-weight:700}
-.row .value{font-size:10px;font-weight:900;text-align:right}
-.row.bold .label,.row.bold .value{font-size:11px;font-weight:900}
-.total-box{border:1px solid #000;padding:3px 4px;margin:3px 0;display:flex;justify-content:space-between;align-items:center}
-.total-box .t-label{font-size:11px;font-weight:900}
-.total-box .t-value{font-size:14px;font-weight:900}
-.diff-box{border:2px solid #000;padding:4px;margin:4px 0;text-align:center}
-.diff-label{font-size:9px;font-weight:900;text-transform:uppercase}
-.diff-value{font-size:16px;font-weight:900;margin:1px 0}
-.diff-status{font-size:10px;font-weight:900;text-transform:uppercase}
-.prod-row{display:flex;justify-content:space-between;margin:1px 0;font-size:9px}
-.prod-row .name{flex:1;padding-right:4px;font-weight:700}
-.prod-row .qty{font-weight:900;text-align:right}
-.footer{text-align:center;margin-top:4px}
-.footer p{font-size:8px;font-weight:700;line-height:1.2}
-.sign-line{border-top:1px solid #000;margin:8px auto 1px;width:70%}
-@page{size:58mm auto;margin:0}
-@media print{body{width:58mm}}
-</style>
-</head>
-<body>
+        const ticketBodyHtml = `
 <div class="header">
   <div class="logo">CASALEÑA</div>
   <div class="sub">Pizza &amp; Grill · Ometepec, Gro.</div>
@@ -315,25 +276,69 @@ ${data.topProductos.length > 0 ? `<div class="section">Top Ventas</div>${data.to
   <p>Firma Cajero: ${cashierName.toUpperCase()}</p>
   <p style="margin-top:4px;font-size:7px">Control Interno - Casaleña POS</p>
 </div>
-<script>
-window.onload = function() {
-    setTimeout(function() { window.print(); window.close(); }, 300);
-};
-</script>
-</body>
-</html>`;
+        `;
 
-        const cleanTicketHtml = DOMPurify.sanitize(ticketHtml, {
-            ADD_TAGS: ['style', 'svg', 'path', 'circle', 'rect', 'html', 'head', 'body', 'meta', 'hr'],
-            ADD_ATTR: ['style', 'class', 'id', 'd', 'fill', 'stroke', 'width', 'height', 'lang', 'charset', 'content', 'name']
+        const cleanTicketBody = DOMPurify.sanitize(ticketBodyHtml, {
+            ADD_TAGS: ['svg', 'path', 'circle', 'rect', 'hr'],
+            ADD_ATTR: ['style', 'class', 'id', 'd', 'fill', 'stroke', 'width', 'height']
         });
 
         const isElectron = typeof window !== 'undefined' && 
                           ((window as any).electron?.isElectron || navigator.userAgent.toLowerCase().includes('electron'));
 
+        const styles = `
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-width:58mm;margin:0;padding:1mm;font-size:11px;color:#000;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.header{text-align:center;margin-bottom:2px}
+.logo{font-size:16px;font-weight:900;letter-spacing:1px;text-transform:uppercase}
+.sub{font-size:8px;font-weight:700;margin-top:0}
+.doc-title{margin-top:2px;background:#000;color:#fff;font-size:11px;font-weight:900;text-transform:uppercase;padding:1px 0}
+.meta{font-size:10px;font-weight:700;margin-top:2px;line-height:1.2}
+.cashier-highlight{font-size:14px;font-weight:900;background:#eee;display:block;padding:2px 0;margin:2px 0;border:1px solid #000}
+.dashed{border:none;border-top:1px dashed #000;margin:3px 0}
+.solid{border:none;border-top:1px solid #000;margin:3px 0}
+.double{border:none;border-top:2px double #000;margin:3px 0}
+.section{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;padding:1px 0;margin:4px 0 2px 0}
+.row{display:flex;justify-content:space-between;align-items:baseline;margin:1px 0}
+.row .label{font-size:10px;font-weight:700}
+.row .value{font-size:10px;font-weight:900;text-align:right}
+.row.bold .label,.row.bold .value{font-size:11px;font-weight:900}
+.total-box{border:1px solid #000;padding:3px 4px;margin:3px 0;display:flex;justify-content:space-between;align-items:center}
+.total-box .t-label{font-size:11px;font-weight:900}
+.total-box .t-value{font-size:14px;font-weight:900}
+.diff-box{border:2px solid #000;padding:4px;margin:4px 0;text-align:center}
+.diff-label{font-size:9px;font-weight:900;text-transform:uppercase}
+.diff-value{font-size:16px;font-weight:900;margin:1px 0}
+.diff-status{font-size:10px;font-weight:900;text-transform:uppercase}
+.prod-row{display:flex;justify-content:space-between;margin:1px 0;font-size:9px}
+.prod-row .name{flex:1;padding-right:4px;font-weight:700}
+.prod-row .qty{font-weight:900;text-align:right}
+.footer{text-align:center;margin-top:4px}
+.footer p{font-size:8px;font-weight:700;line-height:1.2}
+.sign-line{border-top:1px solid #000;margin:8px auto 1px;width:70%}
+@page{size:58mm auto;margin:0}
+@media print{body{width:58mm}}
+        `;
+
+        const fullHtml = `
+          <html>
+            <head>
+              <title>Cierre de Caja — Casaleña</title>
+              <style>${styles}</style>
+            </head>
+            <body onload="window.print();">
+              <div style="width: 58mm; overflow: hidden;">
+                ${cleanTicketBody}
+              </div>
+            </body>
+          </html>
+        `;
+
         if (isElectron && (window as any).electron?.printSilent) {
-            (window as any).electron.printSilent({ html: cleanTicketHtml })
-                .catch((err: any) => {});
+            (window as any).electron.printSilent({ html: fullHtml })
+                .catch((err: any) => {
+                    console.error('[Print] Error in silent print:', err);
+                });
             return;
         }
 
@@ -348,7 +353,7 @@ window.onload = function() {
         const doc = iframe.contentWindow?.document;
         if (doc) {
             doc.open();
-            doc.write(cleanTicketHtml);
+            doc.write(fullHtml);
             doc.close();
             
             // Clean up iframe after 10s
@@ -357,7 +362,6 @@ window.onload = function() {
                 if (f) f.remove();
             }, 10000);
         }
-
     };
 
     return (

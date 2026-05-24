@@ -1263,6 +1263,24 @@ export default function CashierPage() {
                 if (createdOrder) {
                 setLastOrderId(createdOrder.id);
 
+                // AUTO-GUARDAR CLIENTE: si es llevar/domicilio y hay teléfono, guardar silenciosamente
+                if ((orderType === 'takeout' || orderType === 'delivery') && customerInfo.phone?.trim() && customerInfo.name?.trim()) {
+                    const autoSaveAddr = customerInfo.address || [customerInfo.street, customerInfo.neighborhood, customerInfo.reference].filter(Boolean).join(', ') || '';
+                    fetch('/api/cashier/customers/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            phone: customerInfo.phone.trim(),
+                            full_name: customerInfo.name.trim(),
+                            address: autoSaveAddr
+                        })
+                    }).then(() => {
+                        console.log('✅ [Cashier] Cliente guardado automáticamente.');
+                    }).catch((err) => {
+                        console.warn('⚠️ [Cashier] No se pudo guardar cliente automáticamente:', err?.message);
+                    });
+                }
+
                 // Capturar copia del carrito ANTES de limpiar
                 const cartSnapshot = [...cart];
 
