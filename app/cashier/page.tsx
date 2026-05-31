@@ -690,6 +690,8 @@ export default function CashierPage() {
         }
     };
 
+    const normalizePhone = (phone: string) => phone.replace(/\D/g, '');
+
     // Fetch customers for the searchable list — triggered manually only
     const searchCustomersList = async (term: string) => {
         if (!term || term.length < 2) {
@@ -724,20 +726,27 @@ export default function CashierPage() {
         try {
             const res = await fetch(`/api/cashier/customers/search?term=${encodeURIComponent(queryTerm)}`);
             const data = await res.json();
-            
-            let customerData = null;
-            if (!manualTerm) {
-                customerData = data.customers?.find((c: any) => c.phone === queryTerm) || data.customers?.[0];
-            } else {
-                customerData = data.customers?.[0];
-            }
+            const mapped = (data.customers || []).map((c: any) => ({
+                id: c.id,
+                name: c.full_name || c.name || 'Sin Nombre',
+                phone: c.phone || '',
+                address: c.address || '',
+                origin: c.is_app_user ? 'profile' : 'customer'
+            }));
+
+            setFoundCustomers(mapped);
+            setAvailableClients(mapped);
+            setSearchTerm(queryTerm);
+
+            const exactMatch = mapped.find((c: any) => normalizePhone(c.phone || '') === normalizePhone(queryTerm));
+            const customerData = exactMatch || (mapped.length === 1 ? mapped[0] : null);
 
             if (customerData) {
                 const parts = (customerData.address || '').split(',').map((p: string) => p.trim());
                 
                 setCustomerInfo({
                     phone: customerData.phone || queryTerm,
-                    name: customerData.full_name || customerData.name || '',
+                    name: customerData.name || '',
                     address: customerData.address || '',
                     street: parts[0] || '',
                     neighborhood: parts[1] || '',
