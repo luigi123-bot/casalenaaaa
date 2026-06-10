@@ -82,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     });
 
                     // Intentar obtener de DB en segundo plano (sin bloquear UI)
-                    profilePromise.then(({ data: profile }) => {
+                    Promise.resolve(profilePromise).then(({ data: profile }) => {
                         if (profile && isInstanceMounted) {
                             setUser(prev => prev ? {
                                 ...prev,

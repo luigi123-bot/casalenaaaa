@@ -232,8 +232,23 @@ export default function TiendaPage() {
 
             if (error) console.error('Error cargando productos:', error);
 
-            const products = data || [];
-            setProducts(products);
+            // Mapear los datos de Supabase al tipo Product de TypeScript,
+            // manejando que Supabase devuelve las relaciones como un array.
+            const mappedProducts: Product[] = (data || []).map((p: any) => {
+                const categoryObj = Array.isArray(p.categories) ? p.categories[0] : p.categories;
+                return {
+                    id: p.id,
+                    name: p.name,
+                    description: p.description,
+                    price: p.price,
+                    category_id: p.category_id,
+                    imagen_url: p.imagen_url,
+                    available: p.available,
+                    categories: categoryObj ? { name: categoryObj.name } : undefined
+                };
+            });
+
+            setProducts(mappedProducts);
 
             // Derivar categorías únicas del resultado — sin query extra
             const categorySortOrder: Record<string, number> = {
@@ -249,9 +264,13 @@ export default function TiendaPage() {
             };
 
             const categoryMap = new Map<number, { id: number; name: string }>();
-            products.forEach((p: any) => {
-                if (p.categories && p.category_id && !categoryMap.has(p.category_id)) {
-                    categoryMap.set(p.category_id, p.categories);
+            (data || []).forEach((p: any) => {
+                const categoryObj = Array.isArray(p.categories) ? p.categories[0] : p.categories;
+                if (categoryObj && p.category_id && !categoryMap.has(p.category_id)) {
+                    categoryMap.set(p.category_id, {
+                        id: p.category_id,
+                        name: categoryObj.name
+                    });
                 }
             });
 
