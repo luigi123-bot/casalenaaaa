@@ -43,6 +43,14 @@ export default function SalesReportPage() {
             if (selectedCashier !== 'all') params.append('cashierId', selectedCashier);
             if (selectedCategory !== 'all') params.append('categoryId', selectedCategory);
 
+            // Calcular offset de zona horaria local (ej. -05:00)
+            const timezoneOffset = new Date().getTimezoneOffset();
+            const offsetHours = Math.abs(Math.floor(timezoneOffset / 60));
+            const offsetMinutes = Math.abs(timezoneOffset % 60);
+            const offsetSign = timezoneOffset > 0 ? '-' : '+';
+            const offsetString = `${offsetSign}${String(offsetHours).padStart(2, '0')}:${String(offsetMinutes).padStart(2, '0')}`;
+            params.append('tz', offsetString);
+
             const methods = [];
             if (paymentMethods.card) methods.push('tarjeta');
             if (paymentMethods.cash) methods.push('efectivo');
@@ -157,7 +165,6 @@ export default function SalesReportPage() {
                     />
                     <ReportTable 
                         data={reportData} 
-                        getStatusBadgeClass={getStatusBadgeClass} 
                     />
                 </div>
             ) : (

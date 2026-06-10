@@ -12,10 +12,9 @@ interface ReportData {
 
 interface ReportTableProps {
     data: ReportData[];
-    getStatusBadgeClass: (status: string) => string;
 }
 
-export default function ReportTable({ data, getStatusBadgeClass }: ReportTableProps) {
+export default function ReportTable({ data }: ReportTableProps) {
     if (!data || data.length === 0) {
         return (
             <div className="bg-white rounded-3xl border border-[#e6e1db] p-16 text-center shadow-sm">
@@ -30,41 +29,114 @@ export default function ReportTable({ data, getStatusBadgeClass }: ReportTablePr
         );
     }
 
+    const getStatusPill = (status: string) => {
+        const s = status.toLowerCase();
+        let classes = 'bg-gray-50 text-gray-500 border-gray-200/80';
+        let icon = 'help';
+        let label = status;
+
+        if (s === 'completado' || s === 'entregado') {
+            classes = 'bg-green-50 text-green-700 border-green-200/80';
+            icon = 'check_circle';
+            label = 'Completado';
+        } else if (s === 'pendiente') {
+            classes = 'bg-amber-50 text-amber-700 border-amber-200/80';
+            icon = 'schedule';
+            label = 'Pendiente';
+        } else if (s === 'preparando' || s === 'en_preparacion') {
+            classes = 'bg-blue-50 text-blue-700 border-blue-200/80';
+            icon = 'restaurant';
+            label = 'Cocinando';
+        } else if (s === 'listo') {
+            classes = 'bg-purple-50 text-purple-700 border-purple-200/80';
+            icon = 'delivery_dining';
+            label = 'Listo';
+        } else if (s === 'cancelado') {
+            classes = 'bg-red-50 text-red-700 border-red-200/80';
+            icon = 'cancel';
+            label = 'Cancelado';
+        }
+
+        return (
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border ${classes}`}>
+                <span className="material-symbols-outlined text-xs">{icon}</span>
+                {label}
+            </span>
+        );
+    };
+
+    const getPaymentMethodBadge = (method: string) => {
+        const m = method.toLowerCase();
+        let icon = 'payments';
+        let label = method;
+        let color = 'text-green-600 bg-green-50 border-green-100';
+
+        if (m === 'tarjeta' || m === 'card') {
+            icon = 'credit_card';
+            label = 'Tarjeta';
+            color = 'text-blue-600 bg-blue-50 border-blue-100';
+        } else if (m === 'online' || m === 'en linea' || m === 'en línea') {
+            icon = 'language';
+            label = 'En Línea';
+            color = 'text-purple-600 bg-purple-50 border-purple-100';
+        } else if (m === 'efectivo' || m === 'cash') {
+            icon = 'payments';
+            label = 'Efectivo';
+            color = 'text-emerald-600 bg-emerald-50 border-emerald-100';
+        }
+
+        return (
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-tight border ${color}`}>
+                <span className="material-symbols-outlined text-xs">{icon}</span>
+                {label}
+            </span>
+        );
+    };
+
     return (
-        <div className="bg-white rounded-xl border border-[#e6e1db] shadow-sm overflow-hidden animate-in fade-in duration-500">
+        <div className="bg-white rounded-3xl border border-[#e6e1db] shadow-sm overflow-hidden animate-in fade-in duration-500">
             <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                     <thead>
-                        <tr className="bg-[#fcfbf9] text-[#8c785f] text-xs uppercase tracking-wider border-b border-[#e6e1db]">
-                            <th className="px-6 py-4 font-bold">ID</th>
-                            <th className="px-6 py-4 font-bold">Fecha</th>
-                            <th className="px-6 py-4 font-bold">Items</th>
-                            <th className="px-6 py-4 font-bold">Monto</th>
-                            <th className="px-6 py-4 font-bold">Pago</th>
-                            <th className="px-6 py-4 font-bold text-center">Estado</th>
+                        <tr className="bg-[#fcfbf9] text-[#8c785f] text-[10px] uppercase tracking-widest border-b border-[#e6e1db]">
+                            <th className="px-6 py-5 font-black">ID</th>
+                            <th className="px-6 py-5 font-black">Fecha y Hora</th>
+                            <th className="px-6 py-5 font-black">Artículos</th>
+                            <th className="px-6 py-5 font-black">Monto</th>
+                            <th className="px-6 py-5 font-black">Pago</th>
+                            <th className="px-6 py-5 font-black text-center">Estado</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#e6e1db]">
+                    <tbody className="divide-y divide-[#e6e1db] text-sm">
                         {data.map((row) => (
-                            <tr key={row.id} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-4 text-sm font-bold text-[#181511]">#{row.id}</td>
-                                <td className="px-6 py-4 text-sm text-[#8c785f]">
-                                    {row.date} <span className="text-xs ml-1 opacity-60">{row.time}</span>
+                            <tr key={row.id} className="hover:bg-orange-50/10 transition-colors">
+                                <td className="px-6 py-4 font-black text-[#181511]">#{row.id}</td>
+                                <td className="px-6 py-4">
+                                    <div className="flex flex-col">
+                                        <span className="font-bold text-[#181511]">{row.date}</span>
+                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{row.time}</span>
+                                    </div>
                                 </td>
-                                <td className="px-6 py-4 text-sm text-[#181511] max-w-xs truncate" title={row.items}>
+                                <td className="px-6 py-4 text-[#181511] max-w-xs truncate font-medium" title={row.items}>
                                     {row.items}
                                 </td>
-                                <td className="px-6 py-4 text-sm font-bold text-[#181511]">${row.amount.toFixed(2)}</td>
-                                <td className="px-6 py-4 text-sm text-[#181511] capitalize">{row.payment_method}</td>
+                                <td className="px-6 py-4 font-black text-[#181511] text-base">
+                                    ${row.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                                <td className="px-6 py-4">
+                                    {getPaymentMethodBadge(row.payment_method)}
+                                </td>
                                 <td className="px-6 py-4 text-center">
-                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${getStatusBadgeClass(row.status)}`}>
-                                        {row.status}
-                                    </span>
+                                    {getStatusPill(row.status)}
                                 </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
+            </div>
+            <div className="bg-[#fcfbf9] border-t border-[#e6e1db] px-6 py-4 flex items-center justify-between text-xs font-bold text-gray-400">
+                <span>Mostrando {data.length} transacción{data.length !== 1 ? 'es' : ''}</span>
+                <span className="text-[#8c785f]">{data.length > 0 ? 'Fin del listado' : ''}</span>
             </div>
         </div>
     );

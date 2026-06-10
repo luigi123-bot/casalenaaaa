@@ -79,9 +79,16 @@ export default function AdminPage() {
         else setIsRefreshing(true);
 
         try {
+            // Calcular offset de zona horaria local (ej. -05:00)
+            const timezoneOffset = new Date().getTimezoneOffset();
+            const offsetHours = Math.abs(Math.floor(timezoneOffset / 60));
+            const offsetMinutes = Math.abs(timezoneOffset % 60);
+            const offsetSign = timezoneOffset > 0 ? '-' : '+';
+            const offsetString = encodeURIComponent(`${offsetSign}${String(offsetHours).padStart(2, '0')}:${String(offsetMinutes).padStart(2, '0')}`);
+
             const [statsRes, transactionsRes] = await Promise.all([
-                safeFetch(`/api/dashboard/stats?range=${timeRange}`),
-                safeFetch(`/api/dashboard/transactions?limit=8&range=${timeRange}`)
+                safeFetch(`/api/dashboard/stats?range=${timeRange}&tz=${offsetString}`),
+                safeFetch(`/api/dashboard/transactions?limit=8&range=${timeRange}&tz=${offsetString}`)
             ]);
 
             // safeFetch returns a never-resolving promise on abort — check ok before parsing

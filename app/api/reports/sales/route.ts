@@ -15,6 +15,7 @@ export async function GET(request: Request) {
         const cashierId = searchParams.get('cashierId');
         const categoryId = searchParams.get('categoryId');
         const paymentMethods = searchParams.get('paymentMethods');
+        const tz = searchParams.get('tz') || '-05:00'; // Default timezone offset
 
         console.log('=== GENERATING SALES REPORT ===');
         console.log({ startDate, endDate, cashierId, categoryId, paymentMethods });
@@ -63,9 +64,9 @@ export async function GET(request: Request) {
             .select(selectQuery)
             .order('created_at', { ascending: false });
 
-        // Filter by Date
-        if (startDate) query = query.gte('created_at', `${startDate}T00:00:00`);
-        if (endDate) query = query.lte('created_at', `${endDate}T23:59:59`);
+        // Filter by Date (applying timezone offset)
+        if (startDate) query = query.gte('created_at', `${startDate}T00:00:00${tz}`);
+        if (endDate) query = query.lte('created_at', `${endDate}T23:59:59${tz}`);
 
         // Filter by Cashier
         if (cashierId && cashierId !== 'all') {
@@ -92,18 +93,37 @@ export async function GET(request: Request) {
             throw error;
         }
 
+        // Parsear offset para conversión de fecha (ej. -05:00)
+        const sign = tz.startsWith('+') ? 1 : -1;
+        const offsetParts = tz.substring(1).split(':');
+        const offsetHours = parseInt(offsetParts[0], 10) || 0;
+        const offsetMinutes = parseInt(offsetParts[1], 10) || 0;
+        const offsetMs = sign * (offsetHours * 60 + offsetMinutes) * 60 * 1000;
+
         // Formatear datos para el reporte
         const reportData = (orders as any[])?.map(order => {
             // Calcular detalle de items
-            // Note: If filtering by category with !inner, accessing order.order_items might only show the matched items or all depending on Supabase version
             const items = order.order_items?.map((item: any) =>
                 `${item.quantity}x ${item.products?.name || 'Item'}`
             ).join(', ') || 'Sin items';
 
+            // Ajustar la fecha usando el offset del cliente para formateo consistente
+            const utcTime = new Date(order.created_at).getTime();
+            const localDate = new Date(utcTime + offsetMs);
+
+            const day = String(localDate.getUTCDate()).padStart(2, '0');
+            const month = String(localDate.getUTCMonth() + 1).padStart(2, '0');
+            const year = localDate.getUTCFullYear();
+            const formattedDate = `${day}/${month}/${year}`;
+
+            const hours = String(localDate.getUTCHours()).padStart(2, '0');
+            const minutes = String(localDate.getUTCMinutes()).padStart(2, '0');
+            const formattedTime = `${hours}:${minutes}`;
+
             return {
                 id: order.ticket_number || order.id,
-                date: new Date(order.created_at).toLocaleDateString('es-ES'),
-                time: new Date(order.created_at).toLocaleTimeString('es-ES'),
+                date: formattedDate,
+                time: formattedTime,
                 items: items,
                 amount: parseFloat(order.total_amount || '0'),
                 status: order.status,

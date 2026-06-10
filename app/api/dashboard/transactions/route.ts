@@ -26,22 +26,34 @@ export async function GET(request: Request) {
 
         const { limit, range } = parsed.data;
 
-        // ── Calcular el rango de fecha si se solicita ────────────────────────
+        // ── Calcular el rango de fecha con soporte de Zona Horaria (tz) ──────
+        const tz = searchParams.get('tz') || '-05:00';
+        
+        // Parsear offset para cálculos en hora local (ej. -05:00 -> -5 horas)
+        const sign = tz.startsWith('+') ? 1 : -1;
+        const offsetParts = tz.substring(1).split(':');
+        const offsetHours = parseInt(offsetParts[0], 10) || 0;
+        const offsetMinutes = parseInt(offsetParts[1], 10) || 0;
+        const offsetMs = sign * (offsetHours * 60 + offsetMinutes) * 60 * 1000;
+
         const now = new Date();
-        let startDate: Date | null = null;
+        const nowLocal = new Date(now.getTime() + offsetMs);
+        const nowYear = nowLocal.getUTCFullYear();
+        const nowMonth = nowLocal.getUTCMonth(); // 0-indexed
+        const nowDate = nowLocal.getUTCDate();
+
+        let startDateISO: string | null = null;
 
         if (range === 'today') {
-            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+            startDateISO = `${nowYear}-${String(nowMonth + 1).padStart(2, '0')}-${String(nowDate).padStart(2, '0')}T00:00:00${tz}`;
         } else if (range === 'week') {
-            startDate = new Date(now);
-            startDate.setDate(now.getDate() - 7);
-            startDate.setHours(0, 0, 0, 0);
+            const startLocal = new Date(now.getTime() - 7 * 24 * 3600 * 1000 + offsetMs);
+            startDateISO = `${startLocal.getUTCFullYear()}-${String(startLocal.getUTCMonth() + 1).padStart(2, '0')}-${String(startLocal.getUTCDate()).padStart(2, '0')}T00:00:00${tz}`;
         } else if (range === 'month') {
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            startDateISO = `${nowYear}-${String(nowMonth + 1).padStart(2, '0')}-01T00:00:00${tz}`;
         } else if (range === 'year') {
-            startDate = new Date(now.getFullYear(), 0, 1);
+            startDateISO = `${nowYear}-01-01T00:00:00${tz}`;
         }
-        // range === 'all' → sin filtro de fecha
 
         // ── Query con o sin filtro de fecha ──────────────────────────────────
         let query = supabaseAdmin
@@ -60,8 +72,8 @@ export async function GET(request: Request) {
             .order('created_at', { ascending: false })
             .limit(limit);
 
-        if (startDate) {
-            query = query.gte('created_at', startDate.toISOString());
+        if (startDateISO) {
+            query = query.gte('created_at', startDateISO);
         }
 
         const { data: orders, error } = await query;

@@ -24,42 +24,55 @@ export async function GET(request: Request) {
 
         const { range } = parsed.data;
 
-        // ── Calcular rangos de fecha ─────────────────────────────────────────
-        // IMPORTANTE: crear objetos independientes para evitar mutación cruzada
-        const now = new Date();
+        // ── Calcular rangos de fecha con soporte de Zona Horaria (tz) ─────────
+        const tz = searchParams.get('tz') || '-05:00';
+        
+        // Parsear offset para cálculos en hora local (ej. -05:00 -> -5 horas)
+        const sign = tz.startsWith('+') ? 1 : -1;
+        const offsetParts = tz.substring(1).split(':');
+        const offsetHours = parseInt(offsetParts[0], 10) || 0;
+        const offsetMinutes = parseInt(offsetParts[1], 10) || 0;
+        const offsetMs = sign * (offsetHours * 60 + offsetMinutes) * 60 * 1000;
 
-        let startDate: Date;
-        let prevStartDate: Date;
-        let prevEndDate: Date;
+        const now = new Date();
+        const nowLocal = new Date(now.getTime() + offsetMs);
+        const nowYear = nowLocal.getUTCFullYear();
+        const nowMonth = nowLocal.getUTCMonth(); // 0-indexed
+
+        let startISO: string;
+        let prevStartISO: string;
+        let prevEndISO: string;
 
         if (range === 'month') {
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-            prevStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            prevEndDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+            startISO = `${nowYear}-${String(nowMonth + 1).padStart(2, '0')}-01T00:00:00${tz}`;
+            
+            let prevMonth = nowMonth - 1;
+            let prevYear = nowYear;
+            if (prevMonth < 0) {
+                prevMonth = 11;
+                prevYear = nowYear - 1;
+            }
+            prevStartISO = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-01T00:00:00${tz}`;
+            
+            const lastDayOfPrevMonth = new Date(nowYear, nowMonth, 0).getDate();
+            prevEndISO = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(lastDayOfPrevMonth).padStart(2, '0')}T23:59:59${tz}`;
         } else if (range === 'year') {
-            startDate = new Date(now.getFullYear(), 0, 1);
-            prevStartDate = new Date(now.getFullYear() - 1, 0, 1);
-            prevEndDate = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
+            startISO = `${nowYear}-01-01T00:00:00${tz}`;
+            prevStartISO = `${nowYear - 1}-01-01T00:00:00${tz}`;
+            prevEndISO = `${nowYear - 1}-12-31T23:59:59${tz}`;
         } else {
             // Semana: últimos 7 días vs 7 días anteriores
-            // FIX: crear fechas independientes para no mutar el mismo objeto
-            startDate = new Date(now);
-            startDate.setDate(now.getDate() - 7);
-            startDate.setHours(0, 0, 0, 0);
+            const startLocal = new Date(now.getTime() - 7 * 24 * 3600 * 1000 + offsetMs);
+            startISO = `${startLocal.getUTCFullYear()}-${String(startLocal.getUTCMonth() + 1).padStart(2, '0')}-${String(startLocal.getUTCDate()).padStart(2, '0')}T00:00:00${tz}`;
 
-            prevEndDate = new Date(now);
-            prevEndDate.setDate(now.getDate() - 8);
-            prevEndDate.setHours(23, 59, 59, 999);
+            const prevEndLocal = new Date(now.getTime() - 8 * 24 * 3600 * 1000 + offsetMs);
+            prevEndISO = `${prevEndLocal.getUTCFullYear()}-${String(prevEndLocal.getUTCMonth() + 1).padStart(2, '0')}-${String(prevEndLocal.getUTCDate()).padStart(2, '0')}T23:59:59${tz}`;
 
-            prevStartDate = new Date(now);
-            prevStartDate.setDate(now.getDate() - 15);
-            prevStartDate.setHours(0, 0, 0, 0);
+            const prevStartLocal = new Date(now.getTime() - 15 * 24 * 3600 * 1000 + offsetMs);
+            prevStartISO = `${prevStartLocal.getUTCFullYear()}-${String(prevStartLocal.getUTCMonth() + 1).padStart(2, '0')}-${String(prevStartLocal.getUTCDate()).padStart(2, '0')}T00:00:00${tz}`;
         }
 
-        const startISO = startDate.toISOString();
         const nowISO = now.toISOString();
-        const prevStartISO = prevStartDate.toISOString();
-        const prevEndISO = prevEndDate.toISOString();
 
         // ── Fetch en paralelo: órdenes del periodo actual, anterior, e items del periodo actual ──
         const [currentRes, prevRes, currentItemsRes] = await Promise.all([
