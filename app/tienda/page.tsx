@@ -96,17 +96,17 @@ export default function TiendaPage() {
     useEffect(() => {
         const loadAllData = async () => {
             try {
+                // FIX: fetchProductsAndCategories reemplaza dos queries separadas con una sola
                 await Promise.all([
                     fetchUserData(),
-                    fetchCategories(),
-                    fetchProducts(),
+                    fetchProductsAndCategories(),
                     fetchActiveBanner()
                 ]);
             } catch (error) {
                 console.error('Error loading app data:', error);
             } finally {
-                // Pequeño timeout para asegurar que la transición sea suave
-                setTimeout(() => setIsInitialLoading(false), 800);
+                // FIX: Quitado setTimeout de 800ms — los datos ya están listos
+                setIsInitialLoading(false);
             }
         };
         loadAllData();
@@ -166,12 +166,17 @@ export default function TiendaPage() {
             // Get data from metadata (guaranteed from registration) or profile
             const metadata = session.user.user_metadata;
 
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', session.user.id)
-                .single();
+            // FIX: select solo los campos necesarios en lugar de select('*')
+            const [profileRes, gamificationRes] = await Promise.all([
+                supabase
+                    .from('profiles')
+                    .select('full_name, phone_number, address')
+                    .eq('id', session.user.id)
+                    .single(),
+                fetch(`/api/gamification?userId=${session.user.id}`).catch(() => null)
+            ]);
 
+            const profile = profileRes.data;
             const fullName = profile?.full_name || metadata.full_name || 'Cliente';
             const phone = profile?.phone_number || metadata.phone_number || '';
             const address = profile?.address || metadata.address || '';
@@ -180,15 +185,16 @@ export default function TiendaPage() {
             if (phone) setPhoneNumber(phone);
             if (address) setDeliveryAddress(address);
 
-            // Obtener nivel del usuario desde gamificación
+            // Nivel de gamificación — obtenido en paralelo con el perfil
             try {
-                const response = await fetch(`/api/gamification?userId=${session.user.id}`);
-                const data = await response.json();
-                if (data.points) {
-                    setUserLevel(data.points.current_level || 'bronce');
+                if (gamificationRes?.ok) {
+                    const data = await gamificationRes.json();
+                    if (data.points) {
+                        setUserLevel(data.points.current_level || 'bronce');
+                    }
                 }
             } catch (error) {
-                console.error('Error fetching user level:', error);
+                // No bloquear si falla la gamificación
             }
         }
     };
@@ -211,18 +217,25 @@ export default function TiendaPage() {
         }
     };
 
-    const fetchCategories = async () => {
-        console.log('🔄 Fetching Categories...');
-        const { data, error } = await supabase
-            .from('categories')
-            .select('*')
-            .order('id');
+    /**
+     * FIX: Una sola query que reemplaza fetchCategories() + fetchProducts() separados.
+     * products ya incluye categories(id, name) con join — no hay razón para dos round-trips.
+     */
+    const fetchProductsAndCategories = async () => {
+        setLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('products')
+                .select('id, name, description, price, category_id, imagen_url, available, categories(id, name)')
+                .eq('available', true)
+                .order('name');
 
-        console.log('📦 Categories result:', data?.length, error);
-        if (error) console.error('Error categories:', error);
+            if (error) console.error('Error cargando productos:', error);
 
-        if (data) {
-            // Custom order mapping for consistency with cashier
+            const products = data || [];
+            setProducts(products);
+
+            // Derivar categorías únicas del resultado — sin query extra
             const categorySortOrder: Record<string, number> = {
                 'PIZZAS TRADICIONALES': 1,
                 'ESPECIALIDADES': 2,
@@ -235,33 +248,22 @@ export default function TiendaPage() {
                 'COMBOS': 9
             };
 
-            const sortedData = [...data].sort((a, b) => {
+            const categoryMap = new Map<number, { id: number; name: string }>();
+            products.forEach((p: any) => {
+                if (p.categories && p.category_id && !categoryMap.has(p.category_id)) {
+                    categoryMap.set(p.category_id, p.categories);
+                }
+            });
+
+            const sortedCategories = Array.from(categoryMap.values()).sort((a, b) => {
                 const orderA = categorySortOrder[a.name.toUpperCase()] || 999;
                 const orderB = categorySortOrder[b.name.toUpperCase()] || 999;
                 return orderA - orderB;
             });
-            setCategories(sortedData);
-        } else {
-            setCategories([]);
-        }
-    };
 
-    const fetchProducts = async () => {
-        console.log('🔄 Fetching Products...');
-        setLoading(true);
-        try {
-            const { data, error } = await supabase
-                .from('products')
-                .select('*, categories(name)')
-                .eq('available', true) // Keep original product selection
-                .order('name'); // Keep original ordering
-
-            console.log('🍔 Products result:', data?.length, error);
-            if (error) console.error('Error products:', error);
-
-            setProducts(data || []);
+            setCategories(sortedCategories);
         } catch (e) {
-            console.error('Exception fetching products:', e);
+            console.error('Error cargando productos y categorías:', e);
         } finally {
             setLoading(false);
         }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import DOMPurify from 'dompurify';
 
 interface CashClosure {
@@ -26,6 +26,8 @@ interface CashClosure {
     created_at: string;
 }
 
+type TimeFilter = 'today' | 'week' | 'month' | 'year' | 'custom';
+
 export default function CierresRerportsPage() {
     const [cierres, setCierres] = useState<CashClosure[]>([]);
     const [loading, setLoading] = useState(true);
@@ -36,6 +38,12 @@ export default function CierresRerportsPage() {
     const [authPassword, setAuthPassword] = useState('');
     const [authError, setAuthError] = useState('');
     const keyBufferRef = useRef('');
+
+    // ── Filtros ──────────────────────────────────────────────────────────────
+    const [timeFilter, setTimeFilter] = useState<TimeFilter>('month');
+    const [cajeroFilter, setCajeroFilter] = useState<string>('all');
+    const [customFrom, setCustomFrom] = useState('');
+    const [customTo, setCustomTo] = useState('');
 
     useEffect(() => {
         fetchCierres();
@@ -54,6 +62,87 @@ export default function CierresRerportsPage() {
             setLoading(false);
         }
     };
+
+    // ── Cajeros únicos para selector ─────────────────────────────────────────
+    const cajeroOptions = useMemo(() => {
+        const normalizedMap = new Map<string, string>(); // Upper-cased -> original trimmed name
+        cierres.forEach(c => {
+            if (!c.cajero) return;
+            const trimmed = c.cajero.trim();
+            const upper = trimmed.toUpperCase();
+            // Prefer mixed case over all-caps if both exist
+            const existing = normalizedMap.get(upper);
+            if (!existing || (existing === existing.toUpperCase() && trimmed !== trimmed.toUpperCase())) {
+                normalizedMap.set(upper, trimmed);
+            }
+        });
+        return Array.from(normalizedMap.values()).sort((a, b) => a.localeCompare(b));
+    }, [cierres]);
+
+    // ── Lógica de filtrado ────────────────────────────────────────────────────
+    const filteredCierres = useMemo(() => {
+        const now = new Date();
+
+        const getStartOf = (unit: TimeFilter): Date => {
+            const d = new Date(now);
+            if (unit === 'today') {
+                d.setHours(0, 0, 0, 0);
+            } else if (unit === 'week') {
+                const day = d.getDay(); // 0=domingo
+                d.setDate(d.getDate() - day);
+                d.setHours(0, 0, 0, 0);
+            } else if (unit === 'month') {
+                d.setDate(1);
+                d.setHours(0, 0, 0, 0);
+            } else if (unit === 'year') {
+                d.setMonth(0, 1);
+                d.setHours(0, 0, 0, 0);
+            }
+            return d;
+        };
+
+        return cierres.filter(c => {
+            // Filtro por cajero (ignora espacios y diferencias de mayúsculas/minúsculas)
+            if (cajeroFilter !== 'all') {
+                const closureCajero = c.cajero?.trim().toUpperCase();
+                const filterCajero = cajeroFilter.trim().toUpperCase();
+                if (closureCajero !== filterCajero) return false;
+            }
+
+            // Filtro por fecha usando created_at
+            const fecha = new Date(c.created_at);
+
+            if (timeFilter === 'custom') {
+                if (customFrom) {
+                    const from = new Date(customFrom);
+                    from.setHours(0, 0, 0, 0);
+                    if (fecha < from) return false;
+                }
+                if (customTo) {
+                    const to = new Date(customTo);
+                    to.setHours(23, 59, 59, 999);
+                    if (fecha > to) return false;
+                }
+                return true;
+            }
+
+            const start = getStartOf(timeFilter);
+            return fecha >= start && fecha <= now;
+        });
+    }, [cierres, timeFilter, cajeroFilter, customFrom, customTo]);
+
+    // ── Totales del período filtrado ──────────────────────────────────────────
+    const summaryStats = useMemo(() => {
+        return filteredCierres.reduce((acc, c) => ({
+            totalVentas: acc.totalVentas + c.total_ventas,
+            totalEfectivo: acc.totalEfectivo + c.ventas_efectivo,
+            totalTarjeta: acc.totalTarjeta + c.ventas_tarjeta,
+            totalOrdenes: acc.totalOrdenes + c.total_ordenes,
+            totalGastos: acc.totalGastos + (c.total_gastos || 0),
+        }), { totalVentas: 0, totalEfectivo: 0, totalTarjeta: 0, totalOrdenes: 0, totalGastos: 0 });
+    }, [filteredCierres]);
+
+
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -116,7 +205,7 @@ export default function CierresRerportsPage() {
   <div class="doc-title">CIERRE DE CAJA (COPIA ADMIN)</div>
   <div class="meta">
     Fecha: ${data.fecha_turno}<br/>
-    <div class="cashier-highlight">CAJERO: ${data.cajero.toUpperCase()}</div>
+    <div class="cashier-highlight">CAJERO: ${(data.cajero || '').trim().toUpperCase()}</div>
     <span style="font-size:8px">Impreso: ${new Date().toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
   </div>
 </div>
@@ -158,7 +247,7 @@ ${data.top_productos.slice(0, 5).map((p: any, i: number) => `<div class="prod-ro
 <hr class="double"/>
 <div class="footer">
   <div class="sign-line"></div>
-  <p>Firma Cajero: ${data.cajero.toUpperCase()}</p>
+  <p>Firma Cajero: ${(data.cajero || '').trim().toUpperCase()}</p>
   <p style="margin-top:4px;font-size:7px">Control Interno - Casaleña POS</p>
 </div>
         `;
@@ -254,12 +343,126 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
             <div className="max-w-6xl mx-auto space-y-6">
                 
                 {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-[#e6e1db] pb-4 mb-8">
+                <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-[#e6e1db] pb-4">
                     <div>
                         <h1 className="text-3xl font-black text-[#181511] tracking-tight">Cierres de Caja</h1>
                         <p className="text-[#8c785f] mt-1 font-bold">Historial y cuadres registrados por tus cajeros.</p>
                     </div>
+                    <p className="text-xs font-bold text-gray-400 mt-2 md:mt-0">
+                        {filteredCierres.length} cierre{filteredCierres.length !== 1 ? 's' : ''} encontrado{filteredCierres.length !== 1 ? 's' : ''}
+                    </p>
                 </div>
+
+                {/* ── Barra de Filtros ── */}
+                <div className="bg-white rounded-2xl border border-[#e6e1db] p-4 shadow-sm space-y-3">
+                    {/* Filtros de tiempo */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mr-1 shrink-0">Período:</span>
+                        {([
+                            { key: 'today', label: 'Hoy' },
+                            { key: 'week',  label: 'Esta Semana' },
+                            { key: 'month', label: 'Este Mes' },
+                            { key: 'year',  label: 'Este Año' },
+                            { key: 'custom', label: 'Personalizado' },
+                        ] as { key: TimeFilter; label: string }[]).map(({ key, label }) => (
+                            <button
+                                key={key}
+                                onClick={() => setTimeFilter(key)}
+                                className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-tight transition-all ${
+                                    timeFilter === key
+                                        ? 'bg-[#181511] text-white shadow-sm'
+                                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                }`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Rango personalizado */}
+                    {timeFilter === 'custom' && (
+                        <div className="flex flex-wrap gap-3 items-center animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200">
+                                <span className="text-[10px] font-black text-gray-400 uppercase">Desde:</span>
+                                <input
+                                    type="date"
+                                    value={customFrom}
+                                    onChange={e => setCustomFrom(e.target.value)}
+                                    className="text-sm font-bold text-[#181511] bg-transparent outline-none"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200">
+                                <span className="text-[10px] font-black text-gray-400 uppercase">Hasta:</span>
+                                <input
+                                    type="date"
+                                    value={customTo}
+                                    onChange={e => setCustomTo(e.target.value)}
+                                    className="text-sm font-bold text-[#181511] bg-transparent outline-none"
+                                />
+                            </div>
+                            {(customFrom || customTo) && (
+                                <button
+                                    onClick={() => { setCustomFrom(''); setCustomTo(''); }}
+                                    className="text-[10px] font-black text-gray-400 hover:text-red-500 transition-colors uppercase"
+                                >
+                                    Limpiar rango
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Filtro por cajero */}
+                    {cajeroOptions.length > 1 && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mr-1 shrink-0">Cajero:</span>
+                            <button
+                                onClick={() => setCajeroFilter('all')}
+                                className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-tight transition-all ${
+                                    cajeroFilter === 'all'
+                                        ? 'bg-[#F27405] text-white shadow-sm'
+                                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                }`}
+                            >
+                                Todos
+                            </button>
+                            {cajeroOptions.map(cajero => (
+                                <button
+                                    key={cajero}
+                                    onClick={() => setCajeroFilter(cajero)}
+                                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black capitalize transition-all ${
+                                        cajeroFilter === cajero
+                                            ? 'bg-[#F27405] text-white shadow-sm'
+                                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    {cajero}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* ── Resumen del período ── */}
+                {filteredCierres.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 animate-in fade-in duration-300">
+                        {[
+                            { label: 'Total Ventas', value: `$${summaryStats.totalVentas.toFixed(2)}`, icon: 'payments', color: 'text-[#F27405]', bg: 'bg-orange-50' },
+                            { label: 'Efectivo', value: `$${summaryStats.totalEfectivo.toFixed(2)}`, icon: 'attach_money', color: 'text-green-600', bg: 'bg-green-50' },
+                            { label: 'Transferencia', value: `$${summaryStats.totalTarjeta.toFixed(2)}`, icon: 'account_balance', color: 'text-blue-600', bg: 'bg-blue-50' },
+                            { label: 'Órdenes', value: summaryStats.totalOrdenes.toString(), icon: 'receipt_long', color: 'text-purple-600', bg: 'bg-purple-50' },
+                            { label: 'Gastos', value: `$${summaryStats.totalGastos.toFixed(2)}`, icon: 'trending_down', color: 'text-red-500', bg: 'bg-red-50' },
+                        ].map(stat => (
+                            <div key={stat.label} className={`${stat.bg} rounded-2xl p-4 border border-white/80`}>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className={`material-symbols-outlined text-base ${stat.color}`}>{stat.icon}</span>
+                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{stat.label}</span>
+                                </div>
+                                <p className={`font-black text-xl tracking-tight ${stat.color}`}>{stat.value}</p>
+                                <p className="text-[9px] font-bold text-gray-400 mt-0.5">{filteredCierres.length} cierre{filteredCierres.length !== 1 ? 's' : ''}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {loading ? (
                     <div className="flex items-center justify-center py-20">
@@ -267,17 +470,31 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                             progress_activity
                         </span>
                     </div>
-                ) : cierres.length === 0 ? (
+                ) : filteredCierres.length === 0 ? (
                     <div className="bg-white rounded-3xl p-12 text-center border shadow-sm">
                         <span className="material-symbols-outlined text-6xl text-[#8c785f] mb-4">
                             lock_clock
                         </span>
-                        <h3 className="text-xl font-bold text-[#181511] mb-2">Aún no hay reportes</h3>
-                        <p className="text-[#8c785f] font-medium">Los reportes aparecerán aquí cuando los cajeros terminen turno.</p>
+                        <h3 className="text-xl font-bold text-[#181511] mb-2">
+                            {cierres.length === 0 ? 'Aún no hay reportes' : 'Sin resultados para este filtro'}
+                        </h3>
+                        <p className="text-[#8c785f] font-medium">
+                            {cierres.length === 0
+                                ? 'Los reportes aparecerán aquí cuando los cajeros terminen turno.'
+                                : 'Intenta cambiar el período o el cajero seleccionado.'}
+                        </p>
+                        {cierres.length > 0 && (
+                            <button
+                                onClick={() => { setTimeFilter('month'); setCajeroFilter('all'); setCustomFrom(''); setCustomTo(''); }}
+                                className="mt-4 px-4 py-2 bg-[#181511] text-white text-xs font-black rounded-xl"
+                            >
+                                Ver todos los cierres
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {cierres.map((c) => (
+                        {filteredCierres.map((c) => (
                             <div 
                                 key={c.id} 
                                 className="bg-white rounded-3xl overflow-hidden border border-[#e6e1db] shadow-sm hover:shadow-xl transition-all cursor-pointer group"
@@ -297,7 +514,7 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                                     <div className="space-y-3 mb-6">
                                         <div className="flex justify-between items-center text-sm">
                                             <span className="font-bold text-[#8c785f]">Cajero:</span>
-                                            <span className="font-black text-[#181511]">{c.cajero}</span>
+                                            <span className="font-black text-[#181511]">{c.cajero?.trim()}</span>
                                         </div>
                                         <div className="flex justify-between items-center text-sm">
                                             <span className="font-bold text-[#8c785f]">Ventas del día:</span>
@@ -329,6 +546,7 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
 
             {/* Modal Detail View */}
             {selectedCierre && (
+
                 <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200 relative">
                         
@@ -416,7 +634,7 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                             <div className="flex items-center justify-between bg-gray-50 p-4 rounded-2xl">
                                 <div>
                                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Cajero Responsable</p>
-                                    <p className="font-black text-lg text-[#181511]">{selectedCierre.cajero}</p>
+                                    <p className="font-black text-lg text-[#181511]">{selectedCierre.cajero?.trim()}</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Órdenes Generadas</p>

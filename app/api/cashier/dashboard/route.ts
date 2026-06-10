@@ -8,44 +8,41 @@ export async function GET() {
         const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
         if (errorResponse) return errorResponse;
 
-        // Usamos la fecha local del servidor
+        // FIX: Ejecutar ambas queries en paralelo en lugar de secuencial
         const now = new Date();
         const localDate = now.toLocaleDateString('sv-SE'); // Formato YYYY-MM-DD
 
-        // Fetch stats for today
-        const { data: orders, error: ordersError } = await supabaseAdmin
-            .from('orders')
-            .select('*')
-            .gte('created_at', `${localDate}T00:00:00`);
+        const [todayRes, recentRes] = await Promise.all([
+            // Query 1: Órdenes de hoy para estadísticas
+            supabaseAdmin
+                .from('orders')
+                .select('id, total_amount, status')
+                .gte('created_at', `${localDate}T00:00:00`),
 
-        if (ordersError) throw ordersError;
+            // Query 2: Últimas 5 órdenes (sin filtro de fecha)
+            supabaseAdmin
+                .from('orders')
+                .select('id, total_amount, status, order_type, customer_name, created_at, table_number')
+                .order('created_at', { ascending: false })
+                .limit(5),
+        ]);
 
-        let todayOrders = 0;
-        let todayRevenue = 0;
-        let pendingOrders = 0;
-        let readyOrders = 0;
+        if (todayRes.error) throw todayRes.error;
+        if (recentRes.error) throw recentRes.error;
 
-        if (orders) {
-            todayOrders = orders.length;
-            todayRevenue = orders
-                .filter(o => o.status !== 'cancelado')
-                .reduce((sum, o) => sum + o.total_amount, 0);
-            
-            pendingOrders = orders.filter(o =>
-                ['pendiente', 'confirmado', 'preparando'].includes(o.status)
-            ).length;
-            
-            readyOrders = orders.filter(o => o.status === 'listo').length;
-        }
+        const orders = todayRes.data || [];
+        const recentOrders = recentRes.data || [];
 
-        // Fetch recent orders
-        const { data: recentOrders, error: recentError } = await supabaseAdmin
-            .from('orders')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(5);
+        let todayOrders = orders.length;
+        let todayRevenue = orders
+            .filter(o => o.status !== 'cancelado')
+            .reduce((sum, o) => sum + (o.total_amount || 0), 0);
 
-        if (recentError) throw recentError;
+        let pendingOrders = orders.filter(o =>
+            ['pendiente', 'confirmado', 'preparando'].includes(o.status)
+        ).length;
+
+        let readyOrders = orders.filter(o => o.status === 'listo').length;
 
         return NextResponse.json({
             stats: {
@@ -54,11 +51,10 @@ export async function GET() {
                 pendingOrders,
                 readyOrders
             },
-            recentOrders: recentOrders || []
+            recentOrders
         });
 
     } catch (error: any) {
         return handleServerError(error, 'Cashier Dashboard API Error');
     }
 }
-

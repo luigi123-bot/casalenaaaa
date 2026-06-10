@@ -40,55 +40,92 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 return;
             }
 
-            // 1. Initial Quick Sync from Metadata (Avoids stuck loading)
             const metadata = session.user.user_metadata || {};
-            if (isInstanceMounted) {
-                setUser({
-                    id: session.user.id,
-                    email: session.user.email || '',
-                    full_name: metadata.full_name || 'Usuario',
-                    role: (metadata.role || 'cliente').toLowerCase() as any,
-                    avatar_url: metadata.avatar_url || '',
-                });
-                // We can set loading to false here to unblock UI if we have enough metadata
-                setLoading(false);
-            }
 
-            // 2. Background Sync from Database (Profiles/Usuarios)
+            // Intentar obtener el rol real de la DB con timeout de 2s
+            // Si la DB responde a tiempo → usar ese rol (fuente de verdad)
+            // Si se demora o falla → fallback a metadata para no bloquear la UI
             try {
-                const { data: profile, error } = await supabase
+                const profilePromise = supabase
                     .from('profiles')
-                    .select('*')
+                    .select('id, email, full_name, role, avatar_url')
                     .eq('id', session.user.id)
                     .single();
 
-                if (profile && isInstanceMounted) {
+                const timeoutPromise = new Promise<null>(resolve =>
+                    setTimeout(() => resolve(null), 2000)
+                );
+
+                const result = await Promise.race([profilePromise, timeoutPromise]);
+
+                if (!isInstanceMounted) return;
+
+                if (result && 'data' in result && result.data) {
+                    // ✅ DB respondió a tiempo — usar el rol real
+                    const profile = result.data;
                     setUser({
                         id: profile.id,
-                        email: profile.email,
+                        email: profile.email || session.user.email || '',
                         full_name: profile.full_name || metadata.full_name || 'Usuario',
                         role: (profile.role || metadata.role || 'cliente').toLowerCase() as any,
                         avatar_url: profile.avatar_url,
                     });
+                } else {
+                    // ⚠️ Timeout — usar metadata como fallback temporal
+                    // Se actualizará automáticamente si la DB responde después
+                    setUser({
+                        id: session.user.id,
+                        email: session.user.email || '',
+                        full_name: metadata.full_name || 'Usuario',
+                        role: (metadata.role || 'cliente').toLowerCase() as any,
+                        avatar_url: metadata.avatar_url || '',
+                    });
+
+                    // Intentar obtener de DB en segundo plano (sin bloquear UI)
+                    profilePromise.then(({ data: profile }) => {
+                        if (profile && isInstanceMounted) {
+                            setUser(prev => prev ? {
+                                ...prev,
+                                full_name: profile.full_name || prev.full_name,
+                                role: (profile.role || prev.role).toLowerCase() as any,
+                                avatar_url: profile.avatar_url || prev.avatar_url,
+                            } : null);
+                        }
+                    }).catch(() => { /* silencioso — metadata ya fue aplicada */ });
                 }
             } catch (err) {
-                console.warn('Profile sync failed, kept metadata version:', err);
+                // Error total → usar metadata como último recurso
+                if (isInstanceMounted) {
+                    console.warn('[Auth] Profile fetch failed, using metadata fallback:', err);
+                    setUser({
+                        id: session.user.id,
+                        email: session.user.email || '',
+                        full_name: metadata.full_name || 'Usuario',
+                        role: (metadata.role || 'cliente').toLowerCase() as any,
+                        avatar_url: metadata.avatar_url || '',
+                    });
+                }
+            } finally {
+                if (isInstanceMounted) setLoading(false);
             }
         };
 
-        // Suppress redundant getUser call on mount, let onAuthStateChange handle INITIAL_SESSION
-        // which triggers automatically in newer Supabase versions. 
-        // If not, we manually trigger one check.
+        let isHandling = false; // Prevenir llamadas concurrentes a handleUserData
+
         const checkInitial = async () => {
+            if (isHandling) return;
+            isHandling = true;
             const { data: { session } } = await supabase.auth.getSession();
             if (session) await handleUserData(session);
             else if (isInstanceMounted) setLoading(false);
+            isHandling = false;
         };
 
         checkInitial();
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            console.log(`🔑 [Auth] Event: ${event} | User: ${session?.user?.email}`);
+            // Ignorar el INITIAL_SESSION que llega al mismo tiempo que checkInitial
+            if (event === 'INITIAL_SESSION') return;
 
             if (event === 'SIGNED_OUT') {
                 if (isInstanceMounted) {
@@ -100,16 +137,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         });
 
-        // Safety timeout to prevent infinite loading in case of network freeze
+        // Safety timeout: 4s (2s más que el timeout del profilePromise)
+        // Evita que el loading quede bloqueado si Supabase no responde en absoluto
         const safetyTimeout = setTimeout(() => {
             setLoading(prev => {
                 if (prev) {
-                    console.warn('⚠️ Force-disabling loading state due to timeout');
+                    console.warn('⚠️ [Auth] Force-disabling loading state due to timeout');
                     return false;
                 }
                 return prev;
             });
-        }, 8000);
+        }, 4000);
 
         return () => {
             isInstanceMounted = false;

@@ -4,58 +4,93 @@ import { useEffect } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 
+/**
+ * Lee la sesión de Supabase del localStorage de forma síncrona.
+ * Esto evita una llamada de red innecesaria cuando la sesión ya existe localmente.
+ */
+function getSessionFromStorage(): { userId: string; role: string } | null {
+    try {
+        // Supabase guarda la sesión con una clave que empieza con "sb-"
+        const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+        if (!key) return null;
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        const user = parsed?.user;
+        if (!user?.id) return null;
+        const role = (user?.user_metadata?.role || 'cliente').toLowerCase();
+        return { userId: user.id, role };
+    } catch {
+        return null;
+    }
+}
+
 export default function Home() {
     const router = useRouter();
 
     useEffect(() => {
         const checkAuthAndRedirect = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
+            // PASO 1: Leer sesión del localStorage (instantáneo, sin red)
+            const cached = getSessionFromStorage();
 
-            if (!session) {
-                // If not logged in, go to store
+            if (!cached) {
+                // Sin sesión local → redirigir a tienda inmediatamente
                 router.push('/tienda');
                 return;
             }
 
-            // If logged in, resolve role and redirect
+            // PASO 2: Con sesión local, intentar obtener el rol real del perfil
+            // con un timeout agresivo para no bloquear si la red es lenta
+            let finalRole = cached.role;
+
             try {
-                let role = '';
-                
-                // 1. Try from profiles table
-                const { data: profile } = await supabase
+                const profileFetch = supabase
                     .from('profiles')
                     .select('role')
-                    .eq('id', session.user.id)
+                    .eq('id', cached.userId)
                     .single();
 
-                if (profile?.role) {
-                    role = profile.role.toLowerCase();
-                } else {
-                    // 2. Fallback to auth metadata
-                    role = (session.user.user_metadata?.role || 'cliente').toLowerCase();
+                const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000));
+
+                const result = await Promise.race([profileFetch, timeout]);
+
+                // Si obtuvo respuesta de la DB a tiempo
+                if (result && 'data' in result && result.data?.role) {
+                    finalRole = result.data.role.toLowerCase();
                 }
 
-                // If metadata has repartidor, respect it (because of UI fallback to 'cliente' in profiles)
-                if (session.user.user_metadata?.role?.toLowerCase() === 'repartidor') {
-                    role = 'repartidor';
+                // Si metadata dice repartidor, respetar ese rol
+                if (cached.role === 'repartidor') {
+                    finalRole = 'repartidor';
                 }
+            } catch {
+                // En caso de error, usar el rol del localStorage como fallback
+                console.warn('Profile fetch failed, using cached role:', finalRole);
+            }
 
-                // Redirect based on role
-                if (role === 'administrador') {
-                    router.push('/admin/users');
-                } else if (role === 'cajero') {
-                    router.push('/cashier');
-                } else if (role === 'cocina') {
-                    router.push('/cocina');
-                } else if (role === 'repartidor') {
-                    router.push('/repartidor');
-                } else {
-                    // Default for clients and others
+            // PASO 3: Verificar que la sesión de Supabase siga siendo válida
+            // (solo si el localStorage dice que hay sesión, para confirmar el token)
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session) {
                     router.push('/tienda');
+                    return;
                 }
-            } catch (error) {
-                console.error('Error redirecting authenticated user:', error);
-                router.push('/tienda'); // Safety fallback
+            } catch {
+                // Si falla la verificación, igual redirigir con el rol cacheado
+            }
+
+            // PASO 4: Redirigir según rol
+            if (finalRole === 'administrador') {
+                router.push('/admin/users');
+            } else if (finalRole === 'cajero') {
+                router.push('/cashier');
+            } else if (finalRole === 'cocina') {
+                router.push('/cocina');
+            } else if (finalRole === 'repartidor') {
+                router.push('/repartidor');
+            } else {
+                router.push('/tienda');
             }
         };
 
@@ -71,3 +106,4 @@ export default function Home() {
         </div>
     );
 }
+

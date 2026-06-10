@@ -379,13 +379,13 @@ export default function CashierPage() {
             }
         };
 
-        // Safety global: si después de 12s sigue en 'checking', forzar must_open
+        // FIX: Reducido de 12s a 5s — si la API no responde, mostrar pantalla de apertura antes
         const globalSafety = setTimeout(() => {
             if (isEffectActive) {
                 console.warn('[Shift] ⏱️ Safety timeout — forzando pantalla de apertura');
                 setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
             }
-        }, 12000);
+        }, 5000);
 
         evaluateShiftStrict().finally(() => clearTimeout(globalSafety));
 
@@ -846,8 +846,8 @@ export default function CashierPage() {
     }, [showPaymentModal]);
 
     useEffect(() => {
-        // Safety timeout for loading state
-        const loadTimeout = setTimeout(() => setLoading(false), 8000); 
+        // FIX: Reducido de 8s a 4s — si falla, el usuario ve el error más rápido
+        const loadTimeout = setTimeout(() => setLoading(false), 4000); 
         fetchMenu().finally(() => clearTimeout(loadTimeout));
     }, []);
 

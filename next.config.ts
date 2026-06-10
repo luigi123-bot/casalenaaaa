@@ -173,6 +173,8 @@ const withPWA = require("@ducanh2912/next-pwa").default({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   trailingSlash: false,
+  // FIX: Comprimir respuestas HTTP (deflate/gzip) en el servidor Next.js
+  compress: true,
   images: {
     remotePatterns: [
       {
@@ -192,8 +194,65 @@ const nextConfig: NextConfig = {
         hostname: 'ui-avatars.com',
       },
     ],
+    // FIX: Optimizar calidad de imágenes para reducir tamaño de transferencia
+    formats: ['image/avif', 'image/webp'],
+    minimumCacheTTL: 86400, // 24 horas mínimo de caché de imágenes
   },
-  /* config options here */
+  // FIX: Cabeceras HTTP de caché para assets estáticos
+  async headers() {
+    return [
+      {
+        // Assets de Next.js tienen hash en el nombre — se pueden cachear 1 año
+        source: '/_next/static/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        // Imágenes públicas — 30 días
+        source: '/:path*.(jpg|jpeg|png|webp|avif|gif|svg|ico)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=2592000, stale-while-revalidate=86400',
+          },
+        ],
+      },
+      {
+        // Fuentes — 1 año (prácticamente inmutables)
+        source: '/:path*.(woff|woff2|ttf|otf|eot)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        // Audio — 30 días
+        source: '/:path*.(mp3|wav|m4a)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=2592000',
+          },
+        ],
+      },
+      {
+        // Service worker — nunca cachear para que siempre se actualice
+        source: '/sw.js',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=0, must-revalidate',
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default withPWA(nextConfig);

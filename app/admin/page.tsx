@@ -24,11 +24,14 @@ interface DashboardStats {
     topProduct: string;
     chartData: Array<{ day: string; amount: number; date: string }>;
     categoryStats: Array<{ name: string; count: number; percentage: number }>;
+    changes?: { sales: string; orders: string };
 }
 
 interface Transaction {
     id: string;
     time: string;
+    date: string;
+    datetime: string;
     items: string;
     amount: string;
     status: string;
@@ -78,7 +81,7 @@ export default function AdminPage() {
         try {
             const [statsRes, transactionsRes] = await Promise.all([
                 safeFetch(`/api/dashboard/stats?range=${timeRange}`),
-                safeFetch('/api/dashboard/transactions?limit=5')
+                safeFetch(`/api/dashboard/transactions?limit=8&range=${timeRange}`)
             ]);
 
             // safeFetch returns a never-resolving promise on abort — check ok before parsing
@@ -180,8 +183,12 @@ export default function AdminPage() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1 text-xs sm:text-sm">
-                                        <span className="material-symbols-outlined text-green-600 text-base sm:text-lg">trending_up</span>
-                                        <span className="text-green-600 font-bold">+12%</span>
+                                        <span className={`material-symbols-outlined text-base sm:text-lg ${stats?.changes?.sales?.startsWith('-') ? 'text-red-500' : 'text-green-600'}`}>
+                                            {stats?.changes?.sales?.startsWith('-') ? 'trending_down' : 'trending_up'}
+                                        </span>
+                                        <span className={`font-bold ${stats?.changes?.sales?.startsWith('-') ? 'text-red-500' : 'text-green-600'}`}>
+                                            {stats?.changes?.sales || '0'}%
+                                        </span>
                                         <span className="text-[#8c785f] hidden sm:inline">vs periodo anterior</span>
                                         <span className="text-[#8c785f] sm:hidden">vs anterior</span>
                                     </div>
@@ -199,8 +206,12 @@ export default function AdminPage() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1 text-xs sm:text-sm">
-                                        <span className="material-symbols-outlined text-green-600 text-base sm:text-lg">trending_up</span>
-                                        <span className="text-green-600 font-bold">+5%</span>
+                                        <span className={`material-symbols-outlined text-base sm:text-lg ${stats?.changes?.orders?.startsWith('-') ? 'text-red-500' : 'text-green-600'}`}>
+                                            {stats?.changes?.orders?.startsWith('-') ? 'trending_down' : 'trending_up'}
+                                        </span>
+                                        <span className={`font-bold ${stats?.changes?.orders?.startsWith('-') ? 'text-red-500' : 'text-green-600'}`}>
+                                            {stats?.changes?.orders || '0'}%
+                                        </span>
                                         <span className="text-[#8c785f] hidden sm:inline">vs periodo anterior</span>
                                         <span className="text-[#8c785f] sm:hidden">vs anterior</span>
                                     </div>
@@ -412,7 +423,7 @@ export default function AdminPage() {
                                         <thead>
                                             <tr className="bg-[#fcfbf9] text-[#8c785f] text-[10px] sm:text-xs uppercase tracking-wider">
                                                 <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold">ID Orden</th>
-                                                <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold">Hora</th>
+                                                <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold">Fecha / Hora</th>
                                                 <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold">Artículos</th>
                                                 <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold">Monto</th>
                                                 <th className="px-4 sm:px-6 py-3 sm:py-4 font-bold text-center">Estado</th>
@@ -423,7 +434,10 @@ export default function AdminPage() {
                                                 transactions.map((transaction) => (
                                                     <tr key={transaction.id} className="hover:bg-gray-50 transition-colors">
                                                         <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-bold text-[#181511]">{transaction.id}</td>
-                                                        <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-[#8c785f]">{transaction.time}</td>
+                                                        <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-[#8c785f]">
+                                                            <span className="block font-medium text-[#181511]">{transaction.date}</span>
+                                                            <span className="text-[10px]">{transaction.time}</span>
+                                                        </td>
                                                         <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-[#181511]">{transaction.items}</td>
                                                         <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm font-bold text-[#181511]">{transaction.amount}</td>
                                                         <td className="px-4 sm:px-6 py-3 sm:py-4 text-center">
