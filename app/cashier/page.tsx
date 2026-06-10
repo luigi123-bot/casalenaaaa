@@ -81,6 +81,19 @@ export default function CashierPage() {
     const { user, loading: authLoading, signOut } = useAuth();
     const cashierName = user?.full_name || 'CAJERO';
 
+    useEffect(() => {
+        if (!authLoading) {
+            if (!user) {
+                router.push('/login');
+            } else {
+                const role = user.role.toLowerCase();
+                if (role !== 'cajero' && role !== 'administrador') {
+                    router.push('/redirect');
+                }
+            }
+        }
+    }, [user, authLoading, router]);
+
     // ── SESIÓN KEEP-ALIVE ────────────────────────────────────────────────────────
     // El cliente Supabase ya tiene autoRefreshToken: true — renueva solo.
     // Este hook añade una capa extra de defensa: refresca al volver a la pestaña,

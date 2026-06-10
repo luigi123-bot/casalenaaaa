@@ -36,7 +36,7 @@ export default function RepartidorApp() {
             const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
             let role = profile?.role?.toLowerCase() || 'cliente';
             if (session.user.user_metadata?.role?.toLowerCase() === 'repartidor') role = 'repartidor';
-            if (role !== 'repartidor') { alert('No tienes permisos de repartidor.'); router.push('/tienda'); return; }
+            if (role !== 'repartidor') { alert('No tienes permisos de repartidor.'); router.push('/redirect'); return; }
             let { data: driver } = await supabase.from('delivery_drivers').select('*').eq('id', session.user.id).maybeSingle();
             if (!driver) {
                 const fullName = profile?.full_name || session.user.email?.split('@')[0] || 'Repartidor';

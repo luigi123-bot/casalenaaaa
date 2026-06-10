@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -13,6 +13,20 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        const checkActiveSession = async () => {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) {
+                    router.replace('/redirect');
+                }
+            } catch (err) {
+                console.error('Error checking active session:', err);
+            }
+        };
+        checkActiveSession();
+    }, [router]);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -51,18 +65,18 @@ export default function LoginPage() {
 
             console.log('👤 [Login] User role resolved:', role);
 
-            // Redirect based on role
-            if (role === 'administrador') {
-                router.push('/admin');
-            } else if (role === 'cajero') {
-                router.push('/cashier');
-            } else if (role === 'cocina') {
-                router.push('/cocina');
-            } else if (role === 'repartidor') {
-                router.push('/repartidor');
+            // Get redirect path from query param if any
+            let redirectPath = '';
+            if (typeof window !== 'undefined') {
+                const params = new URLSearchParams(window.location.search);
+                redirectPath = params.get('redirect') || '';
+            }
+
+            // Clientes with a valid redirect parameter go directly, otherwise everyone goes to /redirect
+            if (role === 'cliente' && redirectPath && redirectPath.startsWith('/')) {
+                router.push(redirectPath);
             } else {
-                // Default to store for clients and others
-                router.push('/tienda');
+                router.push('/redirect');
             }
         } catch (error: any) {
             console.error('❌ [Login Detail] Error Code:', error.code);

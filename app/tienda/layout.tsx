@@ -15,6 +15,12 @@ export default function TiendaLayout({ children }: { children: React.ReactNode }
     const [userRole, setUserRole] = useState<string | null>(null);
 
     useEffect(() => {
+        const cachedRole = typeof window !== 'undefined' ? localStorage.getItem('casalena-user-role') : null;
+        if (cachedRole && cachedRole !== 'cliente') {
+            router.push('/redirect');
+            return;
+        }
+
         const checkAuth = async () => {
             try {
                 // Check if user is authenticated
@@ -30,7 +36,14 @@ export default function TiendaLayout({ children }: { children: React.ReactNode }
                         .eq('id', session.user.id)
                         .single();
 
-                    setUserRole(profile?.role || null);
+                    const role = (profile?.role || session.user.user_metadata?.role || 'cliente').toLowerCase();
+                    setUserRole(role || null);
+
+                    // If user is not a customer, redirect them to their dashboard via centralized redirect
+                    if (role && role !== 'cliente') {
+                        router.push('/redirect');
+                        return; // Prevent loading client storefront elements
+                    }
                 } else {
                     // No session, but allow access to tienda
                     setIsAuthenticated(false);

@@ -25,8 +25,24 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const [user, setUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [user, setUser] = useState<User | null>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const raw = localStorage.getItem('casalena-user-profile');
+                if (raw) return JSON.parse(raw);
+            } catch (e) {
+                console.warn('Failed to parse cached profile:', e);
+            }
+        }
+        return null;
+    });
+    const [loading, setLoading] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const raw = localStorage.getItem('casalena-user-profile');
+            if (raw) return false;
+        }
+        return true;
+    });
 
     useEffect(() => {
         let isInstanceMounted = true;
@@ -35,21 +51,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (!session?.user) {
                 if (isInstanceMounted) {
                     setUser(null);
+                    localStorage.removeItem('casalena-user-role');
+                    localStorage.removeItem('casalena-user-profile');
                     setLoading(false);
                 }
                 return;
             }
 
             const metadata = session.user.user_metadata || {};
+            const userId = session.user.id;
 
-            // Intentar obtener el rol real de la DB con timeout de 2s
-            // Si la DB responde a tiempo → usar ese rol (fuente de verdad)
-            // Si se demora o falla → fallback a metadata para no bloquear la UI
+            // 1. Optimistic recovery from local storage cache to disable loading state instantly (0ms delay)
+            let cachedProfile: User | null = null;
+            try {
+                const raw = localStorage.getItem('casalena-user-profile');
+                if (raw) {
+                    cachedProfile = JSON.parse(raw);
+                }
+            } catch (e) {
+                console.warn('Failed to parse cached profile:', e);
+            }
+
+            if (cachedProfile && cachedProfile.id === userId) {
+                if (isInstanceMounted) {
+                    setUser(cachedProfile);
+                    setLoading(false);
+                }
+                
+                // Fetch in background to ensure profile is up-to-date
+                const fetchBackground = async () => {
+                    try {
+                        const { data: profile } = await supabase
+                            .from('profiles')
+                            .select('id, email, full_name, role, avatar_url')
+                            .eq('id', userId)
+                            .single();
+                        
+                        if (profile && isInstanceMounted) {
+                            let role = (profile.role || metadata.role || 'cliente').toLowerCase();
+                            if (metadata.role?.toLowerCase() === 'repartidor') {
+                                role = 'repartidor';
+                            }
+                            const updatedUser: User = {
+                                id: profile.id,
+                                email: profile.email || session.user.email || '',
+                                full_name: profile.full_name || metadata.full_name || 'Usuario',
+                                role: role as any,
+                                avatar_url: profile.avatar_url,
+                            };
+                            setUser(updatedUser);
+                            localStorage.setItem('casalena-user-role', role);
+                            localStorage.setItem('casalena-user-profile', JSON.stringify(updatedUser));
+                        }
+                    } catch (err) {
+                        console.warn('Background profile update failed:', err);
+                    }
+                };
+                fetchBackground();
+                return;
+            }
+
+            // 2. Fetch role from database profiles table (initial fetch if cache is empty)
             try {
                 const profilePromise = supabase
                     .from('profiles')
                     .select('id, email, full_name, role, avatar_url')
-                    .eq('id', session.user.id)
+                    .eq('id', userId)
                     .single();
 
                 const timeoutPromise = new Promise<null>(resolve =>
@@ -61,56 +128,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (!isInstanceMounted) return;
 
                 if (result && 'data' in result && result.data) {
-                    // ✅ DB respondió a tiempo — usar el rol real
                     const profile = result.data;
-                    setUser({
+                    let role = (profile.role || metadata.role || 'cliente').toLowerCase();
+                    if (metadata.role?.toLowerCase() === 'repartidor') {
+                        role = 'repartidor';
+                    }
+                    const resolvedUser: User = {
                         id: profile.id,
                         email: profile.email || session.user.email || '',
                         full_name: profile.full_name || metadata.full_name || 'Usuario',
-                        role: (profile.role || metadata.role || 'cliente').toLowerCase() as any,
+                        role: role as any,
                         avatar_url: profile.avatar_url,
-                    });
+                    };
+                    setUser(resolvedUser);
+                    localStorage.setItem('casalena-user-role', role);
+                    localStorage.setItem('casalena-user-profile', JSON.stringify(resolvedUser));
                 } else {
-                    // ⚠️ Timeout — usar metadata como fallback temporal
-                    // Se actualizará automáticamente si la DB responde después
-                    setUser({
-                        id: session.user.id,
+                    let role = (metadata.role || 'cliente').toLowerCase();
+                    if (metadata.role?.toLowerCase() === 'repartidor') {
+                        role = 'repartidor';
+                    }
+                    const fallbackUser: User = {
+                        id: userId,
                         email: session.user.email || '',
                         full_name: metadata.full_name || 'Usuario',
-                        role: (metadata.role || 'cliente').toLowerCase() as any,
+                        role: role as any,
                         avatar_url: metadata.avatar_url || '',
-                    });
+                    };
+                    setUser(fallbackUser);
+                    localStorage.setItem('casalena-user-role', role);
+                    localStorage.setItem('casalena-user-profile', JSON.stringify(fallbackUser));
 
-                    // Intentar obtener de DB en segundo plano (sin bloquear UI)
-                    Promise.resolve(profilePromise).then(({ data: profile }) => {
-                        if (profile && isInstanceMounted) {
-                            setUser(prev => prev ? {
-                                ...prev,
-                                full_name: profile.full_name || prev.full_name,
-                                role: (profile.role || prev.role).toLowerCase() as any,
-                                avatar_url: profile.avatar_url || prev.avatar_url,
-                            } : null);
+                    const fetchFallbackBackground = async () => {
+                        try {
+                            const { data: profile } = await profilePromise;
+                            if (profile && isInstanceMounted) {
+                                let dbRole = (profile.role || metadata.role || 'cliente').toLowerCase();
+                                if (metadata.role?.toLowerCase() === 'repartidor') {
+                                    dbRole = 'repartidor';
+                                }
+                                const updatedUser: User = {
+                                    id: profile.id,
+                                    email: profile.email || session.user.email || '',
+                                    full_name: profile.full_name || metadata.full_name || 'Usuario',
+                                    role: dbRole as any,
+                                    avatar_url: profile.avatar_url,
+                                };
+                                setUser(updatedUser);
+                                localStorage.setItem('casalena-user-role', dbRole);
+                                localStorage.setItem('casalena-user-profile', JSON.stringify(updatedUser));
+                            }
+                        } catch (err) {
+                            // Silencioso
                         }
-                    }).catch(() => { /* silencioso — metadata ya fue aplicada */ });
+                    };
+                    fetchFallbackBackground();
                 }
             } catch (err) {
-                // Error total → usar metadata como último recurso
                 if (isInstanceMounted) {
                     console.warn('[Auth] Profile fetch failed, using metadata fallback:', err);
-                    setUser({
-                        id: session.user.id,
+                    let role = (metadata.role || 'cliente').toLowerCase();
+                    if (metadata.role?.toLowerCase() === 'repartidor') {
+                        role = 'repartidor';
+                    }
+                    const fallbackUser: User = {
+                        id: userId,
                         email: session.user.email || '',
                         full_name: metadata.full_name || 'Usuario',
-                        role: (metadata.role || 'cliente').toLowerCase() as any,
+                        role: role as any,
                         avatar_url: metadata.avatar_url || '',
-                    });
+                    };
+                    setUser(fallbackUser);
+                    localStorage.setItem('casalena-user-role', role);
+                    localStorage.setItem('casalena-user-profile', JSON.stringify(fallbackUser));
                 }
             } finally {
                 if (isInstanceMounted) setLoading(false);
             }
         };
 
-        let isHandling = false; // Prevenir llamadas concurrentes a handleUserData
+        let isHandling = false;
 
         const checkInitial = async () => {
             if (isHandling) return;
@@ -124,12 +221,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         checkInitial();
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            // Ignorar el INITIAL_SESSION que llega al mismo tiempo que checkInitial
             if (event === 'INITIAL_SESSION') return;
 
             if (event === 'SIGNED_OUT') {
                 if (isInstanceMounted) {
                     setUser(null);
+                    localStorage.removeItem('casalena-user-role');
+                    localStorage.removeItem('casalena-user-profile');
                     setLoading(false);
                 }
             } else if (session) {
@@ -137,8 +235,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         });
 
-        // Safety timeout: 4s (2s más que el timeout del profilePromise)
-        // Evita que el loading quede bloqueado si Supabase no responde en absoluto
         const safetyTimeout = setTimeout(() => {
             setLoading(prev => {
                 if (prev) {
@@ -156,7 +252,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
     }, []);
 
-    // ✅ FIX: useCallback so signOut reference is stable across renders
     const signOut = useCallback(async () => {
         try {
             await supabase.auth.signOut({ scope: 'local' });
@@ -172,6 +267,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.error('Could not clear local storage manually');
             }
         } finally {
+            localStorage.removeItem('casalena-user-role');
+            localStorage.removeItem('casalena-user-profile');
             setUser(null);
             window.location.href = '/tienda';
         }
