@@ -1621,12 +1621,15 @@ export default function CashierPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {cashierName && (
-                            <div className="flex items-center gap-1.5 bg-[#f8f7f5] px-3 py-1.5 rounded-xl border border-gray-100/80">
-                                <span className="material-icons-round text-sm text-[#f7951d]">account_circle</span>
-                                <span className="text-[10px] font-black uppercase text-[#8c785f] tracking-tight max-w-[100px] truncate">{cashierName}</span>
+                        <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-gray-100 mr-1">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-xs font-black text-[#181511] leading-none uppercase">{user?.full_name || 'Cajero'}</p>
+                                <p className="text-[9px] text-[#8c785f] font-black uppercase tracking-wider mt-0.5">Caja</p>
                             </div>
-                        )}
+                            <div className="size-8 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-[#f7951d] shrink-0">
+                                <span className="material-icons-round text-sm">person</span>
+                            </div>
+                        </div>
 
 
                         <button
