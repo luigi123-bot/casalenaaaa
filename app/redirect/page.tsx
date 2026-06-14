@@ -52,8 +52,23 @@ export default function RedirectPage() {
                     return;
                 }
 
-                // 2. Full check if cache is empty
-                const { data: { session }, error } = await supabase.auth.getSession();
+                // 2. Full check if cache is empty — con timeout para evitar colgarse
+                let session = null;
+                let error = null;
+                try {
+                    const result = await Promise.race([
+                        supabase.auth.getSession(),
+                        new Promise<never>((_, rej) =>
+                            setTimeout(() => rej(new Error('session-timeout')), 5000)
+                        )
+                    ]);
+                    session = result.data.session;
+                    error = result.error;
+                } catch (timeoutErr: any) {
+                    console.warn('[Redirect] getSession() tardó demasiado, redirigiendo a tienda.');
+                    router.replace('/tienda');
+                    return;
+                }
 
                 if (!session || error) {
                     console.log('No active session found, redirecting to storefront.');

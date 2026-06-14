@@ -27,7 +27,8 @@ const orderSchema = z.object({
     payment_method: z.string().optional().default('efectivo'),
     payment_status: z.enum(['pending', 'paid', 'partially_paid']).optional().default('pending'),
     status: z.enum(['pendiente', 'confirmado', 'preparando', 'listo', 'entregado', 'cancelado', 'completado', 'en_camino']).optional().default('pendiente'),
-    user_id: z.string().uuid().nullable().optional()
+    user_id: z.string().uuid().nullable().optional(),
+    cashier_name: z.string().nullable().optional()
 }).passthrough();
 
 const inputSchema = z.object({
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
             try {
                 const phoneClean = order.phone_number.replace(/\D/g, '');
                 if (phoneClean.length >= 7) {
-                    await supabaseAdmin
+                    const { error: upsertError } = await supabaseAdmin
                         .from('customers')
                         .upsert({
                             phone: phoneClean,
@@ -61,9 +62,22 @@ export async function POST(req: Request) {
                             address: order.delivery_address || '',
                             last_order_at: new Date().toISOString()
                         }, { onConflict: 'phone' });
+
+                    // ✅ FIX: Antes el catch era silencioso — ahora se registra para diagnóstico.
+                    // El error más común es que la columna `phone` no tiene restricción UNIQUE
+                    // en Supabase, lo que hace fallar el upsert con onConflict.
+                    if (upsertError) {
+                        console.error('[SaveOrder] ⚠️ Error al guardar cliente (no crítico):', {
+                            message: upsertError.message,
+                            code: upsertError.code,
+                            hint: upsertError.hint,
+                            phone: phoneClean.slice(0, 3) + '***' // Parcialmente enmascarado por privacidad
+                        });
+                    }
                 }
-            } catch (err) {
-                // Ignore silent non-critical client upsert fail
+            } catch (err: any) {
+                // ✅ FIX: Registrar errores inesperados (red, permisos, etc.)
+                console.error('[SaveOrder] ⚠️ Excepción al guardar cliente (no crítico):', err?.message);
             }
         }
 
@@ -92,33 +106,26 @@ export async function POST(req: Request) {
             // Limpiar items anteriores para re-insertar
             await supabaseAdmin.from('order_items').delete().eq('order_id', orderId);
         } else {
-            // Nueva orden
-            let lastSessionStart = new Date().toLocaleDateString('en-CA') + 'T00:00:00';
-            
-            try {
-                const { data: lastSession } = await supabaseAdmin
-                    .from('cashier_sessions')
-                    .select('opened_at')
-                    .order('opened_at', { ascending: false })
-                    .limit(1)
-                    .maybeSingle();
-                
-                if (lastSession?.opened_at) {
-                    lastSessionStart = lastSession.opened_at;
-                }
-            } catch (err) {
-                // Silent catch
-            }
+            // Nueva orden — número de ticket DIARIO
+            // ✅ Contador basado en el día actual en zona horaria de México (UTC-6 permanente).
+            // Desde 2023 México no tiene cambio de horario, por lo que UTC-6 es fijo.
+            // Esto garantiza que el contador se reinicia a las 12:00am hora local cada día,
+            // independientemente de cuántas sesiones de caja se abran durante el turno.
+            const now = new Date();
+            const mexicoDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+            // Medianoche México (UTC-6) = 06:00 UTC del mismo día
+            const dayStartISO = new Date(mexicoDateStr + 'T06:00:00.000Z').toISOString();
 
-            const { data: ticketData } = await supabaseAdmin
+            const { data: todayOrders } = await supabaseAdmin
                 .from('orders')
                 .select('ticket_number')
-                .gte('created_at', lastSessionStart)
+                .gte('created_at', dayStartISO)
+                .not('ticket_number', 'is', null)
                 .order('ticket_number', { ascending: true });
 
             let dailySequence = 1;
-            if (ticketData && ticketData.length > 0) {
-                const usedNumbers = new Set(ticketData.map(o => Number(o.ticket_number)));
+            if (todayOrders && todayOrders.length > 0) {
+                const usedNumbers = new Set(todayOrders.map(o => Number(o.ticket_number)));
                 while (usedNumbers.has(dailySequence)) {
                     dailySequence++;
                 }

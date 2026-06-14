@@ -89,6 +89,8 @@ export default function CashierPage() {
                 const role = user.role.toLowerCase();
                 if (role !== 'cajero' && role !== 'administrador') {
                     router.push('/redirect');
+                } else if (user.full_name) {
+                    localStorage.setItem('cached_cashier_name', user.full_name);
                 }
             }
         }
@@ -362,7 +364,9 @@ export default function CashierPage() {
                 console.log('[Shift] 🔍 Consultando estado de caja en API...');
                 const res = await Promise.race([
                     fetch(`/api/cashier/sessions/status?userId=${user.id}`),
-                    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout-api')), 8000))
+                    // ✅ FIX: Aumentado de 8s a 10s — el safety global ahora es mayor,
+                    // así la API siempre tiene oportunidad de responder primero.
+                    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout-api')), 10000))
                 ]) as Response;
 
                 if (!isEffectActive) return;
@@ -388,17 +392,25 @@ export default function CashierPage() {
                 if (!isEffectActive) return;
                 if (isAbortError(err)) return;
                 console.warn('[Shift] ⚠️ Error en verificación:', err.message);
+                // ✅ FIX: Si es un timeout de red (no error de lógica), intentar continuar
+                // en lugar de forzar must_open que crea sesiones duplicadas.
+                // Sólo forzamos must_open si es un error real de API.
+                if (err.message === 'timeout-api') {
+                    console.warn('[Shift] ⏱️ Timeout de API — mostrando apertura de caja como fallback seguro.');
+                }
                 setShiftState('must_open');
             }
         };
 
-        // FIX: Reducido de 12s a 5s — si la API no responde, mostrar pantalla de apertura antes
+        // ✅ FIX: Safety timeout ahora en 14s (mayor que el timeout de API de 10s).
+        // Antes era 5s, lo que hacía que siempre ganara sobre la API (8s), rompiendo
+        // el flujo de verificación de sesión en conexiones lentas.
         const globalSafety = setTimeout(() => {
             if (isEffectActive) {
                 console.warn('[Shift] ⏱️ Safety timeout — forzando pantalla de apertura');
                 setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
             }
-        }, 5000);
+        }, 14000);
 
         evaluateShiftStrict().finally(() => clearTimeout(globalSafety));
 
@@ -1137,7 +1149,7 @@ export default function CashierPage() {
         console.log('🚀 [Caja] Abriendo modal de ticket para orden:', orderData.id);
 
         const data = {
-            atendido_por: cashierName,
+            atendido_por: orderData.cashier_name || cashierName,
             comercio: {
                 nombre: "Casalena Pizza & Grill",
                 telefono: "741-101-1595",
@@ -1609,6 +1621,12 @@ export default function CashierPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {cashierName && (
+                            <div className="flex items-center gap-1.5 bg-[#f8f7f5] px-3 py-1.5 rounded-xl border border-gray-100/80">
+                                <span className="material-icons-round text-sm text-[#f7951d]">account_circle</span>
+                                <span className="text-[10px] font-black uppercase text-[#8c785f] tracking-tight max-w-[100px] truncate">{cashierName}</span>
+                            </div>
+                        )}
 
 
                         <button
@@ -2133,6 +2151,7 @@ export default function CashierPage() {
 
             {/* RIGHT SIDEBAR - Separated into component */}
             <CashierSidebar
+                cashierName={cashierName}
                 isCartDrawerOpen={isCartDrawerOpen}
                 setIsCartDrawerOpen={setIsCartDrawerOpen}
                 cart={cart}

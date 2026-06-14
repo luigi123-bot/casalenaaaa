@@ -101,7 +101,7 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     const handlePrintTicket = () => {
         if (!order) return;
         const data: TicketData = {
-            atendido_por: typeof window !== 'undefined' ? localStorage.getItem('cached_cashier_name') || 'CAJERO' : 'CAJERO',
+            atendido_por: (order as any).cashier_name || (typeof window !== 'undefined' ? localStorage.getItem('cached_cashier_name') || 'CAJERO' : 'CAJERO'),
             comercio: { nombre: "Casalena Pizza & Grill", telefono: "741-101-1595", direccion: "Blvd. Juan N Alvarez, CP 41706" },
             pedido: {
                 id: order.id.toString(),

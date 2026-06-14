@@ -100,7 +100,9 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }: Ticket58mmProps) => {
                 </div>
                 {isDelivery && (
                     <div className="text-center bg-black text-white py-1 my-1 text-[13px] font-black tracking-widest">
-                        DOMICILIO: {data.pedido.id.toString().slice(-4).padStart(4, '0')}
+                        DOMICILIO: #{(data.pedido.ticket_number
+                            ? String(data.pedido.ticket_number).padStart(3, '0')
+                            : data.pedido.id.toString().slice(-4).padStart(4, '0'))}
                     </div>
                 )}
                 {!isDelivery && (
@@ -132,7 +134,11 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }: Ticket58mmProps) => {
             <div className="w-full px-1 text-[11px] font-bold space-y-0.5 mt-1 border-b border-dashed border-black pb-1">
                 <div className="bg-black py-1 px-2 border border-black mb-1">
                     <p className="text-white font-black uppercase text-center text-[16px]">
-                        ORDEN #{data.pedido.ticket_number || data.pedido.id.toString().slice(-4)}
+                        {/* ✅ Número diario de orden, reinicia cada día a las 12:00am.
+                            Se muestra con padding de 3 dígitos: #001, #042, etc. */}
+                        ORDEN #{data.pedido.ticket_number
+                            ? String(data.pedido.ticket_number).padStart(3, '0')
+                            : data.pedido.id.toString().slice(-4).padStart(4, '0')}
                     </p>
                 </div>
                 <div className="bg-gray-100 py-1 px-2 border border-black mb-1">

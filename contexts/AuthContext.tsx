@@ -25,24 +25,11 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const [user, setUser] = useState<User | null>(() => {
-        if (typeof window !== 'undefined') {
-            try {
-                const raw = localStorage.getItem('casalena-user-profile');
-                if (raw) return JSON.parse(raw);
-            } catch (e) {
-                console.warn('Failed to parse cached profile:', e);
-            }
-        }
-        return null;
-    });
-    const [loading, setLoading] = useState(() => {
-        if (typeof window !== 'undefined') {
-            const raw = localStorage.getItem('casalena-user-profile');
-            if (raw) return false;
-        }
-        return true;
-    });
+    // ✅ FIX: Siempre iniciar en null/true — nunca mostrar un perfil cacheado de otro
+    // usuario antes de verificar la sesión activa. El caché se usa en handleUserData
+    // DESPUÉS de confirmar que cachedProfile.id === userId (sesión válida).
+    const [user, setUser] = useState<User | null>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         let isInstanceMounted = true;
@@ -212,10 +199,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const checkInitial = async () => {
             if (isHandling) return;
             isHandling = true;
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) await handleUserData(session);
-            else if (isInstanceMounted) setLoading(false);
-            isHandling = false;
+            try {
+                // ✅ FIX: Añadir timeout a getSession() para que el AuthContext no se quede
+                // colgado indefinidamente. Antes podía tardar hasta 4s (safety timeout).
+                // Ahora resuelve en máximo 3s y libera el estado de carga.
+                const result = await Promise.race([
+                    supabase.auth.getSession(),
+                    new Promise<{ data: { session: null } }>(resolve =>
+                        setTimeout(() => {
+                            console.warn('[Auth] getSession() timeout — continuando sin sesión.');
+                            resolve({ data: { session: null } });
+                        }, 3000)
+                    )
+                ]);
+                const session = result.data.session;
+                if (session) await handleUserData(session);
+                else if (isInstanceMounted) setLoading(false);
+            } catch (err) {
+                console.warn('[Auth] Error en checkInitial:', err);
+                if (isInstanceMounted) setLoading(false);
+            } finally {
+                isHandling = false;
+            }
         };
 
         checkInitial();

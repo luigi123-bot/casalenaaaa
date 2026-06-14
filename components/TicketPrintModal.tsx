@@ -95,13 +95,22 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
 
   useEffect(() => {
     if (isOpen && data) {
+      // ✅ FIX: Aumentado de 100ms a 400ms.
+      // Ticket58mm tiene un useEffect que setea mounted=true y devuelve null hasta entonces.
+      // Con 100ms no había tiempo suficiente para que el componente renderizara su contenido,
+      // causando tickets en blanco o impresiones fallidas.
       const timer = setTimeout(() => {
+        const printArea = document.getElementById('print-area');
+        if (!printArea) {
+          console.warn('[TicketPrintModal] #print-area no encontrado — el ticket aún no montó. Reintentando...');
+          return;
+        }
         handlePrint();
         const isElectron = (window as any).electron?.isElectron;
         if (!isElectron) {
           setTimeout(onClose, 500);
         }
-      }, 100); 
+      }, 400);
       return () => clearTimeout(timer);
     }
   }, [isOpen, data]);
