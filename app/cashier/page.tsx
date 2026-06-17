@@ -873,62 +873,121 @@ export default function CashierPage() {
     }, [showPaymentModal]);
 
     useEffect(() => {
-        // FIX: Reducido de 8s a 4s — si falla, el usuario ve el error más rápido
-        const loadTimeout = setTimeout(() => setLoading(false), 4000); 
-        fetchMenu().finally(() => clearTimeout(loadTimeout));
+        fetchMenu();
     }, []);
 
-    async function fetchMenu() {
-        setLoading(true);
-        console.log('🍕 [Caja] Cargando menú completo desde API...');
+    async function fetchMenu(retryCount = 0) {
+        // ── 1. Mostrar caché inmediatamente (no bloquear la UI) ──────────────
         try {
-            const res = await fetch('/api/cashier/products');
-            if (!res.ok) throw new Error('Error al conectar con la API de productos');
-            
+            const cachedProds = localStorage.getItem('cached_products');
+            const cachedCats = localStorage.getItem('cached_categories');
+            if (cachedProds && cachedCats) {
+                const parsedProds = JSON.parse(cachedProds);
+                const parsedCats = JSON.parse(cachedCats);
+                if (Array.isArray(parsedProds) && parsedProds.length > 0) {
+                    setProducts(parsedProds);
+                    setCategories(parsedCats);
+                    setLoading(false); // Mostrar menu de caché mientras se actualiza
+                    console.log(`⚡ [Caja] ${parsedProds.length} productos cargados desde caché local.`);
+                }
+            }
+        } catch (_) { /* caché inaccesible — continuar con fetch */ }
+
+        // ── 2. Fetch desde servidor con timeout de 8s ────────────────────────
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        console.log('🍕 [Caja] Actualizando menú desde API...');
+        try {
+            const res = await fetch('/api/cashier/products', {
+                signal: controller.signal,
+                headers: { 'Cache-Control': 'max-age=60' }
+            });
+            clearTimeout(timeoutId);
+
+            if (!res.ok) {
+                throw new Error(`API respondió ${res.status}: ${res.statusText}`);
+            }
+
             const data = await res.json();
 
-            if (data.error) throw new Error(data.error);
+            // ── 3. Validar que los datos tienen la forma esperada ────────────
+            if (!data || typeof data !== 'object') {
+                throw new Error('Respuesta inesperada del servidor (no es un objeto)');
+            }
+            if (data.error) {
+                throw new Error(data.error);
+            }
 
-            if (data.categories) {
-                const categorySortOrder: Record<string, number> = {
-                    'PIZZAS TRADICIONALES': 1,
-                    'ESPECIALIDADES CASALEÑA': 2,
-                    'ESPECIALIDADES': 2,
-                    'GOURMET': 3,
-                    'PIZZA & FRIENDS - COMBOS': 4,
-                    'COMBOS': 4,
-                    'ORILLA DE QUESO (EXTRA)': 5,
-                    'ORILLAFRESCA': 5,
-                    'HAMBURGUESAS': 6,
-                    'ENTRADAS Y SNACKS': 7,
-                    'POSTRES': 8,
-                    'BEBIDAS': 9
-                };
+            const productList: Product[] = Array.isArray(data.products) ? data.products : [];
+            const categoryList: Category[] = Array.isArray(data.categories) ? data.categories : [];
 
-                const sortedCategories = [...data.categories].sort((a, b) => {
-                    const orderA = categorySortOrder[a.name.toUpperCase()] || 999;
-                    const orderB = categorySortOrder[b.name.toUpperCase()] || 999;
-                    return orderA - orderB;
-                });
+            if (productList.length === 0) {
+                console.warn('⚠️ [Caja] API devolvió 0 productos. Verificar disponibilidad en DB.');
+            }
 
-                setCategories(sortedCategories);
+            // ── 4. Ordenar categorías ────────────────────────────────────────
+            const categorySortOrder: Record<string, number> = {
+                'PIZZAS TRADICIONALES': 1,
+                'ESPECIALIDADES CASALEÑA': 2,
+                'ESPECIALIDADES': 2,
+                'GOURMET': 3,
+                'PIZZA & FRIENDS - COMBOS': 4,
+                'COMBOS': 4,
+                'ORILLA DE QUESO (EXTRA)': 5,
+                'ORILLAFRESCA': 5,
+                'HAMBURGUESAS': 6,
+                'ENTRADAS Y SNACKS': 7,
+                'POSTRES': 8,
+                'BEBIDAS': 9
+            };
+
+            const sortedCategories = [...categoryList].sort((a, b) => {
+                const orderA = categorySortOrder[a.name.toUpperCase()] || 999;
+                const orderB = categorySortOrder[b.name.toUpperCase()] || 999;
+                return orderA - orderB;
+            });
+
+            // ── 5. Actualizar estado y caché ─────────────────────────────────
+            setProducts(productList);
+            setCategories(sortedCategories);
+            console.log(`✅ [Caja] ${productList.length} productos actualizados desde servidor.`);
+
+            try {
+                localStorage.setItem('cached_products', JSON.stringify(productList));
                 localStorage.setItem('cached_categories', JSON.stringify(sortedCategories));
-            }
-
-            if (data.products) {
-                console.log(`✅ [Caja] ${data.products.length} productos recibidos.`);
-                setProducts(data.products);
-                localStorage.setItem('cached_products', JSON.stringify(data.products));
-            }
+            } catch (_) { /* quota exceeded — no critical */ }
 
         } catch (err: any) {
-            console.warn('⚠️ [Cashier] Error en API de productos, usando caché:', err.message);
-            
-            const cachedCats = localStorage.getItem('cached_categories');
-            if (cachedCats) setCategories(JSON.parse(cachedCats));
+            clearTimeout(timeoutId);
 
-            const cachedProds = localStorage.getItem('cached_products');
-            if (cachedProds) setProducts(JSON.parse(cachedProds));
+            const isAbort = err?.name === 'AbortError';
+            const isNetwork = err?.message?.includes('fetch') || err?.message?.includes('network');
+
+            if (isAbort) {
+                console.warn('⏱️ [Caja] Timeout al cargar productos (>8s). Usando caché.');
+            } else if (isNetwork && retryCount < 2) {
+                // Auto-retry once on network failure with exponential backoff
+                const delay = 1500 * (retryCount + 1);
+                console.warn(`🔄 [Caja] Error de red. Reintentando en ${delay}ms... (intento ${retryCount + 1}/2)`);
+                setTimeout(() => fetchMenu(retryCount + 1), delay);
+                return;
+            } else {
+                console.warn('⚠️ [Caja] Error al cargar productos:', err.message);
+            }
+
+            // Fallback a caché si todavía no tenemos productos
+            try {
+                if (products.length === 0) {
+                    const cachedCats = localStorage.getItem('cached_categories');
+                    const cachedProds = localStorage.getItem('cached_products');
+                    if (cachedCats) setCategories(JSON.parse(cachedCats));
+                    if (cachedProds) {
+                        const p = JSON.parse(cachedProds);
+                        if (Array.isArray(p)) setProducts(p);
+                    }
+                }
+            } catch (_) { /* localStorage inaccesible */ }
         } finally {
             setLoading(false);
         }

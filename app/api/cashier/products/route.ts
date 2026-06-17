@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
 
 export const dynamic = 'force-dynamic';
+// Revalidate every 60s — menu changes are infrequent; this prevents repeated round-trips
+export const revalidate = 60;
 
 export async function GET() {
     try {
