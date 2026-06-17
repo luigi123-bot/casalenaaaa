@@ -28,6 +28,7 @@ jobs:
           # Claves públicas requeridas para compilar Next.js estáticamente sin errores
           NEXT_PUBLIC_SUPABASE_URL: "https://ehggcwosjsxlfbdpbsmo.supabase.co"
           NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoZ2djd29zanN4bGZiZHBic21vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NDgyNDMsImV4cCI6MjA4NTEyNDI0M30.zKprc8HE-biNHwZzt6joXIAP2ZXHRcHWJkFGUmMKWIQ"
+          SUPABASE_SERVICE_ROLE_KEY: "dummy-key-for-build-validation"
           # Si se requieren otros secretos, se pueden configurar en GitHub Secrets como ${{ secrets.DATABASE_URL }}
           # DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
