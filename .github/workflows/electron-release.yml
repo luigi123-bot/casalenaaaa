@@ -1,0 +1,37 @@
+name: Build and Release Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*' # Se ejecuta al subir tags que comiencen con v (ej. v0.1.0)
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: cmd.exe /c "npm ci"
+
+      - name: Build Next.js App
+        run: cmd.exe /c "npm run build"
+        env:
+          # Claves públicas requeridas para compilar Next.js estáticamente sin errores
+          NEXT_PUBLIC_SUPABASE_URL: "https://ehggcwosjsxlfbdpbsmo.supabase.co"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoZ2djd29zanN4bGZiZHBic21vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NDgyNDMsImV4cCI6MjA4NTEyNDI0M30.zKprc8HE-biNHwZzt6joXIAP2ZXHRcHWJkFGUmMKWIQ"
+          # Si se requieren otros secretos, se pueden configurar en GitHub Secrets como ${{ secrets.DATABASE_URL }}
+          # DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Build and Publish Electron App
+        run: npx electron-builder --win --publish always
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
