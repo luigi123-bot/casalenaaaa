@@ -124,7 +124,7 @@ export default function CashierSidebar({
                                             }
 
                                             const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                id: item.product_id || 0,
+                                                id: item.product_id ?? 0,
                                                 name: item.product_name,
                                                 price: item.unit_price,
                                                 quantity: item.quantity,
@@ -138,7 +138,8 @@ export default function CashierSidebar({
                                                     return [];
                                                 })(),
                                                 note: item.notes || '',
-                                                cartItemId: Math.random().toString(36).substr(2, 9)
+                                                cartItemId: Math.random().toString(36).substr(2, 9),
+                                                _originalProductId: item.product_id
                                             }));
                                             setCart(loadedCart);
                                         }}

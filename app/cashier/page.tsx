@@ -343,9 +343,10 @@ export default function CashierPage() {
 
                 // 1. Usar el user ya resuelto por AuthContext (sin llamadas extra a Supabase)
                 if (!user) {
-                    console.warn('[Shift] Sin usuario autenticado.');
-                    setShiftState('closed');
-                    return;
+                    // No mostrar "Turno Cerrado" — eso confunde cuando solo expiró la sesión.
+                    // El efecto de autenticación (auth useEffect) ya redirige a /login.
+                    console.warn('[Shift] Sin usuario autenticado — esperando redirección de auth.');
+                    return; // Mantenemos 'checking' hasta que el redirect ocurra
                 }
 
                 console.log('[Shift] 👤 Usuario:', user.id, '| Rol:', user.role);
@@ -635,7 +636,7 @@ export default function CashierPage() {
 
                             // Mapear items al carrito
                             const loadedCart = order.order_items.map((item: any) => ({
-                                id: item.product_id,
+                                id: item.product_id ?? 0,
                                 name: item.product_name,
                                 price: item.unit_price,
                                 quantity: item.quantity,
@@ -649,7 +650,8 @@ export default function CashierPage() {
                                     return [];
                                 })(),
                                 note: item.notes || '',
-                                cartItemId: Math.random().toString(36).substr(2, 9)
+                                cartItemId: Math.random().toString(36).substr(2, 9),
+                                _originalProductId: item.product_id // preserve for API
                             }));
                             setCart(loadedCart);
                         }
@@ -1254,8 +1256,11 @@ export default function CashierPage() {
                         });
                     }
 
+                    // Si el item fue cargado desde el historial, puede tener id=0
+                    // Usamos _originalProductId si está disponible, o null para no fallar la API
+                    const productId = (item as any)._originalProductId ?? (item.id > 0 ? item.id : null);
                     return {
-                        product_id: item.id,
+                        product_id: productId,
                         product_name: item.name,
                         quantity: item.quantity,
                         unit_price: item.price,
@@ -1812,7 +1817,7 @@ export default function CashierPage() {
                                                                             reference: ''
                                                                         });
                                                                         const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                                            id: item.product_id || 0,
+                                                                            id: item.product_id ?? item.id ?? 0,
                                                                             name: item.product_name,
                                                                             price: item.unit_price,
                                                                             quantity: item.quantity,
@@ -1826,7 +1831,8 @@ export default function CashierPage() {
                                                                                 return [];
                                                                             })(),
                                                                             note: item.notes || '',
-                                                                            cartItemId: Math.random().toString(36).substr(2, 9)
+                                                                            cartItemId: Math.random().toString(36).substr(2, 9),
+                                                                            _originalProductId: item.product_id // preserve for API
                                                                         }));
                                                                         setCart(loadedCart);
                                                                     }}
@@ -1843,7 +1849,7 @@ export default function CashierPage() {
                                                                         setActiveOrderId(order.id);
                                                                         setPaymentMethod(order.payment_method || 'efectivo');
                                                                         const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                                            id: item.product_id || 0,
+                                                                            id: item.product_id ?? item.id ?? 0,
                                                                             name: item.product_name,
                                                                             price: item.unit_price,
                                                                             quantity: item.quantity,
@@ -1857,7 +1863,8 @@ export default function CashierPage() {
                                                                                 return [];
                                                                             })(),
                                                                             note: item.notes || '',
-                                                                            cartItemId: Math.random().toString(36).substr(2, 9)
+                                                                            cartItemId: Math.random().toString(36).substr(2, 9),
+                                                                            _originalProductId: item.product_id // preserve for API
                                                                         }));
                                                                         setCart(loadedCart);
                                                                         setTimeout(() => {
@@ -2296,7 +2303,7 @@ export default function CashierPage() {
                                                     }
 
                                                     const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                        id: item.product_id || 0,
+                                                        id: item.product_id ?? 0,
                                                         name: item.product_name,
                                                         price: item.unit_price,
                                                         quantity: item.quantity,
@@ -2310,7 +2317,8 @@ export default function CashierPage() {
                                                             return [];
                                                         })(),
                                                         note: item.notes || '',
-                                                        cartItemId: Math.random().toString(36).substr(2, 9)
+                                                        cartItemId: Math.random().toString(36).substr(2, 9),
+                                                        _originalProductId: item.product_id
                                                     }));
                                                     setCart(loadedCart);
                                                     setShowOpenTabsModal(false);
@@ -2342,7 +2350,7 @@ export default function CashierPage() {
                                                     
                                                     // ALWAYS load items into cart so the payment modal sees the total
                                                     const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                        id: item.product_id || 0,
+                                                        id: item.product_id ?? 0,
                                                         name: item.product_name,
                                                         price: item.unit_price,
                                                         quantity: item.quantity,
@@ -2356,7 +2364,8 @@ export default function CashierPage() {
                                                             return [];
                                                         })(),
                                                         note: item.notes || '',
-                                                        cartItemId: Math.random().toString(36).substr(2, 9)
+                                                        cartItemId: Math.random().toString(36).substr(2, 9),
+                                                        _originalProductId: item.product_id
                                                     }));
                                                     setCart(loadedCart);
                                                     

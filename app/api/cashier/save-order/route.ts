@@ -6,12 +6,13 @@ export const dynamic = "force-dynamic";
 
 const orderItemSchema = z.object({
     product_name: z.string(),
-    product_id: z.coerce.number().int().positive(),
+    product_id: z.coerce.number().int().nonnegative().nullable().optional(),
     quantity: z.number().int().positive(),
     unit_price: z.number().nonnegative(),
     selected_size: z.string().nullable().optional(),
     extras: z.array(z.any()).nullable().optional(),
-    notes: z.string().nullable().optional()
+    notes: z.string().nullable().optional(),
+    total_price: z.number().nonnegative().nullable().optional()
 });
 
 const orderSchema = z.object({
