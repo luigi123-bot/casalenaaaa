@@ -751,6 +751,7 @@ export default function CashierPage() {
         if (queryTerm.length < 3) return;
 
         setIsSearchingCustomer(true);
+        console.log(`🔍 [searchCustomerByTerm] Buscando cliente con el término: "${queryTerm}"`);
         try {
             const res = await fetch(`/api/cashier/customers/search?term=${encodeURIComponent(queryTerm)}`);
             const data = await res.json();
@@ -762,6 +763,8 @@ export default function CashierPage() {
                 origin: c.is_app_user ? 'profile' : 'customer'
             }));
 
+            console.log(`✨ [searchCustomerByTerm] Resultados obtenidos de la búsqueda para "${queryTerm}":`, mapped);
+
             setFoundCustomers(mapped);
             setAvailableClients(mapped);
             setSearchTerm(queryTerm);
@@ -770,6 +773,7 @@ export default function CashierPage() {
             const customerData = exactMatch || (mapped.length === 1 ? mapped[0] : null);
 
             if (customerData) {
+                console.log(`✅ [searchCustomerByTerm] Cliente coincidente encontrado. Auto-llenando información:`, customerData);
                 const parts = (customerData.address || '').split(',').map((p: string) => p.trim());
                 
                 setCustomerInfo({
@@ -813,10 +817,12 @@ export default function CashierPage() {
                         isFrequent: totalOrders >= 3,
                         lastOrderAmount
                     });
+                    console.log(`📊 [searchCustomerByTerm] Historial y Insights de cliente cargados con éxito para ${phoneQuery}`);
                 } else {
                     setCustomerInsights(null);
                 }
             } else {
+                console.log(`⚠️ [searchCustomerByTerm] No se encontró coincidencia exacta ni única para el término: "${queryTerm}"`);
                 setCustomerInsights(null);
             }
         } catch (err) {
@@ -2256,6 +2262,8 @@ export default function CashierPage() {
                 setOrderLoading={setOrderLoading}
                 setShowPaymentModal={setShowPaymentModal}
                 handlePlaceOrder={handlePlaceOrder}
+                searchCustomerByTerm={searchCustomerByTerm}
+                foundCustomers={foundCustomers}
             />
 
             {/* ── CUENTAS ABIERTAS MODAL ── */}
