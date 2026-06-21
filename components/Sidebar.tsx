@@ -39,8 +39,8 @@ const adminNavItems: NavItem[] = [
 const cashierNavItems: NavItem[] = [
     { label: 'Dashboard', icon: 'dashboard', href: '/cashier/dashboard' },
     { label: 'Terminal Caja', icon: 'point_of_sale', href: '/cashier' },
-    { label: 'Envíos / Repartos', icon: 'two_wheeler', href: '/cashier/deliveries' },
-    { label: 'Órdenes Hoy', icon: 'receipt_long', href: '/cashier/orders' },
+    // { label: 'Envíos / Repartos', icon: 'two_wheeler', href: '/cashier/deliveries' }, // Deshabilitado temporalmente
+    { label: 'Órdenes', icon: 'receipt_long', href: '/cashier/orders' },
     { label: 'Chat Soporte', icon: 'forum', href: '#chat' },
 ];
 
