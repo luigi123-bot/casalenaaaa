@@ -22,20 +22,61 @@ export async function POST(req: Request) {
         }
 
         const { phone, full_name, address } = parsed.data;
+        const phoneClean = phone.replace(/\D/g, '');
 
-        const { data, error } = await supabaseAdmin
+        // 1. Check if the customer already exists by phone
+        const { data: existingCustomer } = await supabaseAdmin
             .from('customers')
-            .upsert({
-                phone: phone.trim(),
-                full_name: full_name,
-                address: address
-            }, { onConflict: 'phone' })
-            .select()
-            .single();
+            .select('*')
+            .eq('phone', phoneClean)
+            .maybeSingle();
 
-        if (error) throw error;
+        let resultData = null;
 
-        return NextResponse.json({ success: true, customer: data });
+        if (existingCustomer) {
+            // Compare names (case-insensitive, ignoring multiple spaces)
+            const normExisting = (existingCustomer.full_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+            const normNew = full_name.trim().toLowerCase().replace(/\s+/g, ' ');
+
+            // If name matches, or if existing name is placeholder/empty, update
+            const nameMatches = normExisting === normNew || normExisting === 'sin nombre' || normExisting === '';
+
+            if (nameMatches) {
+                const { data: updatedData, error: updateError } = await supabaseAdmin
+                    .from('customers')
+                    .update({
+                        full_name: full_name,
+                        address: address,
+                        last_order_at: new Date().toISOString()
+                    })
+                    .eq('id', existingCustomer.id)
+                    .select()
+                    .single();
+
+                if (updateError) throw updateError;
+                resultData = updatedData;
+            } else {
+                console.log(`⚠️ [SaveCustomer] Phone ${phoneClean} already belongs to '${existingCustomer.full_name}'. Skipping update to '${full_name}' to avoid overwrite.`);
+                resultData = existingCustomer;
+            }
+        } else {
+            // Does not exist: insert new customer
+            const { data: insertedData, error: insertError } = await supabaseAdmin
+                .from('customers')
+                .insert({
+                    phone: phoneClean,
+                    full_name: full_name,
+                    address: address,
+                    last_order_at: new Date().toISOString()
+                })
+                .select()
+                .single();
+
+            if (insertError) throw insertError;
+            resultData = insertedData;
+        }
+
+        return NextResponse.json({ success: true, customer: resultData });
 
     } catch (error: any) {
         return handleServerError(error, 'Cashier Save Customer Error');

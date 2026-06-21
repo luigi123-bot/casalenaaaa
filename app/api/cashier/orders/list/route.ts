@@ -10,21 +10,10 @@ const querySchema = z.object({
 
 export async function GET(req: Request) {
     try {
-        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
-        if (errorResponse) return errorResponse;
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse || !user) return errorResponse;
 
-        const { searchParams } = new URL(req.url);
-        const parsed = querySchema.safeParse({
-            userId: searchParams.get('userId') || null
-        });
-
-        if (!parsed.success) {
-            return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 });
-        }
-
-        const { userId } = parsed.data;
-
-        // 1. Obtener Cuentas Abiertas (Pendientes, Preparando, Listo)
+        // 1. Obtener Cuentas Abiertas (Pendientes, Preparando, Listo) - Filtrado siempre por el cajero actual
         let queryOpen = supabaseAdmin
             .from('orders')
             .select(`
@@ -40,11 +29,8 @@ export async function GET(req: Request) {
                 )
             `)
             .in('status', ['pendiente', 'preparando', 'listo'])
-            .neq('payment_status', 'paid');
-
-        if (userId) {
-            queryOpen = queryOpen.eq('user_id', userId);
-        }
+            .neq('payment_status', 'paid')
+            .eq('user_id', user.id);
 
         const { data: openData, error: openErr } = await queryOpen.order('created_at', { ascending: false });
 
@@ -67,8 +53,9 @@ export async function GET(req: Request) {
             `)
             .or('status.in.(entregado,cancelado,confirmado),payment_status.eq.paid');
 
-        if (userId) {
-            queryHistory = queryHistory.eq('user_id', userId);
+        // Si no es administrador, ver únicamente su propio historial
+        if (user.role !== 'administrador') {
+            queryHistory = queryHistory.eq('user_id', user.id);
         }
 
         const { data: historyData, error: historyErr } = await queryHistory

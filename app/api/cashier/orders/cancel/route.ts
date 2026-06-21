@@ -21,18 +21,10 @@ export async function POST(req: Request) {
 
         const { orderId } = parsed.data;
 
-        // 1. Eliminar items primero (Foreign Key constraint)
-        const { error: itemsError } = await supabaseAdmin
-            .from('order_items')
-            .delete()
-            .eq('order_id', orderId);
-
-        if (itemsError) throw itemsError;
-
-        // 2. Eliminar la orden
+        // 1. Actualizar el status de la orden a 'cancelado' (preservando los items y el registro para auditoría)
         const { error: orderError } = await supabaseAdmin
             .from('orders')
-            .delete()
+            .update({ status: 'cancelado' })
             .eq('id', orderId);
 
         if (orderError) throw orderError;

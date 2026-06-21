@@ -11,8 +11,8 @@ const querySchema = z.object({
 
 export async function GET(request: Request) {
     try {
-        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
-        if (errorResponse) return errorResponse;
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse || !user) return errorResponse;
 
         const { searchParams } = new URL(request.url);
         const parsed = querySchema.safeParse({
@@ -24,7 +24,7 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 });
         }
 
-        const { timeFilter, userId } = parsed.data;
+        const { timeFilter } = parsed.data;
         
         let query = supabaseAdmin
             .from('orders')
@@ -40,8 +40,12 @@ export async function GET(request: Request) {
                 )
             `);
 
-        if (userId) {
-            query = query.eq('user_id', userId);
+        // Aplicar restricción de Multicajero para Cajero y Administrador
+        if (user.role === 'cajero') {
+            query = query.eq('user_id', user.id);
+        } else if (user.role === 'administrador') {
+            // Ver sus propios pedidos activos, o cualquier pedido completado/pagado de otros
+            query = query.or(`user_id.eq.${user.id},status.in.(entregado,cancelado,completado),payment_status.eq.paid`);
         }
 
         query = query.order('created_at', { ascending: false });

@@ -206,6 +206,10 @@ export default function CashierPage() {
     const [ticketData, setTicketData] = useState<any>(null);
     const [showOpenTabsModal, setShowOpenTabsModal] = useState(false);
     const isProcessingOrder = useRef(false);
+    const phoneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [showCancelModal, setShowCancelModal] = useState(false);
+    const [orderToCancel, setOrderToCancel] = useState<{ id: string | number; label: string } | null>(null);
+    const [openTabsActiveTab, setOpenTabsActiveTab] = useState<'activas' | 'eliminados'>('activas');
 
     // Dropdown State
     const [availableClients, setAvailableClients] = useState<any[]>([]);
@@ -613,6 +617,13 @@ export default function CashierPage() {
         }
     }, [showPaymentModal]);
 
+    // Sincronizar cuentas abiertas al abrir el modal correspondiente
+    useEffect(() => {
+        if (showOpenTabsModal) {
+            fetchRecentOrders(false);
+        }
+    }, [showOpenTabsModal]);
+
     // EFECTO PARA BUSCAR SI LA MESA YA TIENE UNA COMANDA ABIERTA
     useEffect(() => {
         if (orderType === 'dine-in' && tableNumber.trim()) {
@@ -832,9 +843,44 @@ export default function CashierPage() {
         }
     }, [customerInfo.phone]);
 
-    // ── NO auto-search useEffect — búsqueda solo se dispara manualmente ──────
+    // Clear customer insights if phone or name is empty
+    useEffect(() => {
+        if (!customerInfo.phone || !customerInfo.name) {
+            setCustomerInsights(null);
+        }
+    }, [customerInfo.phone, customerInfo.name]);
 
+    // Handle phone input changes with debounce search
+    const handlePhoneChange = useCallback((newPhone: string) => {
+        setCustomerInfo({
+            phone: newPhone,
+            name: '',
+            address: '',
+            street: '',
+            neighborhood: '',
+            reference: ''
+        });
 
+        if (phoneDebounceRef.current) {
+            clearTimeout(phoneDebounceRef.current);
+        }
+
+        const digitsOnly = newPhone.replace(/\D/g, '');
+        if (digitsOnly.length >= 7) {
+            phoneDebounceRef.current = setTimeout(() => {
+                searchCustomerByTerm(newPhone.trim());
+            }, 600);
+        }
+    }, [searchCustomerByTerm]);
+
+    // Cleanup debounce timer on unmount
+    useEffect(() => {
+        return () => {
+            if (phoneDebounceRef.current) {
+                clearTimeout(phoneDebounceRef.current);
+            }
+        };
+    }, []);
     // Fetch Active Banner
     useEffect(() => {
         const fetchActiveBanner = async () => {
@@ -1442,9 +1488,19 @@ export default function CashierPage() {
         const idToDelete = orderId || lastOrderId;
         if (!idToDelete) return;
 
-        if (!window.confirm('¿Estás seguro de que deseas ELIMINAR esta cuenta? Esta acción no se puede deshacer.')) return;
+        // Guardar estado anterior de la orden para revertir si la petición falla
+        const originalOrders = [...recentOrders];
 
-        setOrderLoading(true);
+        // Actualización optimista de UI
+        setRecentOrders(prev => prev.map(o => o.id === idToDelete ? { ...o, status: 'cancelado' } : o));
+
+        // Si la orden cancelada es la que tenemos activa en el carrito, limpiar comanda
+        if (activeOrderId === idToDelete) {
+            setActiveOrderId(null);
+            setCart([]);
+            setTableNumber('');
+        }
+
         try {
             console.log(`🛑 [Cashier] Cancelando pedido ID: ${idToDelete}...`);
 
@@ -1463,21 +1519,47 @@ export default function CashierPage() {
                 setShowTicketModal(false);
                 setLastOrderId(null);
             }
-
-            // Si la orden cancelada es la que tenemos activa, limpiar
-            if (activeOrderId === idToDelete) {
-                setActiveOrderId(null);
-                setCart([]);
-                setTableNumber('');
-            }
-
-            await fetchRecentOrders(false);
             console.log('✅ [Cashier] Pedido cancelado correctamente.');
         } catch (err: any) {
             console.error('❌ [Cashier] Error al cancelar:', err);
+            // Revertir a la lista original si la llamada falla
+            setRecentOrders(originalOrders);
             alert('No se pudo cancelar el pedido: ' + err.message);
-        } finally {
-            setOrderLoading(false);
+        }
+    };
+
+    const handleRecoverOrder = async (orderId: number | string) => {
+        // Guardar estado anterior para revertir en caso de fallo
+        const originalOrders = [...recentOrders];
+
+        // Actualización optimista de UI
+        setRecentOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'pendiente' } : o));
+
+        // Feedback Toast inmediato
+        const toast = document.createElement('div');
+        toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in';
+        toast.innerHTML = '<span class="material-icons-round align-middle mr-2">restore</span> Pedido Recuperado';
+        document.body.appendChild(toast);
+        setTimeout(() => {
+            toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+
+        try {
+            console.log(`♻️ [Cashier] Recuperando pedido ID: ${orderId}...`);
+            const res = await fetch('/api/cashier/orders/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId, status: 'pendiente' })
+            });
+
+            if (!res.ok) throw new Error('Error al recuperar el pedido en el servidor');
+            console.log('✅ [Cashier] Pedido recuperado correctamente.');
+        } catch (err: any) {
+            console.error('❌ [Cashier] Error al recuperar:', err);
+            // Revertir a la lista original en caso de error
+            setRecentOrders(originalOrders);
+            alert('No se pudo recuperar el pedido: ' + err.message);
         }
     };
 
@@ -2277,9 +2359,9 @@ export default function CashierPage() {
                         {/* Header */}
                         <div className="p-6 border-b border-gray-100 flex items-center justify-between shrink-0">
                             <div>
-                                <h2 className="text-2xl font-black text-[#181511] tracking-tight">Cuentas Abiertas</h2>
+                                <h2 className="text-2xl font-black text-[#181511] tracking-tight">Cuentas</h2>
                                 <p className="text-xs text-[#8c785f] font-bold mt-0.5">
-                                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').length} cuenta(s) pendiente(s) de cobro
+                                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length} cuenta(s) pendiente(s) de cobro
                                 </p>
                             </div>
                             <button
@@ -2290,171 +2372,267 @@ export default function CashierPage() {
                             </button>
                         </div>
 
+                        {/* Pestañas (Tab Switcher) */}
+                        <div className="flex border-b border-gray-100 p-2 bg-gray-50/50 shrink-0">
+                            <button
+                                onClick={() => setOpenTabsActiveTab('activas')}
+                                className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                                    openTabsActiveTab === 'activas'
+                                        ? 'bg-white text-[#181511] shadow-sm border border-gray-100'
+                                        : 'text-[#8c785f] hover:text-[#181511]'
+                                }`}
+                            >
+                                Cuentas Abiertas ({recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length})
+                            </button>
+                            <button
+                                onClick={() => setOpenTabsActiveTab('eliminados')}
+                                className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                                    openTabsActiveTab === 'eliminados'
+                                        ? 'bg-white text-red-600 shadow-sm border border-gray-100'
+                                        : 'text-[#8c785f] hover:text-red-500'
+                                }`}
+                            >
+                                Eliminados ({recentOrders.filter(o => o.status === 'cancelado').length})
+                            </button>
+                        </div>
+
                         {/* List */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center p-6 animate-in fade-in zoom-in duration-300">
-                                    <div className="size-20 bg-gray-50 text-gray-200 rounded-full flex items-center justify-center mb-6">
-                                        <span className="material-icons-round text-4xl">receipt_long</span>
+                            {openTabsActiveTab === 'activas' ? (
+                                recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-center p-6 animate-in fade-in zoom-in duration-300">
+                                        <div className="size-20 bg-gray-50 text-gray-200 rounded-full flex items-center justify-center mb-6">
+                                            <span className="material-icons-round text-4xl">receipt_long</span>
+                                        </div>
+                                        <h3 className="text-xl font-black text-[#181511] mb-2">Sin Cuentas Abiertas</h3>
+                                        <p className="text-[#8c785f] text-sm max-w-[200px] font-medium leading-relaxed">
+                                            No hay pedidos activos en este momento. ¡Todo está al día!
+                                        </p>
+                                        <button 
+                                            onClick={() => {
+                                                setShowOpenTabsModal(false);
+                                                setOrderType('dine-in');
+                                            }}
+                                            className="mt-8 px-6 py-3 bg-[#f7951d] text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-orange-100 active:scale-95 transition-all"
+                                        >
+                                            Comenzar Nueva Orden
+                                        </button>
                                     </div>
-                                    <h3 className="text-xl font-black text-[#181511] mb-2">Sin Cuentas Abiertas</h3>
-                                    <p className="text-[#8c785f] text-sm max-w-[200px] font-medium leading-relaxed">
-                                        No hay pedidos activos en este momento. ¡Todo está al día!
-                                    </p>
-                                    <button 
-                                        onClick={() => {
-                                            setShowOpenTabsModal(false);
-                                            setOrderType('dine-in');
-                                        }}
-                                        className="mt-8 px-6 py-3 bg-[#f7951d] text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-orange-100 active:scale-95 transition-all"
-                                    >
-                                        Comenzar Nueva Orden
-                                    </button>
-                                </div>
-                            ) : (
-                                recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').map(order => (
-                                    <div key={order.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                                        {/* Card header */}
-                                        <div className="flex items-center justify-between p-4 border-b border-gray-50">
-                                            <div className="flex items-center gap-3">
-                                                <div className="size-10 rounded-xl bg-purple-50 flex items-center justify-center">
-                                                    <span className="material-icons-round text-purple-600">
-                                                        {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
-                                                    </span>
+                                ) : (
+                                    recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').map(order => (
+                                        <div key={order.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                                            {/* Card header */}
+                                            <div className="flex items-center justify-between p-4 border-b border-gray-50">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="size-10 rounded-xl bg-purple-50 flex items-center justify-center">
+                                                        <span className="material-icons-round text-purple-600">
+                                                            {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-black text-[#181511]">
+                                                            {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || `PARA LLEVAR #${order.ticket_number}`)}
+                                                        </p>
+                                                        <p className="text-[10px] text-gray-400 font-bold uppercase">
+                                                            {new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · #{order.id.toString().slice(-5)}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="font-black text-[#181511]">
-                                                        {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || `PARA LLEVAR #${order.ticket_number}`)}
-                                                    </p>
-                                                    <p className="text-[10px] text-gray-400 font-bold uppercase">
-                                                        {new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · #{order.id.toString().slice(-5)}
-                                                    </p>
-                                                </div>
+                                                <span className="text-2xl font-black text-[#f7951d]">${order.total_amount?.toFixed(2)}</span>
                                             </div>
-                                            <span className="text-2xl font-black text-[#f7951d]">${order.total_amount?.toFixed(2)}</span>
-                                        </div>
 
-                                        {/* Items */}
-                                        <div className="px-4 py-3 space-y-1.5">
-                                            {(order.order_items || []).slice(0, 4).map((item: any, i: number) => (
-                                                <div key={i} className="flex justify-between text-xs">
-                                                    <span className="text-[#8c785f] font-medium">
-                                                        <span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}
-                                                        {item.selected_size && <span className="text-gray-300"> · {item.selected_size}</span>}
-                                                    </span>
-                                                    <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
-                                                </div>
-                                            ))}
-                                            {(order.order_items || []).length > 4 && (
-                                                <p className="text-[10px] text-gray-400 font-bold">+{(order.order_items || []).length - 4} más...</p>
-                                            )}
-                                        </div>
+                                            {/* Items */}
+                                            <div className="px-4 py-3 space-y-1.5">
+                                                {(order.order_items || []).slice(0, 4).map((item: any, i: number) => (
+                                                    <div key={i} className="flex justify-between text-xs">
+                                                        <span className="text-[#8c785f] font-medium">
+                                                            <span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}
+                                                            {item.selected_size && <span className="text-gray-300"> · {item.selected_size}</span>}
+                                                        </span>
+                                                        <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                    </div>
+                                                ))}
+                                                {(order.order_items || []).length > 4 && (
+                                                    <p className="text-[10px] text-gray-400 font-bold">+{(order.order_items || []).length - 4} más...</p>
+                                                )}
+                                            </div>
 
-                                        {/* Actions */}
-                                        <div className="flex gap-2 p-4 pt-2">
-                                            <button
-                                                onClick={() => {
-                                                    // Load order into cart
-                                                    setOrderType(order.order_type || 'dine-in');
-                                                    setTableNumber(order.table_number || '');
-                                                    setActiveOrderId(order.id);
-                                                    
-                                                    if (order.order_type !== 'dine-in') {
-                                                        setCustomerInfo({
-                                                            name: order.customer_name || '',
-                                                            phone: order.phone_number || '',
-                                                            address: order.delivery_address || '',
-                                                            street: (order.delivery_address || '').split(',')[0] || '',
-                                                            neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                            reference: ''
-                                                        });
-                                                    }
+                                            {/* Actions */}
+                                            <div className="flex gap-2 p-4 pt-2">
+                                                <button
+                                                    onClick={() => {
+                                                        // Load order into cart
+                                                        setOrderType(order.order_type || 'dine-in');
+                                                        setTableNumber(order.table_number || '');
+                                                        setActiveOrderId(order.id);
+                                                        
+                                                        if (order.order_type !== 'dine-in') {
+                                                            setCustomerInfo({
+                                                                name: order.customer_name || '',
+                                                                phone: order.phone_number || '',
+                                                                address: order.delivery_address || '',
+                                                                street: (order.delivery_address || '').split(',')[0] || '',
+                                                                neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                                reference: ''
+                                                            });
+                                                        }
 
-                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                        id: item.product_id ?? 0,
-                                                        name: item.product_name,
-                                                        price: item.unit_price,
-                                                        quantity: item.quantity,
-                                                        selectedSize: item.selected_size,
-                                                        extras: (function() {
-                                                            if (!item.extras) return [];
-                                                            if (typeof item.extras === 'string') {
-                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                            }
-                                                            if (Array.isArray(item.extras)) return item.extras;
-                                                            return [];
-                                                        })(),
-                                                        note: item.notes || '',
-                                                        cartItemId: Math.random().toString(36).substr(2, 9),
-                                                        _originalProductId: item.product_id
-                                                    }));
-                                                    setCart(loadedCart);
-                                                    setShowOpenTabsModal(false);
-                                                }}
-                                                className="flex-1 flex items-center justify-center gap-2 bg-[#f8f7f5] text-[#181511] border border-gray-200 py-3 rounded-xl text-xs font-black hover:bg-gray-100 transition-all active:scale-95"
-                                            >
-                                                <span className="material-icons-round text-base">add_circle</span>
-                                                Agregar Más
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    // Load and go directly to payment
-                                                    setOrderType(order.order_type || 'dine-in');
-                                                    if (order.table_number) setTableNumber(order.table_number);
-                                                    else setTableNumber('');
-                                                    
-                                                    setActiveOrderId(order.id);
-                                                    
-                                                    if (order.order_type !== 'dine-in') {
-                                                        setCustomerInfo({
-                                                            name: order.customer_name || '',
-                                                            phone: order.phone_number || '',
-                                                            address: order.delivery_address || '',
-                                                            street: (order.delivery_address || '').split(',')[0] || '',
-                                                            neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                            reference: ''
-                                                        });
-                                                    }
-                                                    
-                                                    // ALWAYS load items into cart so the payment modal sees the total
-                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                        id: item.product_id ?? 0,
-                                                        name: item.product_name,
-                                                        price: item.unit_price,
-                                                        quantity: item.quantity,
-                                                        selectedSize: item.selected_size,
-                                                        extras: (function() {
-                                                            if (!item.extras) return [];
-                                                            if (typeof item.extras === 'string') {
-                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                            }
-                                                            if (Array.isArray(item.extras)) return item.extras;
-                                                            return [];
-                                                        })(),
-                                                        note: item.notes || '',
-                                                        cartItemId: Math.random().toString(36).substr(2, 9),
-                                                        _originalProductId: item.product_id
-                                                    }));
-                                                    setCart(loadedCart);
-                                                    
-                                                    setShowOpenTabsModal(false);
-                                                    setShowPaymentModal(true);
-                                                }}
-                                                className="flex-1 flex items-center justify-center gap-2 bg-[#181511] text-white py-3 rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 shadow-lg"
-                                            >
-                                                <span className="material-icons-round text-base">payments</span>
-                                                Cobrar
-                                            </button>
-                                            <button
-                                                onClick={() => handleCancelOrder(order.id)}
-                                                className="px-4 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center border border-red-100"
-                                                title="Eliminar Cuenta"
-                                            >
-                                                <span className="material-icons-round text-xl">delete_outline</span>
-                                            </button>
+                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                            id: item.product_id ?? 0,
+                                                            name: item.product_name,
+                                                            price: item.unit_price,
+                                                            quantity: item.quantity,
+                                                            selectedSize: item.selected_size,
+                                                            extras: (function() {
+                                                                if (!item.extras) return [];
+                                                                if (typeof item.extras === 'string') {
+                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                }
+                                                                if (Array.isArray(item.extras)) return item.extras;
+                                                                return [];
+                                                            })(),
+                                                            note: item.notes || '',
+                                                            cartItemId: Math.random().toString(36).substr(2, 9),
+                                                            _originalProductId: item.product_id
+                                                        }));
+                                                        setCart(loadedCart);
+                                                        setShowOpenTabsModal(false);
+                                                    }}
+                                                    className="flex-1 flex items-center justify-center gap-2 bg-[#f8f7f5] text-[#181511] border border-gray-200 py-3 rounded-xl text-xs font-black hover:bg-gray-100 transition-all active:scale-95"
+                                                >
+                                                    <span className="material-icons-round text-base">add_circle</span>
+                                                    Agregar Más
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        // Load and go directly to payment
+                                                        setOrderType(order.order_type || 'dine-in');
+                                                        if (order.table_number) setTableNumber(order.table_number);
+                                                        else setTableNumber('');
+                                                        
+                                                        setActiveOrderId(order.id);
+                                                        
+                                                        if (order.order_type !== 'dine-in') {
+                                                            setCustomerInfo({
+                                                                name: order.customer_name || '',
+                                                                phone: order.phone_number || '',
+                                                                address: order.delivery_address || '',
+                                                                street: (order.delivery_address || '').split(',')[0] || '',
+                                                                neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                                reference: ''
+                                                            });
+                                                        }
+                                                        
+                                                        // ALWAYS load items into cart so the payment modal sees the total
+                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                            id: item.product_id ?? 0,
+                                                            name: item.product_name,
+                                                            price: item.unit_price,
+                                                            quantity: item.quantity,
+                                                            selectedSize: item.selected_size,
+                                                            extras: (function() {
+                                                                if (!item.extras) return [];
+                                                                if (typeof item.extras === 'string') {
+                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                }
+                                                                if (Array.isArray(item.extras)) return item.extras;
+                                                                return [];
+                                                            })(),
+                                                            note: item.notes || '',
+                                                            cartItemId: Math.random().toString(36).substr(2, 9),
+                                                            _originalProductId: item.product_id
+                                                        }));
+                                                        setCart(loadedCart);
+                                                        
+                                                        setShowOpenTabsModal(false);
+                                                        setShowPaymentModal(true);
+                                                    }}
+                                                    className="flex-1 flex items-center justify-center gap-2 bg-[#181511] text-white py-3 rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 shadow-lg"
+                                                >
+                                                    <span className="material-icons-round text-base">payments</span>
+                                                    Cobrar
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const label = order.table_number 
+                                                            ? `Mesa ${order.table_number}` 
+                                                            : (order.customer_name || `Pedido #${order.ticket_number || order.id.toString().slice(-5)}`);
+                                                        setOrderToCancel({ id: order.id, label });
+                                                        setShowCancelModal(true);
+                                                    }}
+                                                    className="px-4 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center border border-red-100"
+                                                    title="Eliminar Cuenta"
+                                                >
+                                                    <span className="material-icons-round text-xl">delete_outline</span>
+                                                </button>
+                                            </div>
                                         </div>
+                                    ))
+                                )
+                            ) : (
+                                recentOrders.filter(o => o.status === 'cancelado').length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-center p-6 animate-in fade-in zoom-in duration-300">
+                                        <div className="size-20 bg-red-50 text-red-350 rounded-full flex items-center justify-center mb-6">
+                                            <span className="material-icons-round text-4xl">delete</span>
+                                        </div>
+                                        <h3 className="text-xl font-black text-[#181511] mb-2">Sin Pedidos Eliminados</h3>
+                                        <p className="text-[#8c785f] text-sm max-w-[200px] font-medium leading-relaxed">
+                                            No hay pedidos cancelados o eliminados en esta sesión.
+                                        </p>
                                     </div>
-                                ))
+                                ) : (
+                                    recentOrders.filter(o => o.status === 'cancelado').map(order => (
+                                        <div key={order.id} className="bg-red-50/30 border border-red-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow animate-in slide-in-from-bottom-2 duration-200">
+                                            {/* Card header */}
+                                            <div className="flex items-center justify-between p-4 border-b border-red-100/40">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="size-10 rounded-xl bg-red-100/50 flex items-center justify-center">
+                                                        <span className="material-icons-round text-red-600">
+                                                            {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-black text-red-950">
+                                                            {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || `PARA LLEVAR #${order.ticket_number}`)}
+                                                        </p>
+                                                        <p className="text-[10px] text-red-400 font-bold uppercase">
+                                                            {new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · #{order.id.toString().slice(-5)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <span className="text-2xl font-black text-red-700 line-through">${order.total_amount?.toFixed(2)}</span>
+                                            </div>
+
+                                            {/* Items */}
+                                            <div className="px-4 py-3 space-y-1.5 opacity-70">
+                                                {(order.order_items || []).map((item: any, i: number) => (
+                                                    <div key={i} className="flex justify-between text-xs">
+                                                        <span className="text-red-900/80 font-medium">
+                                                            <span className="font-black text-red-950">{item.quantity}x</span> {item.product_name}
+                                                            {item.selected_size && <span className="text-red-300"> · {item.selected_size}</span>}
+                                                        </span>
+                                                        <span className="font-bold text-red-950">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            {/* Bottom banner legend "Cuenta Cancelada" */}
+                                            <div className="bg-red-100/40 px-4 py-2 flex items-center justify-between gap-1.5 border-t border-red-100/30">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="material-icons-round text-xs text-red-600">cancel</span>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-red-700">Cuenta Cancelada</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleRecoverOrder(order.id)}
+                                                    className="px-3 py-1 bg-green-600 hover:bg-green-700 active:scale-95 transition-all text-[10px] font-black text-white uppercase tracking-wider rounded-lg flex items-center gap-1 shadow-sm cursor-pointer"
+                                                >
+                                                    <span className="material-icons-round text-xs">restore</span>
+                                                    Recuperar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )
                             )}
                         </div>
 
@@ -2800,7 +2978,7 @@ export default function CashierPage() {
                                                 type="tel"
                                                 placeholder="Teléfono"
                                                 value={customerInfo.phone || ''}
-                                                onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                                                onChange={(e) => handlePhoneChange(e.target.value)}
                                                 className="flex-1 text-xs font-black text-[#181511] outline-none bg-transparent placeholder-gray-300"
                                             />
                                         </div>
@@ -3014,11 +3192,18 @@ export default function CashierPage() {
                                 </button>
 
                                 <button
-                                    onClick={() => handleCancelOrder()}
+                                    onClick={() => {
+                                        if (!lastOrderId) return;
+                                        const label = tableNumber 
+                                            ? `Mesa ${tableNumber}` 
+                                            : (customerInfo.name || `Pedido #${lastOrderId.toString().slice(-5)}`);
+                                        setOrderToCancel({ id: lastOrderId, label });
+                                        setShowCancelModal(true);
+                                    }}
                                     className="w-full bg-white border-2 border-red-500 text-red-500 py-3 rounded-2xl font-black hover:bg-red-50 active:scale-95 transition-all flex items-center justify-center gap-2 group text-sm"
                                 >
                                     <span className="material-icons-round group-hover:rotate-90 transition-transform">cancel</span>
-                                    {orderLoading ? 'ELIMINANDO...' : 'CANCELAR PEDIDO'}
+                                    CANCELAR PEDIDO
                                 </button>
                             </div>
                         </div>
@@ -3183,6 +3368,54 @@ export default function CashierPage() {
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest animate-pulse">
                                 LA ALARMA CONTINUARÁ SONANDO HASTA ACEPTAR
                             </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Custom Delete Order Confirmation Modal */}
+            {showCancelModal && orderToCancel && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+                    {/* Backdrop with intense blur */}
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-md animate-in fade-in duration-300" onClick={() => {
+                        setShowCancelModal(false);
+                        setOrderToCancel(null);
+                    }} />
+
+                    {/* Centered Modal Content */}
+                    <div className="relative max-w-md w-full bg-white rounded-[32px] p-8 shadow-2xl text-center border border-gray-100 animate-in zoom-in-95 duration-300">
+                        {/* Red warning icon */}
+                        <div className="size-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                            <span className="material-icons-round text-4xl animate-pulse">delete_forever</span>
+                        </div>
+
+                        <h3 className="text-2xl font-black text-[#181511] tracking-tight mb-2">¿Eliminar Pedido?</h3>
+                        <p className="text-sm text-[#8c785f] font-medium mb-6">
+                            Estás a punto de cancelar permanentemente el pedido de <span className="font-black text-red-600 uppercase">{orderToCancel.label}</span>. Esta acción no se puede deshacer.
+                        </p>
+
+                        <div className="flex gap-4">
+                            <button
+                                onClick={() => {
+                                    setShowCancelModal(false);
+                                    setOrderToCancel(null);
+                                }}
+                                className="flex-1 py-4 bg-gray-100 text-gray-700 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-200 transition-all active:scale-95"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    const id = orderToCancel.id;
+                                    setShowCancelModal(false);
+                                    setOrderToCancel(null);
+                                    await handleCancelOrder(id);
+                                }}
+                                disabled={orderLoading}
+                                className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-200 transition-all active:scale-95 disabled:opacity-50"
+                            >
+                                {orderLoading ? 'Eliminando...' : 'Sí, Eliminar'}
+                            </button>
                         </div>
                     </div>
                 </div>

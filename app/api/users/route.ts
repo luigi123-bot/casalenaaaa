@@ -166,6 +166,26 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
         }
 
+        // Delete child tables first to avoid foreign key constraint violations
+        try {
+            await supabaseAdmin.from('delivery_drivers').delete().eq('id', id);
+        } catch (e) {
+            console.warn('[DELETE USER] Error deleting from delivery_drivers:', e);
+        }
+
+        try {
+            await supabaseAdmin.from('usuarios').delete().eq('id', id);
+        } catch (e) {
+            console.warn('[DELETE USER] Error deleting from usuarios:', e);
+        }
+
+        try {
+            await supabaseAdmin.from('profiles').delete().eq('id', id);
+        } catch (e) {
+            console.warn('[DELETE USER] Error deleting from profiles:', e);
+        }
+
+        // Now delete the auth user
         const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
         if (error) throw error;
 

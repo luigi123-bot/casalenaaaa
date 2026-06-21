@@ -104,7 +104,7 @@ export default function CustomerSelector({ value, onChange, orderType }: Custome
     const handlePhoneChange = (newPhone: string) => {
         // Only keep digits to normalize
         const digitsOnly = newPhone.replace(/\D/g, '');
-        onChange({ ...value, phone: newPhone });
+        onChange({ name: '', phone: newPhone, address: '' });
 
         // Clear previous auto-fill state when user starts typing a new number
         if (lastAutoFilledPhone.current && newPhone !== lastAutoFilledPhone.current) {
@@ -119,6 +119,9 @@ export default function CustomerSelector({ value, onChange, orderType }: Custome
             debounceRef.current = setTimeout(() => {
                 performPhoneSearch(newPhone.trim());
             }, 600);
+        } else {
+            setSearchResults([]);
+            setShowDropdown(false);
         }
     };
 

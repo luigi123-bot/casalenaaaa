@@ -50,34 +50,50 @@ export async function POST(req: Request) {
 
         const { order, items } = parsed.data;
 
-        // 1. GESTIÓN AUTOMÁTICA DE CLIENTE (Upsert)
+        // 1. GESTIÓN AUTOMÁTICA DE CLIENTE (Safe Save)
         if ((order.order_type === 'delivery' || order.order_type === 'takeout') && order.phone_number) {
             try {
                 const phoneClean = order.phone_number.replace(/\D/g, '');
                 if (phoneClean.length >= 7) {
-                    const { error: upsertError } = await supabaseAdmin
+                    // Check if customer exists by phone
+                    const { data: existingCustomer } = await supabaseAdmin
                         .from('customers')
-                        .upsert({
-                            phone: phoneClean,
-                            full_name: order.customer_name || 'Cliente Nuevo',
-                            address: order.delivery_address || '',
-                            last_order_at: new Date().toISOString()
-                        }, { onConflict: 'phone' });
+                        .select('*')
+                        .eq('phone', phoneClean)
+                        .maybeSingle();
 
-                    // ✅ FIX: Antes el catch era silencioso — ahora se registra para diagnóstico.
-                    // El error más común es que la columna `phone` no tiene restricción UNIQUE
-                    // en Supabase, lo que hace fallar el upsert con onConflict.
-                    if (upsertError) {
-                        console.error('[SaveOrder] ⚠️ Error al guardar cliente (no crítico):', {
-                            message: upsertError.message,
-                            code: upsertError.code,
-                            hint: upsertError.hint,
-                            phone: phoneClean.slice(0, 3) + '***' // Parcialmente enmascarado por privacidad
-                        });
+                    if (existingCustomer) {
+                        const normExisting = (existingCustomer.full_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                        const normNew = (order.customer_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+                        const nameMatches = normExisting === normNew || normExisting === 'sin nombre' || normExisting === '';
+
+                        if (nameMatches) {
+                            // Update existing customer's details
+                            await supabaseAdmin
+                                .from('customers')
+                                .update({
+                                    full_name: order.customer_name || existingCustomer.full_name,
+                                    address: order.delivery_address || existingCustomer.address,
+                                    last_order_at: new Date().toISOString()
+                                })
+                                .eq('id', existingCustomer.id);
+                        } else {
+                            console.log(`⚠️ [SaveOrder API] Phone ${phoneClean} already belongs to '${existingCustomer.full_name}'. Skipping update to '${order.customer_name}' to avoid overwrite.`);
+                        }
+                    } else {
+                        // Insert new customer
+                        await supabaseAdmin
+                            .from('customers')
+                            .insert({
+                                phone: phoneClean,
+                                full_name: order.customer_name || 'Cliente Nuevo',
+                                address: order.delivery_address || '',
+                                last_order_at: new Date().toISOString()
+                            });
                     }
                 }
             } catch (err: any) {
-                // ✅ FIX: Registrar errores inesperados (red, permisos, etc.)
                 console.error('[SaveOrder] ⚠️ Excepción al guardar cliente (no crítico):', err?.message);
             }
         }

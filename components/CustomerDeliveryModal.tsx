@@ -69,6 +69,43 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
     const [showHistory, setShowHistory] = React.useState(true);
     const [isSaving, setIsSaving] = React.useState(false);
 
+    const phoneDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const searchByPhoneRef = React.useRef(onSearchByPhone);
+
+    React.useEffect(() => {
+        searchByPhoneRef.current = onSearchByPhone;
+    }, [onSearchByPhone]);
+
+    React.useEffect(() => {
+        return () => {
+            if (phoneDebounceRef.current) {
+                clearTimeout(phoneDebounceRef.current);
+            }
+        };
+    }, []);
+
+    const handlePhoneChange = (newPhone: string) => {
+        setCustomerInfo({
+            phone: newPhone,
+            name: '',
+            address: '',
+            street: '',
+            neighborhood: '',
+            reference: ''
+        });
+
+        if (phoneDebounceRef.current) {
+            clearTimeout(phoneDebounceRef.current);
+        }
+
+        const digitsOnly = newPhone.replace(/\D/g, '');
+        if (digitsOnly.length >= 7) {
+            phoneDebounceRef.current = setTimeout(() => {
+                searchByPhoneRef.current?.();
+            }, 600);
+        }
+    };
+
     if (!isOpen) return null;
 
     const handleSaveAndAccept = async () => {
@@ -140,7 +177,7 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                             <input
                                 type="tel"
                                 value={customerInfo.phone || ''}
-                                onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                                onChange={(e) => handlePhoneChange(e.target.value)}
                                 className="bg-transparent border-none p-0 text-xl font-black text-[#181511] focus:ring-0 outline-none w-full placeholder:text-gray-200"
                                 placeholder="741 000 0000"
                             />
