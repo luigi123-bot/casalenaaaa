@@ -50,8 +50,17 @@ export async function GET(request: Request) {
             `);
 
         if (timeFilter === 'today') {
-            const localDate = new Date().toLocaleDateString('sv-SE');
-            query = query.gte('created_at', `${localDate}T00:00:00`);
+            // Fix timezone: The server runs in UTC but Mexico is UTC-6.
+            // We subtract 6 hours to get the correct local "today" start in UTC.
+            const MEXICO_OFFSET_HOURS = 6;
+            const now = new Date();
+            const localMidnight = new Date(now);
+            localMidnight.setUTCHours(MEXICO_OFFSET_HOURS, 0, 0, 0); // 00:00 Mexico = 06:00 UTC
+            // If current UTC time is before 06:00 UTC, midnight was yesterday UTC
+            if (now.getUTCHours() < MEXICO_OFFSET_HOURS) {
+                localMidnight.setUTCDate(localMidnight.getUTCDate() - 1);
+            }
+            query = query.gte('created_at', localMidnight.toISOString());
         } else if (timeFilter === 'week') {
             const weekAgo = new Date();
             weekAgo.setDate(weekAgo.getDate() - 7);
