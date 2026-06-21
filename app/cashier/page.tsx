@@ -629,8 +629,9 @@ export default function CashierPage() {
                         const order = data[0];
                         console.log(`✅ [Cashier] Encontrada comanda #${order.id} abierta para mesa ${tableNum}`);
                         
-                        // Solo cargar si el carrito está vacío para permitir agregar más items localmente
-                        if (cart.length === 0) {
+                        // Cargar los items de la BD siempre que sea una orden diferente a la activa.
+                        // Esto garantiza que al editar/reabrir una orden, se muestren los items ya guardados.
+                        if (activeOrderId !== order.id) {
                             setActiveOrderId(order.id);
                             setPaymentMethod(order.payment_method || 'efectivo');
 
