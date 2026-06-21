@@ -18,7 +18,7 @@
   },
   "build": {
     "appId": "com.casalena.pos",
-    "productName": "Casalena POS",
+    "productName": "CasalenaPOS",
     "directories": {
       "output": "dist"
     },
@@ -26,7 +26,8 @@
       {
         "provider": "github",
         "owner": "luigi123-bot",
-        "repo": "casalenaaaa"
+        "repo": "casalenaaaa",
+        "releaseType": "release"
       }
     ],
     "win": {
@@ -34,7 +35,6 @@
         "nsis"
       ],
       "icon": "app/icon.png",
-      "artifactName": "CasalenaPOS.exe",
       "forceCodeSigning": false,
       "verifyUpdateCodeSignature": false
     },
@@ -42,7 +42,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "shortcutName": "Casale\u00f1a POS"
     },
     "files": [
       "electron/**/*",
