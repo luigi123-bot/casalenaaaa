@@ -1,34 +1,38 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from '@/utils/supabase/server';
+import { z } from 'zod';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+export const dynamic = 'force-dynamic';
+
+const inputSchema = z.object({
+    orderId: z.coerce.number().int().positive(),
+    amountPaid: z.union([z.number(), z.string()]).transform(val => parseFloat(val as string) || 0).optional(),
+    totalAmount: z.number().nonnegative(),
+    paymentMethod: z.string().optional().default('efectivo')
+});
 
 export async function POST(request: Request) {
     try {
-        const { orderId, amountPaid, totalAmount, paymentMethod } = await request.json();
-        
-        if (!orderId) {
-            return NextResponse.json({ error: 'Order ID is required' }, { status: 400 });
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
+
+        const body = await request.json().catch(() => ({}));
+        const parsed = inputSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Datos de pago inválidos' }, { status: 400 });
         }
 
-        const paid = parseFloat(amountPaid) || totalAmount;
+        const { orderId, amountPaid, totalAmount, paymentMethod } = parsed.data;
+
+        const paid = amountPaid || totalAmount;
         const change = Math.max(0, paid - totalAmount);
 
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
             .from('orders')
             .update({ 
                 status: 'entregado',
                 payment_status: 'paid',
-                payment_method: paymentMethod || 'efectivo',
+                payment_method: paymentMethod,
                 pago_con: paid,
                 cambio: change,
                 updated_at: new Date().toISOString()
@@ -40,7 +44,7 @@ export async function POST(request: Request) {
         
         return NextResponse.json({ success: true, data });
     } catch (error: any) {
-        console.error('Error processing quick payment:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Cashier Process Payment Error');
     }
 }
+

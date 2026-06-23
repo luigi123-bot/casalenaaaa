@@ -1,65 +1,25 @@
 'use client';
 
 import { useEffect } from 'react';
-import { supabase } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 
 export default function Home() {
     const router = useRouter();
 
     useEffect(() => {
-        const checkAuthAndRedirect = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-
-            if (!session) {
-                // If not logged in, go to store
-                router.push('/tienda');
-                return;
-            }
-
-            // If logged in, resolve role and redirect
-            try {
-                let role = '';
-                
-                // 1. Try from profiles table
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('role')
-                    .eq('id', session.user.id)
-                    .single();
-
-                if (profile?.role) {
-                    role = profile.role.toLowerCase();
-                } else {
-                    // 2. Fallback to auth metadata
-                    role = (session.user.user_metadata?.role || 'cliente').toLowerCase();
-                }
-
-                // If metadata has repartidor, respect it (because of UI fallback to 'cliente' in profiles)
-                if (session.user.user_metadata?.role?.toLowerCase() === 'repartidor') {
-                    role = 'repartidor';
-                }
-
-                // Redirect based on role
-                if (role === 'administrador') {
-                    router.push('/admin/users');
-                } else if (role === 'cajero') {
-                    router.push('/cashier');
-                } else if (role === 'cocina') {
-                    router.push('/cocina');
-                } else if (role === 'repartidor') {
-                    router.push('/repartidor');
-                } else {
-                    // Default for clients and others
-                    router.push('/tienda');
-                }
-            } catch (error) {
-                console.error('Error redirecting authenticated user:', error);
-                router.push('/tienda'); // Safety fallback
-            }
-        };
-
-        checkAuthAndRedirect();
+        const cachedRole = typeof window !== 'undefined' ? localStorage.getItem('casalena-user-role') : null;
+        if (cachedRole) {
+            const role = cachedRole.toLowerCase();
+            let target = '/tienda';
+            if (role === 'administrador') target = '/admin';
+            else if (role === 'cajero') target = '/cashier';
+            else if (role === 'cocina') target = '/cocina';
+            else if (role === 'repartidor') target = '/repartidor';
+            
+            router.replace(target);
+            return;
+        }
+        router.replace('/redirect');
     }, [router]);
 
     return (

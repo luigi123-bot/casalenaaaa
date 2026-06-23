@@ -7,6 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
 import AdminChatPanel from "@/components/AdminChatPanel";
 import LoadingScreen from "@/components/LoadingScreen";
+import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 
 const manrope = Manrope({
@@ -16,8 +17,22 @@ const manrope = Manrope({
 });
 
 function AdminLayoutContent({ children }: { children: React.ReactNode }) {
-    const { loading } = useAuth();
+    const { user, loading } = useAuth();
+    const router = useRouter();
     const [hasOpened, setHasOpened] = useState(false);
+
+    useEffect(() => {
+        if (!loading) {
+            if (!user) {
+                router.push('/login');
+            } else {
+                const role = user.role.toLowerCase();
+                if (role !== 'administrador') {
+                    router.push('/redirect');
+                }
+            }
+        }
+    }, [user, loading, router]);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [selectedChatUser, setSelectedChatUser] = useState<string | null>(null);
 

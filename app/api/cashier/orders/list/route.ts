@@ -1,27 +1,20 @@
-
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+const querySchema = z.object({
+    userId: z.string().uuid().nullable().optional()
+});
 
 export async function GET(req: Request) {
     try {
-        const { searchParams } = new URL(req.url);
-        const userId = searchParams.get('userId');
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse || !user) return errorResponse;
 
-        // 1. Obtener Cuentas Abiertas (Pendientes, Preparando, Listo)
-        let queryOpen = supabase
+        // 1. Obtener Cuentas Abiertas (Pendientes, Preparando, Listo) - Filtrado siempre por el cajero actual
+        let queryOpen = supabaseAdmin
             .from('orders')
             .select(`
                 *,
@@ -36,18 +29,15 @@ export async function GET(req: Request) {
                 )
             `)
             .in('status', ['pendiente', 'preparando', 'listo'])
-            .neq('payment_status', 'paid');
-
-        if (userId) {
-            queryOpen = queryOpen.eq('user_id', userId);
-        }
+            .neq('payment_status', 'paid')
+            .eq('user_id', user.id);
 
         const { data: openData, error: openErr } = await queryOpen.order('created_at', { ascending: false });
 
         if (openErr) throw openErr;
 
         // 2. Obtener Historial Reciente (Entregado, Cancelado, Confirmado o cualquier Pagado)
-        let queryHistory = supabase
+        let queryHistory = supabaseAdmin
             .from('orders')
             .select(`
                 *,
@@ -63,8 +53,9 @@ export async function GET(req: Request) {
             `)
             .or('status.in.(entregado,cancelado,confirmado),payment_status.eq.paid');
 
-        if (userId) {
-            queryHistory = queryHistory.eq('user_id', userId);
+        // Si no es administrador, ver únicamente su propio historial
+        if (user.role !== 'administrador') {
+            queryHistory = queryHistory.eq('user_id', user.id);
         }
 
         const { data: historyData, error: historyErr } = await queryHistory
@@ -80,7 +71,7 @@ export async function GET(req: Request) {
         });
 
     } catch (error: any) {
-        console.error('❌ [API-ListOrders] Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Cashier List Orders API Error');
     }
 }
+

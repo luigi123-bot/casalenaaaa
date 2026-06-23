@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 
 
@@ -25,6 +25,9 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+    // ✅ FIX: Siempre iniciar en null/true — nunca mostrar un perfil cacheado de otro
+    // usuario antes de verificar la sesión activa. El caché se usa en handleUserData
+    // DESPUÉS de confirmar que cachedProfile.id === userId (sesión válida).
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -35,64 +38,201 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (!session?.user) {
                 if (isInstanceMounted) {
                     setUser(null);
+                    localStorage.removeItem('casalena-user-role');
+                    localStorage.removeItem('casalena-user-profile');
                     setLoading(false);
                 }
                 return;
             }
 
-            // 1. Initial Quick Sync from Metadata (Avoids stuck loading)
             const metadata = session.user.user_metadata || {};
-            if (isInstanceMounted) {
-                setUser({
-                    id: session.user.id,
-                    email: session.user.email || '',
-                    full_name: metadata.full_name || 'Usuario',
-                    role: (metadata.role || 'cliente').toLowerCase() as any,
-                    avatar_url: metadata.avatar_url || '',
-                });
-                // We can set loading to false here to unblock UI if we have enough metadata
-                setLoading(false);
+            const userId = session.user.id;
+
+            // 1. Optimistic recovery from local storage cache to disable loading state instantly (0ms delay)
+            let cachedProfile: User | null = null;
+            try {
+                const raw = localStorage.getItem('casalena-user-profile');
+                if (raw) {
+                    cachedProfile = JSON.parse(raw);
+                }
+            } catch (e) {
+                console.warn('Failed to parse cached profile:', e);
             }
 
-            // 2. Background Sync from Database (Profiles/Usuarios)
+            if (cachedProfile && cachedProfile.id === userId) {
+                if (isInstanceMounted) {
+                    setUser(cachedProfile);
+                    setLoading(false);
+                }
+                
+                // Fetch in background to ensure profile is up-to-date
+                const fetchBackground = async () => {
+                    try {
+                        const { data: profile } = await supabase
+                            .from('profiles')
+                            .select('id, email, full_name, role, avatar_url')
+                            .eq('id', userId)
+                            .single();
+                        
+                        if (profile && isInstanceMounted) {
+                            let role = (profile.role || metadata.role || 'cliente').toLowerCase();
+                            if (metadata.role?.toLowerCase() === 'repartidor') {
+                                role = 'repartidor';
+                            }
+                            const updatedUser: User = {
+                                id: profile.id,
+                                email: profile.email || session.user.email || '',
+                                full_name: profile.full_name || metadata.full_name || 'Usuario',
+                                role: role as any,
+                                avatar_url: profile.avatar_url,
+                            };
+                            setUser(updatedUser);
+                            localStorage.setItem('casalena-user-role', role);
+                            localStorage.setItem('casalena-user-profile', JSON.stringify(updatedUser));
+                        }
+                    } catch (err) {
+                        console.warn('Background profile update failed:', err);
+                    }
+                };
+                fetchBackground();
+                return;
+            }
+
+            // 2. Fetch role from database profiles table (initial fetch if cache is empty)
             try {
-                const { data: profile, error } = await supabase
+                const profilePromise = supabase
                     .from('profiles')
-                    .select('*')
-                    .eq('id', session.user.id)
+                    .select('id, email, full_name, role, avatar_url')
+                    .eq('id', userId)
                     .single();
 
-                if (profile && isInstanceMounted) {
-                    setUser({
+                const timeoutPromise = new Promise<null>(resolve =>
+                    setTimeout(() => resolve(null), 2000)
+                );
+
+                const result = await Promise.race([profilePromise, timeoutPromise]);
+
+                if (!isInstanceMounted) return;
+
+                if (result && 'data' in result && result.data) {
+                    const profile = result.data;
+                    let role = (profile.role || metadata.role || 'cliente').toLowerCase();
+                    if (metadata.role?.toLowerCase() === 'repartidor') {
+                        role = 'repartidor';
+                    }
+                    const resolvedUser: User = {
                         id: profile.id,
-                        email: profile.email,
+                        email: profile.email || session.user.email || '',
                         full_name: profile.full_name || metadata.full_name || 'Usuario',
-                        role: (profile.role || metadata.role || 'cliente').toLowerCase() as any,
+                        role: role as any,
                         avatar_url: profile.avatar_url,
-                    });
+                    };
+                    setUser(resolvedUser);
+                    localStorage.setItem('casalena-user-role', role);
+                    localStorage.setItem('casalena-user-profile', JSON.stringify(resolvedUser));
+                } else {
+                    let role = (metadata.role || 'cliente').toLowerCase();
+                    if (metadata.role?.toLowerCase() === 'repartidor') {
+                        role = 'repartidor';
+                    }
+                    const fallbackUser: User = {
+                        id: userId,
+                        email: session.user.email || '',
+                        full_name: metadata.full_name || 'Usuario',
+                        role: role as any,
+                        avatar_url: metadata.avatar_url || '',
+                    };
+                    setUser(fallbackUser);
+                    localStorage.setItem('casalena-user-role', role);
+                    localStorage.setItem('casalena-user-profile', JSON.stringify(fallbackUser));
+
+                    const fetchFallbackBackground = async () => {
+                        try {
+                            const { data: profile } = await profilePromise;
+                            if (profile && isInstanceMounted) {
+                                let dbRole = (profile.role || metadata.role || 'cliente').toLowerCase();
+                                if (metadata.role?.toLowerCase() === 'repartidor') {
+                                    dbRole = 'repartidor';
+                                }
+                                const updatedUser: User = {
+                                    id: profile.id,
+                                    email: profile.email || session.user.email || '',
+                                    full_name: profile.full_name || metadata.full_name || 'Usuario',
+                                    role: dbRole as any,
+                                    avatar_url: profile.avatar_url,
+                                };
+                                setUser(updatedUser);
+                                localStorage.setItem('casalena-user-role', dbRole);
+                                localStorage.setItem('casalena-user-profile', JSON.stringify(updatedUser));
+                            }
+                        } catch (err) {
+                            // Silencioso
+                        }
+                    };
+                    fetchFallbackBackground();
                 }
             } catch (err) {
-                console.warn('Profile sync failed, kept metadata version:', err);
+                if (isInstanceMounted) {
+                    console.warn('[Auth] Profile fetch failed, using metadata fallback:', err);
+                    let role = (metadata.role || 'cliente').toLowerCase();
+                    if (metadata.role?.toLowerCase() === 'repartidor') {
+                        role = 'repartidor';
+                    }
+                    const fallbackUser: User = {
+                        id: userId,
+                        email: session.user.email || '',
+                        full_name: metadata.full_name || 'Usuario',
+                        role: role as any,
+                        avatar_url: metadata.avatar_url || '',
+                    };
+                    setUser(fallbackUser);
+                    localStorage.setItem('casalena-user-role', role);
+                    localStorage.setItem('casalena-user-profile', JSON.stringify(fallbackUser));
+                }
+            } finally {
+                if (isInstanceMounted) setLoading(false);
             }
         };
 
-        // Suppress redundant getUser call on mount, let onAuthStateChange handle INITIAL_SESSION
-        // which triggers automatically in newer Supabase versions. 
-        // If not, we manually trigger one check.
+        let isHandling = false;
+
         const checkInitial = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) await handleUserData(session);
-            else if (isInstanceMounted) setLoading(false);
+            if (isHandling) return;
+            isHandling = true;
+            try {
+                // ✅ FIX: Añadir timeout a getSession() para que el AuthContext no se quede
+                // colgado indefinidamente. Antes podía tardar hasta 4s (safety timeout).
+                // Ahora resuelve en máximo 3s y libera el estado de carga.
+                const result = await Promise.race([
+                    supabase.auth.getSession(),
+                    new Promise<{ data: { session: null } }>(resolve =>
+                        setTimeout(() => {
+                            console.warn('[Auth] getSession() timeout — continuando sin sesión.');
+                            resolve({ data: { session: null } });
+                        }, 3000)
+                    )
+                ]);
+                const session = result.data.session;
+                if (session) await handleUserData(session);
+                else if (isInstanceMounted) setLoading(false);
+            } catch (err) {
+                console.warn('[Auth] Error en checkInitial:', err);
+                if (isInstanceMounted) setLoading(false);
+            } finally {
+                isHandling = false;
+            }
         };
 
         checkInitial();
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            console.log(`🔑 [Auth] Event: ${event} | User: ${session?.user?.email}`);
+            if (event === 'INITIAL_SESSION') return;
 
             if (event === 'SIGNED_OUT') {
                 if (isInstanceMounted) {
                     setUser(null);
+                    localStorage.removeItem('casalena-user-role');
+                    localStorage.removeItem('casalena-user-profile');
                     setLoading(false);
                 }
             } else if (session) {
@@ -100,16 +240,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         });
 
-        // Safety timeout to prevent infinite loading in case of network freeze
         const safetyTimeout = setTimeout(() => {
             setLoading(prev => {
                 if (prev) {
-                    console.warn('⚠️ Force-disabling loading state due to timeout');
+                    console.warn('⚠️ [Auth] Force-disabling loading state due to timeout');
                     return false;
                 }
                 return prev;
             });
-        }, 8000);
+        }, 4000);
 
         return () => {
             isInstanceMounted = false;
@@ -118,13 +257,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
     }, []);
 
-    const signOut = async () => {
+    const signOut = useCallback(async () => {
         try {
-            // Fuerza el cierre de sesión local, ignorando errores de red si el servidor no responde
             await supabase.auth.signOut({ scope: 'local' });
         } catch (error) {
             console.error('Error signing out:', error);
-            // Limpieza manual agresiva del token de Supabase en caso de error crítico
             try {
                 Object.keys(window.localStorage).forEach(key => {
                     if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
@@ -135,10 +272,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.error('Could not clear local storage manually');
             }
         } finally {
+            localStorage.removeItem('casalena-user-role');
+            localStorage.removeItem('casalena-user-profile');
             setUser(null);
             window.location.href = '/tienda';
         }
-    };
+    }, []);
 
     // Memoize context value — prevents re-rendering all consumers when unrelated state changes
     const value = useMemo(() => ({ user, loading, signOut }), [user, loading]);

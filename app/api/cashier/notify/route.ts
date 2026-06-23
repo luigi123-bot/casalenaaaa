@@ -1,15 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { validateApiAccess, handleServerError, supabaseAdmin } from '@/utils/supabase/server';
+import { z } from 'zod';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+export const dynamic = "force-dynamic";
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const inputSchema = z.object({
+    type: z.string(),
+    customerName: z.string(),
+    orderType: z.enum(['local', 'takeout', 'delivery']),
+    total: z.number().nonnegative(),
+    items: z.array(z.object({
+        quantity: z.number(),
+        name: z.string(),
+        size: z.string().nullable().optional()
+    }))
+});
 
 export async function POST(request: NextRequest) {
     try {
-        const body = await request.json();
-        const { type, customerName, orderType, total, items } = body;
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
+
+        const body = await request.json().catch(() => ({}));
+        const parsed = inputSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Datos de notificación inválidos' }, { status: 400 });
+        }
+
+        const { type, customerName, orderType, total, items } = parsed.data;
 
         // Format notification message
         let title = '';
@@ -30,15 +48,8 @@ export async function POST(request: NextRequest) {
             message = `${customerName} - ${orderTypeText}\n${itemsList}${moreItems}\nTotal: $${total.toFixed(2)}`;
         }
 
-        // Create notification record in database (optional - for tracking)
-        // You could create a notifications table to store these
-
-        // For now, we'll just broadcast via Supabase Realtime
-        // The NotificationPanel component will pick this up automatically through the channel subscription
-
-        // Alternative: Store in a notifications table
         try {
-            await supabase.from('cashier_notifications').insert({
+            await supabaseAdmin.from('cashier_notifications').insert({
                 type: 'order',
                 title,
                 message,
@@ -53,8 +64,7 @@ export async function POST(request: NextRequest) {
                 created_at: new Date().toISOString()
             });
         } catch (dbError) {
-            // If the table doesn't exist yet, that's OK - notifications will still work via realtime orders
-            console.log('Notification table not found or error:', dbError);
+            // Safe ignore if notification table does not exist
         }
 
         return NextResponse.json({
@@ -63,10 +73,7 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error: any) {
-        console.error('Error processing cashier notification:', error);
-        return NextResponse.json(
-            { error: 'Error al procesar notificación', details: error.message },
-            { status: 500 }
-        );
+        return handleServerError(error, 'Cashier Notify API Error');
     }
 }
+

@@ -38,6 +38,7 @@ export default function AdminUsersPage() {
 
     // Toast notification state
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+    const [showPassword, setShowPassword] = useState(false);
 
     const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
         setToast({ message, type });
@@ -208,6 +209,7 @@ export default function AdminUsersPage() {
                     address: customerFormData.address
                 }]);
                 if (error) throw error;
+                console.log('Nuevo cliente creado desde admin:', customerFormData);
                 alert('Cliente guardado');
             }
             setShowCustomerModal(false);
@@ -240,7 +242,7 @@ export default function AdminUsersPage() {
                     }),
                 });
             } else {
-                response = await fetch('/api/register', {
+                response = await fetch('/api/users', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData),
@@ -250,6 +252,11 @@ export default function AdminUsersPage() {
                 const data = await response.json();
                 throw new Error(data.error || 'Error al procesar');
             }
+
+            if (!editingUserId) {
+                console.log('Nuevo usuario creado desde admin:', formData);
+            }
+
             showToast(editingUserId ? '✅ Usuario actualizado correctamente' : '✅ Usuario creado exitosamente', 'success');
             setShowModal(false);
             setEditingUserId(null);
@@ -519,7 +526,19 @@ export default function AdminUsersPage() {
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">{editingUserId ? 'Nueva Contraseña (opcional)' : 'Contraseña'}</label>
-                                <input name="password" type="password" placeholder={editingUserId ? 'Dejar vacío para mantener actual' : 'Mínimo 6 caracteres'} value={formData.password} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold focus:border-[#F27405] outline-none transition-all" required={!editingUserId} />
+                                <div className="relative">
+                                    <input name="password" type={showPassword ? "text" : "password"} placeholder={editingUserId ? 'Dejar vacío para mantener actual' : 'Mínimo 6 caracteres'} value={formData.password} onChange={handleInputChange} className="w-full bg-[#fcfbf9] border-2 border-gray-100 rounded-2xl px-5 py-3 font-bold focus:border-[#F27405] outline-none transition-all pr-12" required={!editingUserId} />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none flex items-center justify-center"
+                                        tabIndex={-1}
+                                    >
+                                        <span className="material-symbols-outlined text-xl">
+                                            {showPassword ? 'visibility_off' : 'visibility'}
+                                        </span>
+                                    </button>
+                                </div>
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Rol del Usuario</label>

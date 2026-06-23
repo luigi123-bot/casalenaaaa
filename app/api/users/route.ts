@@ -1,44 +1,46 @@
-import { createClient } from '@supabase/supabase-js';
-export const dynamic = 'force-static';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from '@/utils/supabase/server';
+import { z } from 'zod';
 
-// Initialize Supabase Admin Client
-const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+export const dynamic = 'force-dynamic';
+
+const userCreateSchema = z.object({
+    role: z.enum(['administrador', 'cajero', 'cocina', 'cliente', 'repartidor']),
+    fullName: z.string().min(1),
+    email: z.string().email(),
+    password: z.string().min(6)
+});
+
+const userUpdateSchema = z.object({
+    id: z.string().uuid(),
+    role: z.enum(['administrador', 'cajero', 'cocina', 'cliente', 'repartidor']),
+    fullName: z.string().min(1),
+    email: z.string().email().optional(),
+    password: z.string().min(6).optional(),
+    isActive: z.boolean().optional()
+});
 
 export async function GET(request: Request) {
     try {
-        // Fetch from profiles
+        const { errorResponse } = await validateApiAccess(['administrador']);
+        if (errorResponse) return errorResponse;
+
         let { data: profiles, error: profilesError } = await supabaseAdmin
             .from('profiles')
             .select('*')
             .order('created_at', { ascending: false });
 
-        if (profilesError) {
-            console.warn('Error fetching profiles:', profilesError);
-            profiles = [];
-        }
+        if (profilesError) throw profilesError;
 
-        // Fetch from usuarios (legacy)
         let { data: usuarios, error: usuariosError } = await supabaseAdmin
             .from('usuarios')
             .select('*')
             .order('created_at', { ascending: false });
 
         if (usuariosError) {
-            console.warn('Error fetching usuarios:', usuariosError);
             usuarios = [];
         }
 
-        // Merge logic: use profiles, fallback to usuarios if not in profiles
         const profilesMap = new Map((profiles || []).map((p: any) => [p.id, p]));
         const unifiedUsers = [...(profiles || [])];
 
@@ -52,17 +54,18 @@ export async function GET(request: Request) {
             }
         });
 
-        // Fetch delivery drivers to map their role properly in the UI
-        const { data: drivers } = await supabaseAdmin
+        const { data: drivers, error: driversError } = await supabaseAdmin
             .from('delivery_drivers')
             .select('id');
             
+        if (driversError) {
+            console.warn('[USERS API] delivery_drivers check warning:', driversError);
+        }
+
         const driverIds = new Set((drivers || []).map(d => d.id));
 
-        // Sort by creation date
         unifiedUsers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-        // Override role to 'repartidor' if they exist in delivery_drivers
         const finalUsers = unifiedUsers.map(u => ({
             ...u,
             role: driverIds.has(u.id) ? 'repartidor' : u.role
@@ -70,20 +73,22 @@ export async function GET(request: Request) {
 
         return NextResponse.json(finalUsers);
     } catch (error: any) {
-        console.error('Get users error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Get Users API Error');
     }
 }
 
 export async function PUT(request: Request) {
     try {
-        const { id, role, fullName, email, password, isActive } = await request.json();
+        const { errorResponse } = await validateApiAccess(['administrador']);
+        if (errorResponse) return errorResponse;
 
-        if (!id) {
-            return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+        const body = await request.json().catch(() => ({}));
+        const parsed = userUpdateSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Datos de actualización inválidos' }, { status: 400 });
         }
 
-        console.log(`📝 [API Update User] Updating user: ${id}, Role: ${role}, Name: ${fullName}`);
+        const { id, role, fullName, email, password, isActive } = parsed.data;
 
         // 1. Update Profile (Role & Full Name)
         const profileUpdates: any = {
@@ -96,69 +101,41 @@ export async function PUT(request: Request) {
             .update(profileUpdates)
             .eq('id', id);
 
-        if (profileError) {
-            console.error('Error updating profile:', profileError);
-            throw new Error(profileError.message);
-        } else {
-            console.log('✅ [API Update User] Profile updated successfully');
-        }
+        if (profileError) throw profileError;
 
-        // 1a. Update USUARIOS table (Legacy Sync)
-        // To ensure consistency if any part of the app still relies on this table
+        // Legacy sync with usuarios table
         try {
-            const { error: usuariosError } = await supabaseAdmin
+            await supabaseAdmin
                 .from('usuarios')
                 .update({ role: role === 'repartidor' ? 'cliente' : role, full_name: fullName })
                 .eq('id', id);
-
-            if (usuariosError) {
-                console.warn('⚠️ [API Update User] Warning: Could not update usuarios table', usuariosError);
-            } else {
-                console.log('✅ [API Update User] Legacy usuarios table updated successfully');
-            }
         } catch (e) {
-            console.log('⚠️ [API Update User] Usuarios table might not exist or other error', e);
+            // Safe fallback
         }
 
-        // Si el rol nuevo es repartidor, asegúrate de que exista en delivery_drivers
+        // Handle delivery driver registration
         if (role === 'repartidor') {
-            try {
-                const { error: driverError } = await supabaseAdmin
-                    .from('delivery_drivers')
-                    .upsert({
-                        id: id,
-                        full_name: fullName,
-                        vehicle_type: 'moto',
-                        status: 'disponible',
-                        is_active: isActive !== false
-                    }, { onConflict: 'id' });
-                if (driverError) {
-                    console.warn('⚠️ [API Update User] Could not sync delivery_drivers', driverError);
-                }
-            } catch (e) {
-                console.error('Error syncing delivery_drivers', e);
-            }
+            await supabaseAdmin
+                .from('delivery_drivers')
+                .upsert({
+                    id: id,
+                    full_name: fullName,
+                    vehicle_type: 'moto',
+                    status: 'disponible',
+                    is_active: isActive !== false
+                }, { onConflict: 'id' });
         }
 
         // 2. Update Auth User (email, password, metadata)
         const authUpdates: any = {
             user_metadata: {
                 full_name: fullName,
-                role: role // <--- CRITICAL: Sync role to metadata for Middleware
+                role: role
             },
         };
 
-        // Update email if provided
-        if (email) {
-            authUpdates.email = email;
-        }
-
-        // Update password if provided
-        if (password && password.length >= 6) {
-            authUpdates.password = password;
-        }
-
-        // Handle active/inactive status
+        if (email) authUpdates.email = email;
+        if (password) authUpdates.password = password;
         if (isActive !== undefined) {
             authUpdates.ban_duration = isActive ? 'none' : '876000h';
         }
@@ -168,39 +145,120 @@ export async function PUT(request: Request) {
             authUpdates
         );
 
-        if (authError) {
-            console.error('Error updating auth:', authError);
-            throw new Error(authError.message);
-        }
+        if (authError) throw authError;
 
-        return NextResponse.json({ success: true, message: 'User updated successfully (DB + Auth Metadata)' });
+        return NextResponse.json({ success: true, message: 'User updated successfully' });
 
     } catch (error: any) {
-        console.error('Update user error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Update User API Error');
     }
 }
 
 export async function DELETE(request: Request) {
     try {
+        const { errorResponse } = await validateApiAccess(['administrador']);
+        if (errorResponse) return errorResponse;
+
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
 
-        if (!id) {
+        if (!id || typeof id !== 'string') {
             return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
         }
 
-        // Delete from Supabase Auth (cascades to profiles if configured)
-        const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
-
-        if (error) {
-            throw error;
+        // Delete child tables first to avoid foreign key constraint violations
+        try {
+            await supabaseAdmin.from('delivery_drivers').delete().eq('id', id);
+        } catch (e) {
+            console.warn('[DELETE USER] Error deleting from delivery_drivers:', e);
         }
+
+        try {
+            await supabaseAdmin.from('usuarios').delete().eq('id', id);
+        } catch (e) {
+            console.warn('[DELETE USER] Error deleting from usuarios:', e);
+        }
+
+        try {
+            await supabaseAdmin.from('profiles').delete().eq('id', id);
+        } catch (e) {
+            console.warn('[DELETE USER] Error deleting from profiles:', e);
+        }
+
+        // Now delete the auth user
+        const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
+        if (error) throw error;
 
         return NextResponse.json({ success: true });
 
     } catch (error: any) {
-        console.error('Delete user error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Delete User API Error');
+    }
+}
+
+export async function POST(request: Request) {
+    try {
+        const { errorResponse } = await validateApiAccess(['administrador']);
+        if (errorResponse) return errorResponse;
+
+        const body = await request.json().catch(() => ({}));
+        const parsed = userCreateSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Datos de creación inválidos o faltan campos' }, { status: 400 });
+        }
+
+        const { role, fullName, email, password } = parsed.data;
+
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+            user_metadata: {
+                full_name: fullName,
+                role: role
+            }
+        });
+
+        if (authError) throw authError;
+
+        const userId = authData.user.id;
+
+        // Create profile
+        const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
+            id: userId,
+            email: email,
+            full_name: fullName,
+            role: role === 'repartidor' ? 'cliente' : role
+        });
+
+        if (profileError) throw profileError;
+
+        // Delivery driver specific
+        if (role === 'repartidor') {
+            await supabaseAdmin.from('delivery_drivers').upsert({
+                id: userId,
+                full_name: fullName,
+                vehicle_type: 'moto',
+                status: 'disponible',
+                is_active: true
+            });
+        }
+
+        // Legacy Sync
+        try {
+            await supabaseAdmin.from('usuarios').upsert({
+                id: userId,
+                email: email,
+                full_name: fullName,
+                role: role === 'repartidor' ? 'cliente' : role
+            });
+        } catch (e) {
+            // Legacy sync fail ignored safely
+        }
+
+        return NextResponse.json({ success: true, message: 'User created successfully', user: authData.user });
+
+    } catch (error: any) {
+        return handleServerError(error, 'Create User API Error');
     }
 }

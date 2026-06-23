@@ -102,9 +102,11 @@ export function useStoreStatus() {
             )
             .subscribe();
 
-        // Polling interaction for automatic schedule time changes
+        // Polling for automatic schedule time changes (every 60s is sufficient)
         interval = setInterval(checkStatus, 60000);
 
+        // ✅ FIX: Removed window 'focus' listener — was firing a DB fetch every time
+        // the user clicked on the browser window. Realtime + 60s polling is enough.
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
                 checkStatus();
@@ -112,13 +114,11 @@ export function useStoreStatus() {
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', checkStatus);
 
         return () => {
             clearInterval(interval);
             supabase.removeChannel(channel);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('focus', checkStatus);
         };
     }, []);
 

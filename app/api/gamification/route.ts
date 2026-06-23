@@ -1,28 +1,36 @@
-import { createClient } from '@supabase/supabase-js';
-export const dynamic = 'force-static';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from '@/utils/supabase/server';
+import { z } from 'zod';
 
-const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+export const dynamic = 'force-dynamic';
+
+const actionSchema = z.discriminatedUnion('action', [
+    z.object({
+        action: z.literal('add_points'),
+        userId: z.string().uuid(),
+        points: z.number().int().positive(),
+        reason: z.string().optional().default('Compra realizada'),
+        orderId: z.string().uuid().optional()
+    }),
+    z.object({
+        action: z.literal('redeem_reward'),
+        userId: z.string().uuid(),
+        rewardId: z.string().uuid()
+    })
+]);
 
 // GET - Obtener información de gamificación del usuario
 export async function GET(request: Request) {
     try {
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero', 'cliente']);
+        if (errorResponse) return errorResponse;
+
         const { searchParams } = new URL(request.url);
-        const userId = searchParams.get('userId');
         const mode = searchParams.get('mode');
+        let userId = searchParams.get('userId');
 
         // MODE: RANKING - Get Leaderboard
         if (mode === 'ranking') {
-            // 1. Get Top Points
             const { data: rankingPoints, error: rankingError } = await supabaseAdmin
                 .from('user_points')
                 .select('user_id, total_points, current_level')
@@ -31,7 +39,6 @@ export async function GET(request: Request) {
 
             if (rankingError) throw rankingError;
 
-            // 2. Get User Profiles manually (since FK might be missing)
             const userIds = rankingPoints.map((r: any) => r.user_id);
 
             const { data: profiles, error: profilesError } = await supabaseAdmin
@@ -39,9 +46,10 @@ export async function GET(request: Request) {
                 .select('id, full_name, email')
                 .in('id', userIds);
 
-            if (profilesError) console.error('Error fetching profiles for ranking:', profilesError);
+            if (profilesError) {
+                console.warn('Error fetching profiles for ranking:', profilesError);
+            }
 
-            // 3. Merge Data
             const profilesMap = new Map(profiles?.map((p: any) => [p.id, p]));
 
             const formattedRanking = rankingPoints.map((entry: any, index: number) => {
@@ -59,8 +67,9 @@ export async function GET(request: Request) {
             return NextResponse.json(formattedRanking);
         }
 
-        if (!userId) {
-            return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+        // IDOR Prevention: standard cliente can only fetch their own data
+        if (user!.role === 'cliente' || !userId) {
+            userId = user!.id;
         }
 
         // Obtener puntos del usuario
@@ -68,7 +77,9 @@ export async function GET(request: Request) {
             .from('user_points')
             .select('*')
             .eq('user_id', userId)
-            .single();
+            .maybeSingle();
+
+        if (pointsError) throw pointsError;
 
         // Si no existe, crear registro inicial
         if (!userPoints) {
@@ -122,27 +133,33 @@ export async function GET(request: Request) {
         });
 
     } catch (error: any) {
-        console.error('Error fetching gamification data:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Get Gamification Data Error');
     }
 }
 
 // POST - Agregar puntos o canjear recompensa
 export async function POST(request: Request) {
     try {
-        const { action, userId, points, reason, orderId, rewardId } = await request.json();
-
-        if (!userId) {
-            return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+        const body = await request.json().catch(() => ({}));
+        const parsed = actionSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Acción o datos inválidos' }, { status: 400 });
         }
 
-        if (action === 'add_points') {
-            // Agregar puntos al usuario
+        const data = parsed.data;
+
+        if (data.action === 'add_points') {
+            // Privilege validation: Only admin or cashier can award points!
+            const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+            if (errorResponse) return errorResponse;
+
+            const { userId, points, reason, orderId } = data;
+
             const { data: currentPoints } = await supabaseAdmin
                 .from('user_points')
                 .select('total_points')
                 .eq('user_id', userId)
-                .single();
+                .maybeSingle();
 
             const newTotal = (currentPoints?.total_points || 0) + points;
 
@@ -181,7 +198,7 @@ export async function POST(request: Request) {
                 .insert([{
                     user_id: userId,
                     points: points,
-                    reason: reason || 'Compra realizada',
+                    reason: reason,
                     order_id: orderId
                 }]);
 
@@ -190,7 +207,16 @@ export async function POST(request: Request) {
 
             return NextResponse.json({ success: true, newTotal, newLevel });
 
-        } else if (action === 'redeem_reward') {
+        } else if (data.action === 'redeem_reward') {
+            // Standard cliente can redeem rewards, but only for themselves (IDOR check)
+            const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero', 'cliente']);
+            if (errorResponse) return errorResponse;
+
+            let { userId, rewardId } = data;
+            if (user!.role === 'cliente') {
+                userId = user!.id; // Override to active session's user ID
+            }
+
             // Canjear recompensa
             const { data: reward } = await supabaseAdmin
                 .from('rewards')
@@ -199,7 +225,7 @@ export async function POST(request: Request) {
                 .single();
 
             if (!reward) {
-                return NextResponse.json({ error: 'Reward not found' }, { status: 404 });
+                return NextResponse.json({ error: 'Recompensa no encontrada' }, { status: 404 });
             }
 
             const { data: userPoints } = await supabaseAdmin
@@ -209,7 +235,7 @@ export async function POST(request: Request) {
                 .single();
 
             if (!userPoints || userPoints.total_points < reward.points_cost) {
-                return NextResponse.json({ error: 'Insufficient points' }, { status: 400 });
+                return NextResponse.json({ error: 'Puntos insuficientes' }, { status: 400 });
             }
 
             // Generar código de cupón único
@@ -253,18 +279,16 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: true, coupon });
         }
 
-        return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+        return NextResponse.json({ error: 'Acción no permitida' }, { status: 400 });
 
     } catch (error: any) {
-        console.error('Error in gamification action:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Gamification Action Error');
     }
 }
 
 // Función auxiliar para verificar y desbloquear logros
 async function checkAndUnlockAchievements(userId: string) {
     try {
-        // Obtener estadísticas del usuario
         const { data: orders } = await supabaseAdmin
             .from('orders')
             .select('total_amount')
@@ -277,7 +301,7 @@ async function checkAndUnlockAchievements(userId: string) {
             .from('user_points')
             .select('total_points')
             .eq('user_id', userId)
-            .single();
+            .maybeSingle();
 
         const pointsEarned = userPoints?.total_points || 0;
 
@@ -323,7 +347,7 @@ async function checkAndUnlockAchievements(userId: string) {
                         .from('user_points')
                         .select('total_points')
                         .eq('user_id', userId)
-                        .single();
+                        .maybeSingle();
 
                     await supabaseAdmin
                         .from('user_points')
@@ -344,3 +368,4 @@ async function checkAndUnlockAchievements(userId: string) {
         console.error('Error checking achievements:', error);
     }
 }
+

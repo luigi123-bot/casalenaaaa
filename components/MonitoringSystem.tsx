@@ -1,14 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-
-import { createBrowserClient } from '@supabase/ssr';
-
-const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { supabase } from '@/utils/supabase/client'; // ✅ FIX: usar singleton en lugar de crear un cliente nuevo
 
 interface ActivityLog {
     id?: string;
@@ -26,61 +20,56 @@ export default function MonitoringSystem() {
     const { user } = useAuth();
     const [isVisible, setIsVisible] = useState(false);
     const [logs, setLogs] = useState<ActivityLog[]>([]);
-    const [clicks, setClicks] = useState(0);
-    const [pages, setPages] = useState<string[]>([]);
+    // ✅ FIX: clicks como ref para no disparar re-renders ni recrear effects
+    const clicksRef = useRef(0);
+    const [clicksDisplay, setClicksDisplay] = useState(0);
+    const pagesRef = useRef<string[]>([]);
     const [startTime] = useState(new Date().toISOString());
-    const [now, setNow] = useState(Date.now());
 
-    useEffect(() => {
-        const interval = setInterval(() => setNow(Date.now()), 60000);
-        return () => clearInterval(interval);
-    }, []);
+    // ✅ FIX: calcular "now" solo cuando isVisible en lugar de estado con setInterval
+    const getNow = () => Date.now();
 
-    // Secret code tracking
-    const [inputBuffer, setInputBuffer] = useState('');
-    const secretCode = 'adminmode';
+    // ✅ FIX: syncSession como callback estable, sin deps de clicks/pages (usa refs)
+    const syncSession = useCallback(async () => {
+        if (!user) return;
+        const currentPath = window.location.pathname;
+        const updatedPages = pagesRef.current;
+        if (updatedPages.length === 0 || updatedPages[updatedPages.length - 1] !== currentPath) {
+            pagesRef.current = [...updatedPages, currentPath];
+        }
 
-    // 1. Sync Current Session to Supabase
+        try {
+            const { error } = await supabase
+                .from('user_activity_logs')
+                .upsert({
+                    user_id: user.id,
+                    full_name: user.full_name,
+                    email: user.email,
+                    login_time: startTime,
+                    last_seen: new Date().toISOString(),
+                    clicks: clicksRef.current,
+                    pages_visited: pagesRef.current,
+                    user_agent: navigator.userAgent
+                }, { onConflict: 'user_id' });
+
+            if (error) console.warn('Monitoring Sync Error:', error.message);
+        } catch (err) {
+            console.error('Failed to sync monitoring data:', err);
+        }
+    }, [user, startTime]);
+
+    // 1. Sync session periodically (not on every click)
     useEffect(() => {
         if (!user) return;
-
-        const syncSession = async () => {
-            const currentPath = window.location.pathname;
-            const updatedPages = [...pages];
-            if (updatedPages.length === 0 || updatedPages[updatedPages.length - 1] !== currentPath) {
-                updatedPages.push(currentPath);
-                setPages(updatedPages);
-            }
-
-            try {
-                // UPSERT activity log for the current session (keyed by user_id for simplicity, 
-                // or you could use a session ID in localStorage for more granularity)
-                const { error } = await supabase
-                    .from('user_activity_logs')
-                    .upsert({
-                        user_id: user.id,
-                        full_name: user.full_name,
-                        email: user.email,
-                        login_time: startTime,
-                        last_seen: new Date().toISOString(),
-                        clicks: clicks,
-                        pages_visited: updatedPages,
-                        user_agent: navigator.userAgent
-                    }, { onConflict: 'user_id' }); // Simplificado: 1 log por usuario activo
-
-                if (error) console.warn('Monitoring Sync Error:', error.message);
-            } catch (err) {
-                console.error('Failed to sync monitoring data:', err);
-            }
-        };
-
-        // Sync initially and then every 30 seconds
         syncSession();
         const interval = setInterval(syncSession, 30000);
         return () => clearInterval(interval);
-    }, [user, clicks, pages, startTime]);
+    }, [user, syncSession]);
 
     // 2. Secret code listener
+    const [inputBuffer, setInputBuffer] = useState('');
+    const secretCode = 'adminmode';
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
@@ -96,47 +85,55 @@ export default function MonitoringSystem() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [inputBuffer, isVisible]);
 
-    // 3. Activity listeners (Local state only, synced by the syncSession useEffect)
+    // 3. ✅ FIX: click tracking via ref (no setState per click)
     useEffect(() => {
-        const handleClick = () => setClicks(prev => prev + 1);
+        const handleClick = () => {
+            clicksRef.current += 1;
+            // Only update display every 10 clicks to avoid render spam
+            if (clicksRef.current % 10 === 0) {
+                setClicksDisplay(clicksRef.current);
+            }
+        };
         window.addEventListener('click', handleClick);
         return () => window.removeEventListener('click', handleClick);
     }, []);
 
-    // 4. Fetch All Activity Logs (Real Data)
+    // 4. Fetch All Activity Logs (Real Data) — only when visible
     useEffect(() => {
-        if (isVisible) {
-            const fetchLogs = async () => {
-                try {
-                    const { data } = await supabase
-                        .from('user_activity_logs')
-                        .select('*')
-                        .order('last_seen', { ascending: false });
+        if (!isVisible) return;
+        const fetchLogs = async () => {
+            try {
+                const { data } = await supabase
+                    .from('user_activity_logs')
+                    .select('*')
+                    .order('last_seen', { ascending: false });
 
-                    if (data) {
-                        const formatted = data.map(d => ({
-                            userId: d.user_id,
-                            userName: d.full_name,
-                            email: d.email,
-                            loginTime: d.login_time,
-                            lastSeen: d.last_seen,
-                            clicks: d.clicks,
-                            pagesVisited: d.pages_visited || [],
-                            userAgent: d.user_agent
-                        }));
-                        setLogs(formatted);
-                    }
-                } catch (err) {
-                    console.error('Monitoring Fetch Error:', err);
+                if (data) {
+                    const formatted = data.map(d => ({
+                        userId: d.user_id,
+                        userName: d.full_name,
+                        email: d.email,
+                        loginTime: d.login_time,
+                        lastSeen: d.last_seen,
+                        clicks: d.clicks,
+                        pagesVisited: d.pages_visited || [],
+                        userAgent: d.user_agent
+                    }));
+                    setLogs(formatted);
                 }
-            };
-            fetchLogs();
-            const interval = setInterval(fetchLogs, 5000); // Live update modal
-            return () => clearInterval(interval);
-        }
+            } catch (err) {
+                console.error('Monitoring Fetch Error:', err);
+            }
+        };
+        fetchLogs();
+        const interval = setInterval(fetchLogs, 5000);
+        return () => clearInterval(interval);
     }, [isVisible]);
 
     if (!isVisible) return null;
+
+    // ✅ FIX: calcular now inline al render en lugar de estado con setInterval
+    const now = getNow();
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
@@ -167,7 +164,7 @@ export default function MonitoringSystem() {
                         </div>
                         <div className="bg-[#28231d] p-4 rounded-xl border border-white/5">
                             <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Mis Clicks Hoy</p>
-                            <p className="text-2xl font-bold text-primary">{clicks}</p>
+                            <p className="text-2xl font-bold text-primary">{clicksDisplay || clicksRef.current}</p>
                         </div>
                         <div className="bg-[#28231d] p-4 rounded-xl border border-white/5">
                             <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Tiempo en Sesión</p>

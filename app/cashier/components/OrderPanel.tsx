@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import CustomerSelector, { CustomerData } from '@/components/CustomerSelector';
 import CustomerDeliveryModal from '@/components/CustomerDeliveryModal';
@@ -61,6 +61,15 @@ export default function OrderPanel({ cartItems, onUpdateQuantity, onClearCart }:
         const paid = parseFloat(amountPaid) || 0;
         setChange(Math.max(0, paid - total));
     }, [amountPaid, total]);
+
+    // Clear customer insights if phone or name is empty
+    useEffect(() => {
+        if (!customerInfo.phone || !customerInfo.name) {
+            setCustomerInsights(null);
+        }
+    }, [customerInfo.phone, customerInfo.name]);
+
+    // Auto-save removed per user request to prevent page lag and save only on checkout/print.
 
     // Sync customerInfo → customerData when modal confirms
     const handleModalAccept = () => {
@@ -235,6 +244,23 @@ export default function OrderPanel({ cartItems, onUpdateQuantity, onClearCart }:
 
             const resData = await res.json();
             const savedOrder = resData.order;
+
+            // Save customer on order placement if it's delivery/pickup
+            if (diningOption !== 'Mesa' && customerData.phone?.trim() && customerData.name?.trim()) {
+                const savePhone = customerData.phone.trim();
+                const saveName = customerData.name.trim();
+                const saveAddress = customerData.address || '';
+                
+                fetch('/api/cashier/customers/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone: savePhone, full_name: saveName, address: saveAddress })
+                }).then(() => {
+                    console.log('✅ [OrderPanel] Cliente guardado con éxito.');
+                }).catch(err => {
+                    console.warn('⚠️ [OrderPanel] Error al guardar cliente en comanda:', err);
+                });
+            }
 
             // Build TicketData for printing
             const ticket: TicketData = {

@@ -96,17 +96,17 @@ export default function TiendaPage() {
     useEffect(() => {
         const loadAllData = async () => {
             try {
+                // FIX: fetchProductsAndCategories reemplaza dos queries separadas con una sola
                 await Promise.all([
                     fetchUserData(),
-                    fetchCategories(),
-                    fetchProducts(),
+                    fetchProductsAndCategories(),
                     fetchActiveBanner()
                 ]);
             } catch (error) {
                 console.error('Error loading app data:', error);
             } finally {
-                // Pequeño timeout para asegurar que la transición sea suave
-                setTimeout(() => setIsInitialLoading(false), 800);
+                // FIX: Quitado setTimeout de 800ms — los datos ya están listos
+                setIsInitialLoading(false);
             }
         };
         loadAllData();
@@ -128,35 +128,35 @@ export default function TiendaPage() {
         }
     };
 
-    // Restore cart from localStorage after login
+    // Restore cart from sessionStorage after login
     useEffect(() => {
         if (userId) {
-            const pendingCart = localStorage.getItem('pendingCart');
-            const pendingDeliveryAddress = localStorage.getItem('pendingDeliveryAddress');
-            const pendingPhoneNumber = localStorage.getItem('pendingPhoneNumber');
+            const pendingCart = sessionStorage.getItem('pendingCart');
+            const pendingDeliveryAddress = sessionStorage.getItem('pendingDeliveryAddress');
+            const pendingPhoneNumber = sessionStorage.getItem('pendingPhoneNumber');
 
             if (pendingCart) {
                 try {
                     const parsedCart = JSON.parse(pendingCart);
                     setCart(parsedCart);
-                    console.log('✅ Carrito restaurado después del login');
                 } catch (e) {
-                    console.error('Error al restaurar carrito:', e);
+                    // Safe silent catch
                 }
-                localStorage.removeItem('pendingCart');
+                sessionStorage.removeItem('pendingCart');
             }
 
             if (pendingDeliveryAddress) {
                 setDeliveryAddress(pendingDeliveryAddress);
-                localStorage.removeItem('pendingDeliveryAddress');
+                sessionStorage.removeItem('pendingDeliveryAddress');
             }
 
             if (pendingPhoneNumber) {
                 setPhoneNumber(pendingPhoneNumber);
-                localStorage.removeItem('pendingPhoneNumber');
+                sessionStorage.removeItem('pendingPhoneNumber');
             }
         }
     }, [userId]);
+
 
     const fetchUserData = async () => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -166,12 +166,17 @@ export default function TiendaPage() {
             // Get data from metadata (guaranteed from registration) or profile
             const metadata = session.user.user_metadata;
 
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', session.user.id)
-                .single();
+            // FIX: select solo los campos necesarios en lugar de select('*')
+            const [profileRes, gamificationRes] = await Promise.all([
+                supabase
+                    .from('profiles')
+                    .select('full_name, phone_number, address')
+                    .eq('id', session.user.id)
+                    .single(),
+                fetch(`/api/gamification?userId=${session.user.id}`).catch(() => null)
+            ]);
 
+            const profile = profileRes.data;
             const fullName = profile?.full_name || metadata.full_name || 'Cliente';
             const phone = profile?.phone_number || metadata.phone_number || '';
             const address = profile?.address || metadata.address || '';
@@ -180,15 +185,16 @@ export default function TiendaPage() {
             if (phone) setPhoneNumber(phone);
             if (address) setDeliveryAddress(address);
 
-            // Obtener nivel del usuario desde gamificación
+            // Nivel de gamificación — obtenido en paralelo con el perfil
             try {
-                const response = await fetch(`/api/gamification?userId=${session.user.id}`);
-                const data = await response.json();
-                if (data.points) {
-                    setUserLevel(data.points.current_level || 'bronce');
+                if (gamificationRes?.ok) {
+                    const data = await gamificationRes.json();
+                    if (data.points) {
+                        setUserLevel(data.points.current_level || 'bronce');
+                    }
                 }
             } catch (error) {
-                console.error('Error fetching user level:', error);
+                // No bloquear si falla la gamificación
             }
         }
     };
@@ -211,18 +217,40 @@ export default function TiendaPage() {
         }
     };
 
-    const fetchCategories = async () => {
-        console.log('🔄 Fetching Categories...');
-        const { data, error } = await supabase
-            .from('categories')
-            .select('*')
-            .order('id');
+    /**
+     * FIX: Una sola query que reemplaza fetchCategories() + fetchProducts() separados.
+     * products ya incluye categories(id, name) con join — no hay razón para dos round-trips.
+     */
+    const fetchProductsAndCategories = async () => {
+        setLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('products')
+                .select('id, name, description, price, category_id, imagen_url, available, categories(id, name)')
+                .eq('available', true)
+                .order('name');
 
-        console.log('📦 Categories result:', data?.length, error);
-        if (error) console.error('Error categories:', error);
+            if (error) console.error('Error cargando productos:', error);
 
-        if (data) {
-            // Custom order mapping for consistency with cashier
+            // Mapear los datos de Supabase al tipo Product de TypeScript,
+            // manejando que Supabase devuelve las relaciones como un array.
+            const mappedProducts: Product[] = (data || []).map((p: any) => {
+                const categoryObj = Array.isArray(p.categories) ? p.categories[0] : p.categories;
+                return {
+                    id: p.id,
+                    name: p.name,
+                    description: p.description,
+                    price: p.price,
+                    category_id: p.category_id,
+                    imagen_url: p.imagen_url,
+                    available: p.available,
+                    categories: categoryObj ? { name: categoryObj.name } : undefined
+                };
+            });
+
+            setProducts(mappedProducts);
+
+            // Derivar categorías únicas del resultado — sin query extra
             const categorySortOrder: Record<string, number> = {
                 'PIZZAS TRADICIONALES': 1,
                 'ESPECIALIDADES': 2,
@@ -235,33 +263,26 @@ export default function TiendaPage() {
                 'COMBOS': 9
             };
 
-            const sortedData = [...data].sort((a, b) => {
+            const categoryMap = new Map<number, { id: number; name: string }>();
+            (data || []).forEach((p: any) => {
+                const categoryObj = Array.isArray(p.categories) ? p.categories[0] : p.categories;
+                if (categoryObj && p.category_id && !categoryMap.has(p.category_id)) {
+                    categoryMap.set(p.category_id, {
+                        id: p.category_id,
+                        name: categoryObj.name
+                    });
+                }
+            });
+
+            const sortedCategories = Array.from(categoryMap.values()).sort((a, b) => {
                 const orderA = categorySortOrder[a.name.toUpperCase()] || 999;
                 const orderB = categorySortOrder[b.name.toUpperCase()] || 999;
                 return orderA - orderB;
             });
-            setCategories(sortedData);
-        } else {
-            setCategories([]);
-        }
-    };
 
-    const fetchProducts = async () => {
-        console.log('🔄 Fetching Products...');
-        setLoading(true);
-        try {
-            const { data, error } = await supabase
-                .from('products')
-                .select('*, categories(name)')
-                .eq('available', true) // Keep original product selection
-                .order('name'); // Keep original ordering
-
-            console.log('🍔 Products result:', data?.length, error);
-            if (error) console.error('Error products:', error);
-
-            setProducts(data || []);
+            setCategories(sortedCategories);
         } catch (e) {
-            console.error('Exception fetching products:', e);
+            console.error('Error cargando productos y categorías:', e);
         } finally {
             setLoading(false);
         }
@@ -403,15 +424,15 @@ export default function TiendaPage() {
 
         // Check if user is authenticated
         if (!userId) {
-            console.warn('⚠️ Usuario no autenticado, redirigiendo al login...');
-            // Save cart to localStorage before redirecting
-            localStorage.setItem('pendingCart', JSON.stringify(cart));
-            localStorage.setItem('pendingDeliveryAddress', deliveryAddress);
-            localStorage.setItem('pendingPhoneNumber', phoneNumber);
+            // Save cart to sessionStorage before redirecting
+            sessionStorage.setItem('pendingCart', JSON.stringify(cart));
+            sessionStorage.setItem('pendingDeliveryAddress', deliveryAddress);
+            sessionStorage.setItem('pendingPhoneNumber', phoneNumber);
             // Redirect to register with return URL
             router.push('/register?redirect=/tienda&checkout=true');
             return;
         }
+
 
         if (cart.length === 0) {
             console.warn('❌ Intento de checkout fallido: Carrito vacío');

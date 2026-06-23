@@ -130,29 +130,21 @@ export default function InsightsPage() {
     const maxDrink = data?.drinks[0]?.count || 1;
 
     return (
-        <main className="flex-1 overflow-y-auto bg-[#f8f7f5]">
-            {/* Sticky Header */}
-            <div className="sticky top-0 z-20 bg-[#f8f7f5]/95 backdrop-blur-sm border-b border-[#e6e1db] px-6 md:px-10 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <button
-                        onClick={() => window.history.back()}
-                        className="flex items-center gap-1 text-[#8c785f] hover:text-[#181511] text-xs font-bold mb-1 transition-colors"
-                    >
-                        <span className="material-symbols-outlined text-base">arrow_back</span>
-                        Reportes
-                    </button>
-                    <h1 className="text-2xl font-black text-[#181511] leading-tight">Analítica de Productos</h1>
+        <div className="space-y-8 animate-in fade-in duration-500">
+            {/* Period switcher */}
+            <div className="flex justify-between items-center bg-white border border-[#e6e1db] p-4 rounded-3xl shadow-sm">
+                <div className="flex items-center gap-3">
+                    <span className="material-symbols-outlined text-[#8c785f]">calendar_today</span>
+                    <p className="text-sm font-bold text-[#181511]">Filtrar por Periodo:</p>
                 </div>
-
-                {/* Period switcher */}
-                <div className="flex gap-1.5 bg-white border border-[#e6e1db] p-1.5 rounded-2xl shadow-sm">
+                <div className="flex gap-1.5 p-1 rounded-2xl bg-[#f8f7f5]">
                     {(Object.keys(PERIOD_LABELS) as Period[]).map(p => (
                         <button
                             key={p}
                             onClick={() => setPeriod(p)}
-                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${period === p
+                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === p
                                 ? 'bg-[#F27405] text-white shadow-sm'
-                                : 'text-[#8c785f] hover:bg-gray-50'
+                                : 'text-[#8c785f] hover:bg-gray-100'
                                 }`}
                         >
                             {PERIOD_LABELS[p]}
@@ -160,8 +152,6 @@ export default function InsightsPage() {
                     ))}
                 </div>
             </div>
-
-            <div className="max-w-[1300px] mx-auto px-6 md:px-10 py-8 space-y-8">
 
                 {/* KPI Row */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -428,7 +418,6 @@ export default function InsightsPage() {
                     </div>
                 )}
 
-            </div>
-        </main>
+        </div>
     );
 }

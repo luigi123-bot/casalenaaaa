@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 let mainWindow;
@@ -15,8 +16,12 @@ function createWindow() {
         },
         title: 'Casaleña POS',
         show: false, // Don't show until ready to prevent white flicker
-        icon: path.join(__dirname, '../app/icon.png')
+        icon: path.join(__dirname, '../app/icon.png'),
+        autoHideMenuBar: true
     });
+
+    mainWindow.setMenuBarVisibility(false);
+    mainWindow.maximize();
 
     // Load content: prefer environment variable, default to production URL
     // The ELECTRON_START_URL environment variable will be set by package.json scripts for development.
@@ -39,6 +44,65 @@ function createWindow() {
 
     mainWindow.on('closed', function () {
         mainWindow = null;
+    });
+
+    // Configurar el auto-updater para comprobar actualizaciones
+    setupAutoUpdater();
+}
+
+function setupAutoUpdater() {
+    if (!app.isPackaged) {
+        console.log('ℹ️ [Updater] Ignorado en modo de desarrollo');
+        return;
+    }
+
+    autoUpdater.logger = console;
+
+    // Verificar actualizaciones automáticamente cada 2 horas
+    setInterval(() => {
+        autoUpdater.checkForUpdates();
+    }, 2 * 60 * 60 * 1000);
+
+    // Primera verificación al iniciar después de cargar la ventana
+    mainWindow.webContents.once('did-finish-load', () => {
+        setTimeout(() => {
+            autoUpdater.checkForUpdatesAndNotify().catch(err => {
+                console.error('❌ [Updater] Error comprobando actualizaciones:', err);
+            });
+        }, 5000); // Pequeño retraso para no interferir con la carga inicial
+    });
+
+    autoUpdater.on('checking-for-update', () => {
+        console.log('🔍 [Updater] Comprobando si hay actualizaciones...');
+    });
+
+    autoUpdater.on('update-available', (info) => {
+        console.log('📥 [Updater] Nueva versión disponible:', info.version);
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+        console.log('✅ [Updater] La aplicación está al día:', info.version);
+    });
+
+    autoUpdater.on('error', (err) => {
+        console.error('❌ [Updater] Error en el auto-updater:', err);
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+        console.log('🎁 [Updater] Nueva versión descargada:', info.version);
+        dialog.showMessageBox(mainWindow, {
+            type: 'question',
+            buttons: ['Reiniciar y Actualizar', 'Más tarde'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'Actualización Disponible',
+            message: `Una nueva versión (${info.version}) de Casaleña POS ha sido descargada.`,
+            detail: '¿Deseas reiniciar la aplicación ahora para instalar la actualización?'
+        }).then((result) => {
+            if (result.response === 0) {
+                autoUpdater.quitAndInstall();
+            }
+        });
     });
 }
 

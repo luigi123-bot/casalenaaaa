@@ -1,46 +1,37 @@
-import { createClient } from '@supabase/supabase-js';
-export const dynamic = 'force-static';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
-const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!, // Admin privileges for deletion
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+export const dynamic = 'force-dynamic';
+
+const bodySchema = z.object({
+    orderId: z.coerce.number().int().positive()
+});
 
 export async function POST(request: Request) {
     try {
-        const { orderId } = await request.json();
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
 
-        if (!orderId) {
-            return NextResponse.json({ error: 'Order ID is required' }, { status: 400 });
+        const body = await request.json().catch(() => ({}));
+        const parsed = bodySchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Order ID es inválido' }, { status: 400 });
         }
 
-        // Permanently delete order from database
-        // Assuming ON DELETE CASCADE is set up in DB for order_items. 
-        // If not, we might need to delete items first, but Supabase usually handles this.
+        const { orderId } = parsed.data;
+
         const { error } = await supabaseAdmin
             .from('orders')
             .delete()
             .eq('id', orderId);
 
-        if (error) {
-            console.error('Error erasing order:', error);
-            throw error;
-        }
+        if (error) throw error;
 
         return NextResponse.json({ success: true });
 
     } catch (error: any) {
-        console.error('Cancel API Error:', error);
-        return NextResponse.json(
-            { error: error.message || 'Error deleting order' },
-            { status: 500 }
-        );
+        return handleServerError(error, 'Cancel Order API Error');
     }
 }
+

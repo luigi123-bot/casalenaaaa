@@ -1,26 +1,38 @@
-import { createClient } from '@supabase/supabase-js';
-export const dynamic = 'force-static';
 import { NextResponse } from 'next/server';
+import { handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
-const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-);
+export const dynamic = 'force-dynamic';
 
-// ─── Phone number for WhatsApp notifications ───────────────────────────────
-// Change this to the restaurant's WhatsApp number (with country code, no + or spaces)
 const RESTAURANT_WHATSAPP = process.env.RESTAURANT_WHATSAPP || '527411011595';
+
+const itemSchema = z.object({
+    product_id: z.coerce.number().int().positive(),
+    product_name: z.string().min(1).max(255),
+    quantity: z.coerce.number().int().positive().max(100),
+    unit_price: z.coerce.number().positive(),
+    selected_size: z.string().max(50).optional().nullable(),
+    extras: z.any().optional().nullable()
+});
+
+const orderSchema = z.object({
+    customerName: z.string().min(1).max(255),
+    customerPhone: z.string().min(10).max(20),
+    orderType: z.enum(['delivery', 'pickup']),
+    deliveryAddress: z.string().max(500).optional().nullable(),
+    notes: z.string().max(1000).optional().nullable(),
+    items: z.array(itemSchema).min(1)
+});
 
 export async function POST(request: Request) {
     try {
-        const body = await request.json();
-        const { customerName, customerPhone, orderType, deliveryAddress, notes, items } = body;
-
-        // Basic validation
-        if (!customerName || !customerPhone || !items || items.length === 0) {
-            return NextResponse.json({ error: 'Faltan datos obligatorios' }, { status: 400 });
+        const body = await request.json().catch(() => ({}));
+        const parsed = orderSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Faltan datos obligatorios o son inválidos' }, { status: 400 });
         }
+
+        const { customerName, customerPhone, orderType, deliveryAddress, notes, items } = parsed.data;
 
         // 1. Calculate total
         const totalAmount = items.reduce((sum: number, item: any) => {
@@ -56,7 +68,7 @@ export async function POST(request: Request) {
             quantity: item.quantity,
             unit_price: item.unit_price,
             selected_size: item.selected_size || null,
-            extras: item.extras || null,
+            extras: item.extras ? (typeof item.extras === 'string' ? item.extras : JSON.stringify(item.extras)) : null,
         }));
 
         const { error: itemsError } = await supabaseAdmin
@@ -117,7 +129,7 @@ export async function POST(request: Request) {
             `En breve nos ponemos en contacto contigo para confirmarlo. ¡Gracias! 🔥`,
         ].filter(Boolean).join('\n');
 
-        // Return WhatsApp URLs for client to open (server can't open browser)
+        // Return WhatsApp URLs for client to open
         const restaurantWAUrl = `https://wa.me/${RESTAURANT_WHATSAPP}?text=${encodeURIComponent(restaurantMsg)}`;
         const customerCleanPhone = customerPhone.replace(/\D/g, '');
         const customerWAUrl = customerCleanPhone.length >= 10
@@ -133,7 +145,7 @@ export async function POST(request: Request) {
         });
 
     } catch (error: any) {
-        console.error('[Online Order API]', error);
-        return NextResponse.json({ error: error.message || 'Error al procesar el pedido' }, { status: 500 });
+        return handleServerError(error, 'Online Order API Error');
     }
 }
+

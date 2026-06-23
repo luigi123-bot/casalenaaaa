@@ -1,24 +1,32 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from '@/utils/supabase/server';
+import { z } from 'zod';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+export const dynamic = 'force-dynamic';
+
+const querySchema = z.object({
+    timeFilter: z.enum(['today', 'week', 'all']).optional().default('today'),
+    userId: z.string().uuid().nullable().optional()
+});
 
 export async function GET(request: Request) {
     try {
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse || !user) return errorResponse;
+
         const { searchParams } = new URL(request.url);
-        const timeFilter = searchParams.get('timeFilter') || 'today';
-        const userId = searchParams.get('userId');
+        const parsed = querySchema.safeParse({
+            timeFilter: searchParams.get('timeFilter') || undefined,
+            userId: searchParams.get('userId') || null
+        });
+
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 });
+        }
+
+        const { timeFilter } = parsed.data;
         
-        let query = supabase
+        let query = supabaseAdmin
             .from('orders')
             .select(`
                 *,
@@ -32,8 +40,12 @@ export async function GET(request: Request) {
                 )
             `);
 
-        if (userId) {
-            query = query.eq('user_id', userId);
+        // Aplicar restricción de Multicajero para Cajero y Administrador
+        if (user.role === 'cajero') {
+            query = query.eq('user_id', user.id);
+        } else if (user.role === 'administrador') {
+            // Ver sus propios pedidos activos, o cualquier pedido completado/pagado de otros
+            query = query.or(`user_id.eq.${user.id},status.in.(entregado,cancelado,completado),payment_status.eq.paid`);
         }
 
         query = query.order('created_at', { ascending: false });
@@ -55,7 +67,7 @@ export async function GET(request: Request) {
         
         return NextResponse.json(data || []);
     } catch (error: any) {
-        console.error('Error in orders API:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Cashier Orders API Error');
     }
 }
+

@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 
 // Si no tienes estos tipos exportados, usamos any o tipos básicos para simplificar
 export interface CashierSidebarProps {
+    cashierName?: string;
     isCartDrawerOpen: boolean;
     setIsCartDrawerOpen: (v: boolean) => void;
     cart: any[];
@@ -25,6 +26,7 @@ export interface CashierSidebarProps {
     setShowCustomerModal: (v: boolean) => void;
     setAvailableClients: (v: any[]) => void;
     setFoundCustomers: (v: any[]) => void;
+    foundCustomers?: any[];
     updateQuantity: (cartItemId: string, delta: number) => void;
     groupedProducts: any[];
     openProductCustomizer: (group: any, item: any) => void;
@@ -36,23 +38,89 @@ export interface CashierSidebarProps {
     setOrderLoading: (v: boolean) => void;
     setShowPaymentModal: (v: boolean) => void;
     handlePlaceOrder: (isFinalPayment?: boolean, overridePaymentMethod?: string, skipPrinting?: boolean) => void;
+    searchCustomerByTerm?: (term?: string) => Promise<void>;
 }
 
 export default function CashierSidebar({
+    cashierName,
     isCartDrawerOpen, setIsCartDrawerOpen, cart, setCart, isSyncing, isOnline, pendingCount,
     orderType, setOrderType, recentOrders, activeOrderId, setActiveOrderId,
     tableNumber, setTableNumber, setPaymentMethod, customerInfo, setCustomerInfo,
     customerInsights, handleSaveCustomer, setLoadingClients, setShowCustomerModal,
-    setAvailableClients, setFoundCustomers, updateQuantity, groupedProducts,
+    setAvailableClients, setFoundCustomers, foundCustomers = [], updateQuantity, groupedProducts,
     openProductCustomizer, setShowOpenTabsModal, cartTotals, clearCart,
-    isProcessingOrder, orderLoading, setOrderLoading, setShowPaymentModal, handlePlaceOrder
+    isProcessingOrder, orderLoading, setOrderLoading, setShowPaymentModal, handlePlaceOrder,
+    searchCustomerByTerm
 }: CashierSidebarProps) {
+    // ── Auto-search phone with 2s debounce ──────────────────────────────
+    const phoneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastSearchedPhone = useRef('');
+    const [isAutoSearching, setIsAutoSearching] = React.useState(false);
+    const [showDropdown, setShowDropdown] = React.useState(false);
+    const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+    // Dismiss dropdown on click outside
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setShowDropdown(false);
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
+    const handlePhoneAutoSearch = useCallback((phone: string) => {
+        // Clear any previous debounce
+        if (phoneDebounceRef.current) clearTimeout(phoneDebounceRef.current);
+
+        // Only search if 3+ characters and we haven't already searched this exact number
+        if (phone.trim().length >= 3 && phone.trim() !== lastSearchedPhone.current) {
+            console.log(`📞 [CashierSidebar] Teléfono detectado (${phone.trim().length} caracteres): ${phone}. Buscando en 2 segundos...`);
+            setShowDropdown(true);
+
+            phoneDebounceRef.current = setTimeout(async () => {
+                console.log(`🔍 [CashierSidebar] Iniciando búsqueda automática para: ${phone}`);
+                lastSearchedPhone.current = phone.trim();
+                setIsAutoSearching(true);
+                try {
+                    if (searchCustomerByTerm) {
+                        await searchCustomerByTerm(phone.trim());
+                        console.log(`✅ [CashierSidebar] Búsqueda completada para: ${phone}`);
+                    }
+                } catch (err) {
+                    console.error('❌ [CashierSidebar] Error en búsqueda automática:', err);
+                } finally {
+                    setIsAutoSearching(false);
+                }
+            }, 2000);
+        } else if (phone.trim().length < 3) {
+            setShowDropdown(false);
+            if (setFoundCustomers) {
+                setFoundCustomers([]);
+            }
+        }
+    }, [searchCustomerByTerm, setFoundCustomers]);
+
+    // Cleanup debounce on unmount
+    useEffect(() => {
+        return () => {
+            if (phoneDebounceRef.current) clearTimeout(phoneDebounceRef.current);
+        };
+    }, []);
     return (
         <aside className={`fixed lg:static inset-y-0 right-0 z-[80] lg:z-auto transition-transform duration-300 ease-out lg:translate-x-0 ${isCartDrawerOpen ? 'translate-x-0' : 'translate-x-full'} w-[340px] sm:w-[380px] xl:w-[400px] bg-white border-l border-[#e8e5e1] flex flex-col h-screen shrink-0 shadow-2xl lg:shadow-none overflow-hidden`}>
             <div className="p-3 border-b border-[#e8e5e1] relative bg-white">
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex flex-col">
                         <h2 className="text-[#181511] text-lg font-black tracking-tight leading-none">Comanda Actual</h2>
+                        {cashierName && (
+                            <p className="text-[10px] text-[#f7951d] font-black uppercase tracking-wider mt-1.5">
+                                Cajero: {cashierName}
+                            </p>
+                        )}
                         <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mt-1">{cart.length} ITEMS</p>
                     </div>
 
@@ -117,7 +185,7 @@ export default function CashierSidebar({
                                             }
 
                                             const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                id: item.product_id || 0,
+                                                id: item.product_id ?? 0,
                                                 name: item.product_name,
                                                 price: item.unit_price,
                                                 quantity: item.quantity,
@@ -131,7 +199,8 @@ export default function CashierSidebar({
                                                     return [];
                                                 })(),
                                                 note: item.notes || '',
-                                                cartItemId: Math.random().toString(36).substr(2, 9)
+                                                cartItemId: Math.random().toString(36).substr(2, 9),
+                                                _originalProductId: item.product_id
                                             }));
                                             setCart(loadedCart);
                                         }}
@@ -169,7 +238,7 @@ export default function CashierSidebar({
                 )}
 
                 {(orderType === 'takeout' || orderType === 'delivery') && (
-                    <div className="bg-gray-50/50 rounded-xl px-2 py-2 border border-gray-100 animate-in fade-in slide-in-from-top-2 mb-2">
+                    <div ref={dropdownRef} className="bg-gray-50/50 rounded-xl px-2 py-2 border border-gray-100 animate-in fade-in slide-in-from-top-2 mb-2 relative">
                         <div className="flex items-center gap-2 mb-1.5">
                             <div className="flex-1 flex items-center gap-1.5 bg-white rounded-lg px-2 py-1.5 border border-gray-100">
                                 <span className="material-icons-round text-xs text-gray-400">person</span>
@@ -181,15 +250,27 @@ export default function CashierSidebar({
                                     className="w-full text-[10px] font-bold text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
                                 />
                             </div>
-                            <div className="flex-1 flex items-center gap-1.5 bg-white rounded-lg px-2 py-1.5 border border-gray-100">
-                                <span className="material-icons-round text-xs text-gray-400">phone</span>
+                            <div className={`flex-1 flex items-center gap-1.5 bg-white rounded-lg px-2 py-1.5 border transition-all duration-300 ${isAutoSearching ? 'border-[#f7951d] shadow-sm' : 'border-gray-100'}`}>
+                                <span className={`material-icons-round text-xs transition-colors ${isAutoSearching ? 'text-[#f7951d] animate-pulse' : 'text-gray-400'}`}>phone</span>
                                 <input
                                     type="tel"
                                     placeholder="Teléfono"
                                     value={customerInfo.phone || ''}
-                                    onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                                    onFocus={() => {
+                                        if (customerInfo.phone && customerInfo.phone.trim().length >= 3) {
+                                            setShowDropdown(true);
+                                        }
+                                    }}
+                                    onChange={(e) => {
+                                        const newPhone = e.target.value;
+                                        setCustomerInfo({ ...customerInfo, phone: newPhone });
+                                        handlePhoneAutoSearch(newPhone);
+                                    }}
                                     className="w-full text-[10px] font-bold text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
                                 />
+                                {isAutoSearching && (
+                                    <span className="material-icons-round text-[#f7951d] text-xs animate-spin shrink-0">progress_activity</span>
+                                )}
                             </div>
                             <button
                                 type="button"
@@ -231,6 +312,42 @@ export default function CashierSidebar({
                                 />
                             </div>
                         )}
+
+                        {/* Dropdown de coincidencia de clientes por número parcial */}
+                        {showDropdown && foundCustomers.length > 0 && (
+                            <div className="absolute left-0 right-0 mt-1.5 bg-white border border-gray-100 rounded-xl shadow-xl z-[100] max-h-48 overflow-y-auto divide-y divide-gray-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                                {foundCustomers.map((customer) => (
+                                    <button
+                                        key={customer.id || customer.phone}
+                                        type="button"
+                                        onClick={async () => {
+                                            if (searchCustomerByTerm) {
+                                                await searchCustomerByTerm(customer.phone);
+                                            }
+                                            setShowDropdown(false);
+                                        }}
+                                        className="w-full text-left px-3 py-2.5 hover:bg-orange-50/40 active:bg-orange-50/70 flex flex-col transition-colors cursor-pointer"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-black text-[#181511]">
+                                                {customer.name || customer.full_name || 'Sin Nombre'}
+                                            </span>
+                                            {customer.phone && (
+                                                <span className="text-[9px] font-bold text-[#f7951d] bg-orange-50 border border-orange-100/50 px-1.5 py-0.5 rounded-full">
+                                                    📞 {customer.phone}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {customer.address && (
+                                            <span className="text-[8px] text-gray-400 mt-0.5 truncate flex items-center gap-0.5">
+                                                <span className="material-icons-round text-[9px] text-gray-400">room</span>
+                                                {customer.address}
+                                            </span>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -244,33 +361,33 @@ export default function CashierSidebar({
                     </div>
                 ) : (
                     cart.map((item) => (
-                        <div key={item.cartItemId} className="flex gap-2 animate-in slide-in-from-right-2 duration-200">
-                            <div className="size-8 bg-orange-50 text-[#f7951d] rounded-lg flex items-center justify-center font-black shrink-0 text-xs">{item.quantity}x</div>
+                        <div key={item.cartItemId} className="flex gap-2 animate-in slide-in-from-right-2 duration-200 items-start py-1 border-b border-gray-100/50 pb-2">
+                            <div className="size-9 bg-orange-50 text-[#f7951d] rounded-lg flex items-center justify-center font-black shrink-0 text-sm">{item.quantity}x</div>
                             <div className="flex-1 min-w-0">
-                                <p className="font-bold text-[11px] truncate leading-tight">{item.name}</p>
-                                <p className="text-[9px] text-[#8c785f] font-bold uppercase tracking-tighter">
+                                <p className="font-black text-sm text-[#181511] truncate leading-snug">{item.name}</p>
+                                <p className="text-[11px] text-[#8c785f] font-bold uppercase tracking-tight mt-0.5">
                                     {item.selectedSize} {item.extras && item.extras.length > 0 ? `+ ${item.extras.length} extras` : ''}
                                 </p>
                                 {item.note && (
-                                    <p className="text-[9px] text-amber-600 font-bold italic mt-0.5 truncate leading-tight" title={item.note}>
+                                    <p className="text-[11px] text-amber-600 font-black italic mt-0.5 truncate leading-tight" title={item.note}>
                                         📝 {item.note}
                                     </p>
                                 )}
-                                <div className="flex gap-2 mt-0.5">
-                                    <button onClick={() => updateQuantity(item.cartItemId, -1)} className="text-[9px] font-black text-red-500 hover:underline">QUITAR</button>
-                                    <button onClick={() => updateQuantity(item.cartItemId, 1)} className="text-[9px] font-black text-green-600 hover:underline">AÑADIR</button>
+                                <div className="flex gap-3 mt-1.5">
+                                    <button onClick={() => updateQuantity(item.cartItemId, -1)} className="text-[11px] font-black text-red-500 hover:underline">QUITAR</button>
+                                    <button onClick={() => updateQuantity(item.cartItemId, 1)} className="text-[11px] font-black text-green-600 hover:underline">AÑADIR</button>
                                     <button
                                         onClick={() => {
                                             const group = groupedProducts.find(g => g.name === item.name || item.name.includes(g.name));
                                             if (group) openProductCustomizer(group, item);
                                         }}
-                                        className="text-[9px] font-black text-blue-500 hover:underline"
+                                        className="text-[11px] font-black text-blue-500 hover:underline"
                                     >
                                         EDITAR
                                     </button>
                                 </div>
                             </div>
-                            <p className="font-bold text-[11px] shrink-0">${(item.price * item.quantity).toFixed(2)}</p>
+                            <p className="font-black text-sm shrink-0 text-[#181511]">${(item.price * item.quantity).toFixed(2)}</p>
                         </div>
                     ))
                 )}

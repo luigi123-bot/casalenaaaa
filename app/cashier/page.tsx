@@ -65,6 +65,13 @@ interface CartItem extends Product {
 
 type OrderType = 'dine-in' | 'takeout' | 'delivery';
 
+// ✅ FIX: Module-level constant — avoids recreation on every render
+const EXTRAS_OPTIONS = [
+    { id: 'extra_ingredient', name: 'Ingrediente extra', price: 20 },
+    { id: 'extra_cheese', name: 'Extra queso', price: 35 },
+    { id: 'extra_sauce', name: 'Aderezo extra', price: 10 },
+];
+
 export default function CashierPage() {
     const router = useRouter();
     // Removed offline sync per user request
@@ -73,6 +80,21 @@ export default function CashierPage() {
     const isSyncing = false;
     const { user, loading: authLoading, signOut } = useAuth();
     const cashierName = user?.full_name || 'CAJERO';
+
+    useEffect(() => {
+        if (!authLoading) {
+            if (!user) {
+                router.push('/login');
+            } else {
+                const role = user.role.toLowerCase();
+                if (role !== 'cajero' && role !== 'administrador') {
+                    router.push('/redirect');
+                } else if (user.full_name) {
+                    localStorage.setItem('cached_cashier_name', user.full_name);
+                }
+            }
+        }
+    }, [user, authLoading, router]);
 
     // ── SESIÓN KEEP-ALIVE ────────────────────────────────────────────────────────
     // El cliente Supabase ya tiene autoRefreshToken: true — renueva solo.
@@ -184,6 +206,10 @@ export default function CashierPage() {
     const [ticketData, setTicketData] = useState<any>(null);
     const [showOpenTabsModal, setShowOpenTabsModal] = useState(false);
     const isProcessingOrder = useRef(false);
+    const phoneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [showCancelModal, setShowCancelModal] = useState(false);
+    const [orderToCancel, setOrderToCancel] = useState<{ id: string | number; label: string } | null>(null);
+    const [openTabsActiveTab, setOpenTabsActiveTab] = useState<'activas' | 'eliminados'>('activas');
 
     // Dropdown State
     const [availableClients, setAvailableClients] = useState<any[]>([]);
@@ -232,45 +258,45 @@ export default function CashierPage() {
     const [systemSettings, setSystemSettings] = useState<any>(null);
     const [isAdmin, setIsAdmin] = useState(false);
 
-    // --- Persistencia Local (LocalStorage) ---
+    // --- Persistencia Local (SessionStorage) ---
     const [isStateRestored, setIsStateRestored] = useState(false);
     const [isLocalStorageEnabled, setIsLocalStorageEnabled] = useState(true);
 
     useEffect(() => {
         try {
-            const savedCart = localStorage.getItem('caja_cart');
+            const savedCart = sessionStorage.getItem('caja_cart');
             if (savedCart) setCart(JSON.parse(savedCart));
 
-            const savedOrderType = localStorage.getItem('caja_orderType');
+            const savedOrderType = sessionStorage.getItem('caja_orderType');
             if (savedOrderType) setOrderType(savedOrderType as OrderType);
 
-            const savedTableNumber = localStorage.getItem('caja_tableNumber');
+            const savedTableNumber = sessionStorage.getItem('caja_tableNumber');
             if (savedTableNumber) setTableNumber(savedTableNumber);
 
-            const savedCustomerInfo = localStorage.getItem('caja_customerInfo');
+            const savedCustomerInfo = sessionStorage.getItem('caja_customerInfo');
             if (savedCustomerInfo) setCustomerInfo(JSON.parse(savedCustomerInfo));
 
-            const savedActiveOrderId = localStorage.getItem('caja_activeOrderId');
+            const savedActiveOrderId = sessionStorage.getItem('caja_activeOrderId');
             if (savedActiveOrderId) setActiveOrderId(savedActiveOrderId);
         } catch (e) {
-            console.error('Error restoring state from localStorage:', e);
+            // Safe silent catch
         } finally {
             setIsStateRestored(true);
-            // Limpiar estado de procesamiento residual al montar
             isProcessingOrder.current = false;
         }
     }, []);
 
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_cart', JSON.stringify(cart)); }, [cart, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_orderType', orderType); }, [orderType, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_tableNumber', tableNumber); }, [tableNumber, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) localStorage.setItem('caja_customerInfo', JSON.stringify(customerInfo)); }, [customerInfo, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_cart', JSON.stringify(cart)); }, [cart, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_orderType', orderType); }, [orderType, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_tableNumber', tableNumber); }, [tableNumber, isStateRestored, isLocalStorageEnabled]);
+    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_customerInfo', JSON.stringify(customerInfo)); }, [customerInfo, isStateRestored, isLocalStorageEnabled]);
     useEffect(() => { 
         if (isStateRestored && isLocalStorageEnabled) {
-            if (activeOrderId) localStorage.setItem('caja_activeOrderId', activeOrderId); 
-            else localStorage.removeItem('caja_activeOrderId');
+            if (activeOrderId) sessionStorage.setItem('caja_activeOrderId', activeOrderId); 
+            else sessionStorage.removeItem('caja_activeOrderId');
         }
     }, [activeOrderId, isStateRestored, isLocalStorageEnabled]);
+
     // -----------------------------------------
 
     useEffect(() => {
@@ -321,9 +347,10 @@ export default function CashierPage() {
 
                 // 1. Usar el user ya resuelto por AuthContext (sin llamadas extra a Supabase)
                 if (!user) {
-                    console.warn('[Shift] Sin usuario autenticado.');
-                    setShiftState('closed');
-                    return;
+                    // No mostrar "Turno Cerrado" — eso confunde cuando solo expiró la sesión.
+                    // El efecto de autenticación (auth useEffect) ya redirige a /login.
+                    console.warn('[Shift] Sin usuario autenticado — esperando redirección de auth.');
+                    return; // Mantenemos 'checking' hasta que el redirect ocurra
                 }
 
                 console.log('[Shift] 👤 Usuario:', user.id, '| Rol:', user.role);
@@ -342,7 +369,9 @@ export default function CashierPage() {
                 console.log('[Shift] 🔍 Consultando estado de caja en API...');
                 const res = await Promise.race([
                     fetch(`/api/cashier/sessions/status?userId=${user.id}`),
-                    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout-api')), 8000))
+                    // ✅ FIX: Aumentado de 8s a 10s — el safety global ahora es mayor,
+                    // así la API siempre tiene oportunidad de responder primero.
+                    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout-api')), 10000))
                 ]) as Response;
 
                 if (!isEffectActive) return;
@@ -368,17 +397,25 @@ export default function CashierPage() {
                 if (!isEffectActive) return;
                 if (isAbortError(err)) return;
                 console.warn('[Shift] ⚠️ Error en verificación:', err.message);
+                // ✅ FIX: Si es un timeout de red (no error de lógica), intentar continuar
+                // en lugar de forzar must_open que crea sesiones duplicadas.
+                // Sólo forzamos must_open si es un error real de API.
+                if (err.message === 'timeout-api') {
+                    console.warn('[Shift] ⏱️ Timeout de API — mostrando apertura de caja como fallback seguro.');
+                }
                 setShiftState('must_open');
             }
         };
 
-        // Safety global: si después de 12s sigue en 'checking', forzar must_open
+        // ✅ FIX: Safety timeout ahora en 14s (mayor que el timeout de API de 10s).
+        // Antes era 5s, lo que hacía que siempre ganara sobre la API (8s), rompiendo
+        // el flujo de verificación de sesión en conexiones lentas.
         const globalSafety = setTimeout(() => {
             if (isEffectActive) {
                 console.warn('[Shift] ⏱️ Safety timeout — forzando pantalla de apertura');
                 setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
             }
-        }, 12000);
+        }, 14000);
 
         evaluateShiftStrict().finally(() => clearTimeout(globalSafety));
 
@@ -435,16 +472,22 @@ export default function CashierPage() {
     const handleAcceptOrder = async (orderId: number | string) => {
         try {
             console.log(`✅ [Shift] Aceptando pedido #${orderId}...`);
-            const { error } = await supabase
-                .from('orders')
-                .update({ 
+            const res = await fetch('/api/cashier/orders/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId,
                     status: 'preparando',
                     user_id: user?.id,
                     cashier_name: cashierName
                 })
-                .eq('id', orderId);
+            });
 
-            if (error) throw error;
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `HTTP ${res.status}`);
+            }
+
             fetchRecentOrders(false);
         } catch (err) {
             console.error('❌ [Shift] Error al aceptar pedido:', err);
@@ -460,23 +503,18 @@ export default function CashierPage() {
             }
         }
 
-        // Initial check for pending orders from platform/virtual
         const checkInitialPendingOrders = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('orders')
-                    .select('*, order_items(*)')
-                    .eq('status', 'pendiente')
-                    .in('order_type', ['delivery', 'takeout'])
-                    .is('cashier_name', null)
-                    .order('created_at', { ascending: true });
-
-                if (error) throw error;
+                const res = await fetch('/api/orders?status=pendiente&orderType=delivery,takeout&cashierNameNull=true');
+                if (!res.ok) throw new Error('Error al cargar pedidos pendientes');
+                const data = await res.json();
 
                 if (data && data.length > 0 && isEffectActive) {
                     console.log('🔔 [Notifications] Encontrados pedidos pendientes iniciales:', data.length);
-                    setAllPendingVirtualOrders(data);
-                    setPendingNewOrder(data[0]);
+                    // Reverse to keep oldest first (original ascending order)
+                    const sortedData = [...data].reverse();
+                    setAllPendingVirtualOrders(sortedData);
+                    setPendingNewOrder(sortedData[0]);
                     // startAlarm(); // Desactivado por solicitud del usuario
                 }
             } catch (err: any) {
@@ -579,6 +617,13 @@ export default function CashierPage() {
         }
     }, [showPaymentModal]);
 
+    // Sincronizar cuentas abiertas al abrir el modal correspondiente
+    useEffect(() => {
+        if (showOpenTabsModal) {
+            fetchRecentOrders(false);
+        }
+    }, [showOpenTabsModal]);
+
     // EFECTO PARA BUSCAR SI LA MESA YA TIENE UNA COMANDA ABIERTA
     useEffect(() => {
         if (orderType === 'dine-in' && tableNumber.trim()) {
@@ -595,14 +640,15 @@ export default function CashierPage() {
                         const order = data[0];
                         console.log(`✅ [Cashier] Encontrada comanda #${order.id} abierta para mesa ${tableNum}`);
                         
-                        // Solo cargar si el carrito está vacío para permitir agregar más items localmente
-                        if (cart.length === 0) {
+                        // Cargar los items de la BD siempre que sea una orden diferente a la activa.
+                        // Esto garantiza que al editar/reabrir una orden, se muestren los items ya guardados.
+                        if (activeOrderId !== order.id) {
                             setActiveOrderId(order.id);
                             setPaymentMethod(order.payment_method || 'efectivo');
 
                             // Mapear items al carrito
                             const loadedCart = order.order_items.map((item: any) => ({
-                                id: item.product_id,
+                                id: item.product_id ?? 0,
                                 name: item.product_name,
                                 price: item.unit_price,
                                 quantity: item.quantity,
@@ -616,7 +662,8 @@ export default function CashierPage() {
                                     return [];
                                 })(),
                                 note: item.notes || '',
-                                cartItemId: Math.random().toString(36).substr(2, 9)
+                                cartItemId: Math.random().toString(36).substr(2, 9),
+                                _originalProductId: item.product_id // preserve for API
                             }));
                             setCart(loadedCart);
                         }
@@ -682,6 +729,8 @@ export default function CashierPage() {
         }
     };
 
+    const normalizePhone = (phone: string) => phone.replace(/\D/g, '');
+
     // Fetch customers for the searchable list — triggered manually only
     const searchCustomersList = async (term: string) => {
         if (!term || term.length < 2) {
@@ -713,44 +762,54 @@ export default function CashierPage() {
         if (queryTerm.length < 3) return;
 
         setIsSearchingCustomer(true);
+        console.log(`🔍 [searchCustomerByTerm] Buscando cliente con el término: "${queryTerm}"`);
         try {
             const res = await fetch(`/api/cashier/customers/search?term=${encodeURIComponent(queryTerm)}`);
             const data = await res.json();
-            
-            let customerData = null;
-            if (!manualTerm) {
-                customerData = data.customers?.find((c: any) => c.phone === queryTerm) || data.customers?.[0];
-            } else {
-                customerData = data.customers?.[0];
-            }
+            const mapped = (data.customers || []).map((c: any) => ({
+                id: c.id,
+                name: c.full_name || c.name || 'Sin Nombre',
+                phone: c.phone || '',
+                address: c.address || '',
+                origin: c.is_app_user ? 'profile' : 'customer'
+            }));
+
+            console.log(`✨ [searchCustomerByTerm] Resultados obtenidos de la búsqueda para "${queryTerm}":`, mapped);
+
+            setFoundCustomers(mapped);
+            setAvailableClients(mapped);
+            setSearchTerm(queryTerm);
+
+            const exactMatch = mapped.find((c: any) => normalizePhone(c.phone || '') === normalizePhone(queryTerm));
+            const customerData = exactMatch || (mapped.length === 1 ? mapped[0] : null);
 
             if (customerData) {
+                console.log(`✅ [searchCustomerByTerm] Cliente coincidente encontrado. Auto-llenando información:`, customerData);
                 const parts = (customerData.address || '').split(',').map((p: string) => p.trim());
                 
                 setCustomerInfo({
                     phone: customerData.phone || queryTerm,
-                    name: customerData.full_name || customerData.name || '',
+                    name: customerData.name || '',
                     address: customerData.address || '',
                     street: parts[0] || '',
                     neighborhood: parts[1] || '',
                     reference: parts.slice(2).join(', ') || ''
                 });
 
-                const { data: orderHistory, error: hError } = await supabase
-                    .from('orders')
-                    .select(`created_at, total_amount, order_items(product_name)`)
-                    .eq('phone_number', customerData.phone || queryTerm)
-                    .order('created_at', { ascending: false });
+                const phoneQuery = customerData.phone || queryTerm;
+                const historyRes = await fetch(`/api/orders?phone=${encodeURIComponent(phoneQuery)}`);
+                if (!historyRes.ok) throw new Error('Error al obtener historial del cliente');
+                const orderHistory = await historyRes.json();
 
-                if (!hError && orderHistory && orderHistory.length > 0) {
+                if (orderHistory && orderHistory.length > 0) {
                     const totalOrders = orderHistory.length;
-                    const totalSpent = orderHistory.reduce((acc, curr) => acc + (curr.total_amount || 0), 0);
+                    const totalSpent = (orderHistory as any[]).reduce((acc: number, curr: any) => acc + (curr.total_amount || 0), 0);
                     const lastOrderDate = orderHistory[0].created_at;
                     const lastOrderAmount = orderHistory[0].total_amount;
                     const firstOrderDate = orderHistory[orderHistory.length - 1].created_at;
 
                     const productCounts: Record<string, number> = {};
-                    orderHistory.forEach(o => {
+                    (orderHistory as any[]).forEach((o: any) => {
                         (o.order_items as any[])?.forEach((item: any) => {
                             productCounts[item.product_name] = (productCounts[item.product_name] || 0) + 1;
                         });
@@ -769,10 +828,12 @@ export default function CashierPage() {
                         isFrequent: totalOrders >= 3,
                         lastOrderAmount
                     });
+                    console.log(`📊 [searchCustomerByTerm] Historial y Insights de cliente cargados con éxito para ${phoneQuery}`);
                 } else {
                     setCustomerInsights(null);
                 }
             } else {
+                console.log(`⚠️ [searchCustomerByTerm] No se encontró coincidencia exacta ni única para el término: "${queryTerm}"`);
                 setCustomerInsights(null);
             }
         } catch (err) {
@@ -782,9 +843,44 @@ export default function CashierPage() {
         }
     }, [customerInfo.phone]);
 
-    // ── NO auto-search useEffect — búsqueda solo se dispara manualmente ──────
+    // Clear customer insights if phone or name is empty
+    useEffect(() => {
+        if (!customerInfo.phone || !customerInfo.name) {
+            setCustomerInsights(null);
+        }
+    }, [customerInfo.phone, customerInfo.name]);
 
+    // Handle phone input changes with debounce search
+    const handlePhoneChange = useCallback((newPhone: string) => {
+        setCustomerInfo({
+            phone: newPhone,
+            name: '',
+            address: '',
+            street: '',
+            neighborhood: '',
+            reference: ''
+        });
 
+        if (phoneDebounceRef.current) {
+            clearTimeout(phoneDebounceRef.current);
+        }
+
+        const digitsOnly = newPhone.replace(/\D/g, '');
+        if (digitsOnly.length >= 7) {
+            phoneDebounceRef.current = setTimeout(() => {
+                searchCustomerByTerm(newPhone.trim());
+            }, 600);
+        }
+    }, [searchCustomerByTerm]);
+
+    // Cleanup debounce timer on unmount
+    useEffect(() => {
+        return () => {
+            if (phoneDebounceRef.current) {
+                clearTimeout(phoneDebounceRef.current);
+            }
+        };
+    }, []);
     // Fetch Active Banner
     useEffect(() => {
         const fetchActiveBanner = async () => {
@@ -804,11 +900,6 @@ export default function CashierPage() {
         fetchActiveBanner();
     }, []);
 
-    const EXTRAS_OPTIONS = [
-        { id: 'extra_ingredient', name: 'Ingrediente extra', price: 20 },
-        { id: 'extra_cheese', name: 'Extra queso', price: 35 },
-        { id: 'extra_sauce', name: 'Aderezo extra', price: 10 },
-    ];
 
     const cartTotals = useMemo(() => {
         const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -835,62 +926,121 @@ export default function CashierPage() {
     }, [showPaymentModal]);
 
     useEffect(() => {
-        // Safety timeout for loading state
-        const loadTimeout = setTimeout(() => setLoading(false), 8000); 
-        fetchMenu().finally(() => clearTimeout(loadTimeout));
+        fetchMenu();
     }, []);
 
-    async function fetchMenu() {
-        setLoading(true);
-        console.log('🍕 [Caja] Cargando menú completo desde API...');
+    async function fetchMenu(retryCount = 0) {
+        // ── 1. Mostrar caché inmediatamente (no bloquear la UI) ──────────────
         try {
-            const res = await fetch('/api/cashier/products');
-            if (!res.ok) throw new Error('Error al conectar con la API de productos');
-            
+            const cachedProds = localStorage.getItem('cached_products');
+            const cachedCats = localStorage.getItem('cached_categories');
+            if (cachedProds && cachedCats) {
+                const parsedProds = JSON.parse(cachedProds);
+                const parsedCats = JSON.parse(cachedCats);
+                if (Array.isArray(parsedProds) && parsedProds.length > 0) {
+                    setProducts(parsedProds);
+                    setCategories(parsedCats);
+                    setLoading(false); // Mostrar menu de caché mientras se actualiza
+                    console.log(`⚡ [Caja] ${parsedProds.length} productos cargados desde caché local.`);
+                }
+            }
+        } catch (_) { /* caché inaccesible — continuar con fetch */ }
+
+        // ── 2. Fetch desde servidor con timeout de 8s ────────────────────────
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        console.log('🍕 [Caja] Actualizando menú desde API...');
+        try {
+            const res = await fetch('/api/cashier/products', {
+                signal: controller.signal,
+                headers: { 'Cache-Control': 'max-age=60' }
+            });
+            clearTimeout(timeoutId);
+
+            if (!res.ok) {
+                throw new Error(`API respondió ${res.status}: ${res.statusText}`);
+            }
+
             const data = await res.json();
 
-            if (data.error) throw new Error(data.error);
+            // ── 3. Validar que los datos tienen la forma esperada ────────────
+            if (!data || typeof data !== 'object') {
+                throw new Error('Respuesta inesperada del servidor (no es un objeto)');
+            }
+            if (data.error) {
+                throw new Error(data.error);
+            }
 
-            if (data.categories) {
-                const categorySortOrder: Record<string, number> = {
-                    'PIZZAS TRADICIONALES': 1,
-                    'ESPECIALIDADES CASALEÑA': 2,
-                    'ESPECIALIDADES': 2,
-                    'GOURMET': 3,
-                    'PIZZA & FRIENDS - COMBOS': 4,
-                    'COMBOS': 4,
-                    'ORILLA DE QUESO (EXTRA)': 5,
-                    'ORILLAFRESCA': 5,
-                    'HAMBURGUESAS': 6,
-                    'ENTRADAS Y SNACKS': 7,
-                    'POSTRES': 8,
-                    'BEBIDAS': 9
-                };
+            const productList: Product[] = Array.isArray(data.products) ? data.products : [];
+            const categoryList: Category[] = Array.isArray(data.categories) ? data.categories : [];
 
-                const sortedCategories = [...data.categories].sort((a, b) => {
-                    const orderA = categorySortOrder[a.name.toUpperCase()] || 999;
-                    const orderB = categorySortOrder[b.name.toUpperCase()] || 999;
-                    return orderA - orderB;
-                });
+            if (productList.length === 0) {
+                console.warn('⚠️ [Caja] API devolvió 0 productos. Verificar disponibilidad en DB.');
+            }
 
-                setCategories(sortedCategories);
+            // ── 4. Ordenar categorías ────────────────────────────────────────
+            const categorySortOrder: Record<string, number> = {
+                'PIZZAS TRADICIONALES': 1,
+                'ESPECIALIDADES CASALEÑA': 2,
+                'ESPECIALIDADES': 2,
+                'GOURMET': 3,
+                'PIZZA & FRIENDS - COMBOS': 4,
+                'COMBOS': 4,
+                'ORILLA DE QUESO (EXTRA)': 5,
+                'ORILLAFRESCA': 5,
+                'HAMBURGUESAS': 6,
+                'ENTRADAS Y SNACKS': 7,
+                'POSTRES': 8,
+                'BEBIDAS': 9
+            };
+
+            const sortedCategories = [...categoryList].sort((a, b) => {
+                const orderA = categorySortOrder[a.name.toUpperCase()] || 999;
+                const orderB = categorySortOrder[b.name.toUpperCase()] || 999;
+                return orderA - orderB;
+            });
+
+            // ── 5. Actualizar estado y caché ─────────────────────────────────
+            setProducts(productList);
+            setCategories(sortedCategories);
+            console.log(`✅ [Caja] ${productList.length} productos actualizados desde servidor.`);
+
+            try {
+                localStorage.setItem('cached_products', JSON.stringify(productList));
                 localStorage.setItem('cached_categories', JSON.stringify(sortedCategories));
-            }
-
-            if (data.products) {
-                console.log(`✅ [Caja] ${data.products.length} productos recibidos.`);
-                setProducts(data.products);
-                localStorage.setItem('cached_products', JSON.stringify(data.products));
-            }
+            } catch (_) { /* quota exceeded — no critical */ }
 
         } catch (err: any) {
-            console.warn('⚠️ [Cashier] Error en API de productos, usando caché:', err.message);
-            
-            const cachedCats = localStorage.getItem('cached_categories');
-            if (cachedCats) setCategories(JSON.parse(cachedCats));
+            clearTimeout(timeoutId);
 
-            const cachedProds = localStorage.getItem('cached_products');
-            if (cachedProds) setProducts(JSON.parse(cachedProds));
+            const isAbort = err?.name === 'AbortError';
+            const isNetwork = err?.message?.includes('fetch') || err?.message?.includes('network');
+
+            if (isAbort) {
+                console.warn('⏱️ [Caja] Timeout al cargar productos (>8s). Usando caché.');
+            } else if (isNetwork && retryCount < 2) {
+                // Auto-retry once on network failure with exponential backoff
+                const delay = 1500 * (retryCount + 1);
+                console.warn(`🔄 [Caja] Error de red. Reintentando en ${delay}ms... (intento ${retryCount + 1}/2)`);
+                setTimeout(() => fetchMenu(retryCount + 1), delay);
+                return;
+            } else {
+                console.warn('⚠️ [Caja] Error al cargar productos:', err.message);
+            }
+
+            // Fallback a caché si todavía no tenemos productos
+            try {
+                if (products.length === 0) {
+                    const cachedCats = localStorage.getItem('cached_categories');
+                    const cachedProds = localStorage.getItem('cached_products');
+                    if (cachedCats) setCategories(JSON.parse(cachedCats));
+                    if (cachedProds) {
+                        const p = JSON.parse(cachedProds);
+                        if (Array.isArray(p)) setProducts(p);
+                    }
+                }
+            } catch (_) { /* localStorage inaccesible */ }
         } finally {
             setLoading(false);
         }
@@ -1113,7 +1263,7 @@ export default function CashierPage() {
         console.log('🚀 [Caja] Abriendo modal de ticket para orden:', orderData.id);
 
         const data = {
-            atendido_por: cashierName,
+            atendido_por: orderData.cashier_name || cashierName,
             comercio: {
                 nombre: "Casalena Pizza & Grill",
                 telefono: "741-101-1595",
@@ -1129,6 +1279,7 @@ export default function CashierPage() {
                 pago_con: parseFloat(amountPaid) || 0,
                 cambio: Math.max(0, (parseFloat(amountPaid) || 0) - orderData.total_amount),
                 is_pre_ticket: orderData.is_pre_ticket || false,
+                ticket_number: orderData.ticket_number,
             },
             productos: items.map(it => {
                 // Map extra IDs to names
@@ -1217,8 +1368,11 @@ export default function CashierPage() {
                         });
                     }
 
+                    // Si el item fue cargado desde el historial, puede tener id=0
+                    // Usamos _originalProductId si está disponible, o null para no fallar la API
+                    const productId = (item as any)._originalProductId ?? (item.id > 0 ? item.id : null);
                     return {
-                        product_id: item.id,
+                        product_id: productId,
                         product_name: item.name,
                         quantity: item.quantity,
                         unit_price: item.price,
@@ -1261,6 +1415,24 @@ export default function CashierPage() {
                 // UI SUCCESS FLOW
                 if (createdOrder) {
                 setLastOrderId(createdOrder.id);
+
+                // AUTO-GUARDAR CLIENTE: si es llevar/domicilio y hay teléfono, guardar silenciosamente
+                if ((orderType === 'takeout' || orderType === 'delivery') && customerInfo.phone?.trim() && customerInfo.name?.trim()) {
+                    const autoSaveAddr = customerInfo.address || [customerInfo.street, customerInfo.neighborhood, customerInfo.reference].filter(Boolean).join(', ') || '';
+                    fetch('/api/cashier/customers/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            phone: customerInfo.phone.trim(),
+                            full_name: customerInfo.name.trim(),
+                            address: autoSaveAddr
+                        })
+                    }).then(() => {
+                        console.log('✅ [Cashier] Cliente guardado automáticamente.');
+                    }).catch((err) => {
+                        console.warn('⚠️ [Cashier] No se pudo guardar cliente automáticamente:', err?.message);
+                    });
+                }
 
                 // Capturar copia del carrito ANTES de limpiar
                 const cartSnapshot = [...cart];
@@ -1316,9 +1488,19 @@ export default function CashierPage() {
         const idToDelete = orderId || lastOrderId;
         if (!idToDelete) return;
 
-        if (!window.confirm('¿Estás seguro de que deseas ELIMINAR esta cuenta? Esta acción no se puede deshacer.')) return;
+        // Guardar estado anterior de la orden para revertir si la petición falla
+        const originalOrders = [...recentOrders];
 
-        setOrderLoading(true);
+        // Actualización optimista de UI
+        setRecentOrders(prev => prev.map(o => o.id === idToDelete ? { ...o, status: 'cancelado' } : o));
+
+        // Si la orden cancelada es la que tenemos activa en el carrito, limpiar comanda
+        if (activeOrderId === idToDelete) {
+            setActiveOrderId(null);
+            setCart([]);
+            setTableNumber('');
+        }
+
         try {
             console.log(`🛑 [Cashier] Cancelando pedido ID: ${idToDelete}...`);
 
@@ -1337,21 +1519,47 @@ export default function CashierPage() {
                 setShowTicketModal(false);
                 setLastOrderId(null);
             }
-
-            // Si la orden cancelada es la que tenemos activa, limpiar
-            if (activeOrderId === idToDelete) {
-                setActiveOrderId(null);
-                setCart([]);
-                setTableNumber('');
-            }
-
-            await fetchRecentOrders(false);
             console.log('✅ [Cashier] Pedido cancelado correctamente.');
         } catch (err: any) {
             console.error('❌ [Cashier] Error al cancelar:', err);
+            // Revertir a la lista original si la llamada falla
+            setRecentOrders(originalOrders);
             alert('No se pudo cancelar el pedido: ' + err.message);
-        } finally {
-            setOrderLoading(false);
+        }
+    };
+
+    const handleRecoverOrder = async (orderId: number | string) => {
+        // Guardar estado anterior para revertir en caso de fallo
+        const originalOrders = [...recentOrders];
+
+        // Actualización optimista de UI
+        setRecentOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'pendiente' } : o));
+
+        // Feedback Toast inmediato
+        const toast = document.createElement('div');
+        toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in';
+        toast.innerHTML = '<span class="material-icons-round align-middle mr-2">restore</span> Pedido Recuperado';
+        document.body.appendChild(toast);
+        setTimeout(() => {
+            toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+
+        try {
+            console.log(`♻️ [Cashier] Recuperando pedido ID: ${orderId}...`);
+            const res = await fetch('/api/cashier/orders/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId, status: 'pendiente' })
+            });
+
+            if (!res.ok) throw new Error('Error al recuperar el pedido en el servidor');
+            console.log('✅ [Cashier] Pedido recuperado correctamente.');
+        } catch (err: any) {
+            console.error('❌ [Cashier] Error al recuperar:', err);
+            // Revertir a la lista original en caso de error
+            setRecentOrders(originalOrders);
+            alert('No se pudo recuperar el pedido: ' + err.message);
         }
     };
 
@@ -1392,7 +1600,7 @@ export default function CashierPage() {
             }
 
             if (isEffectActive) {
-                timeoutId = setTimeout(runSync, 7000); // Poll every 7 seconds (safer)
+                timeoutId = setTimeout(runSync, 20000); // ✅ FIX: 20s (was 7s) — Realtime handles instant updates
             }
         };
 
@@ -1566,6 +1774,15 @@ export default function CashierPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-gray-100 mr-1">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-xs font-black text-[#181511] leading-none uppercase">{user?.full_name || 'Cajero'}</p>
+                                <p className="text-[9px] text-[#8c785f] font-black uppercase tracking-wider mt-0.5">Caja</p>
+                            </div>
+                            <div className="size-8 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-[#f7951d] shrink-0">
+                                <span className="material-icons-round text-sm">person</span>
+                            </div>
+                        </div>
 
 
                         <button
@@ -1641,9 +1858,8 @@ export default function CashierPage() {
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                    {recentOrders
-                                        .filter(o => {
-                                            // Search Filter Logic
+                                    {(() => {
+                                        const filtered = recentOrders.filter(o => {
                                             if (searchQuery.trim()) {
                                                 const query = searchQuery.toLowerCase().replace('#', '');
                                                 const matchesSearch = 
@@ -1655,21 +1871,46 @@ export default function CashierPage() {
                                                 if (!matchesSearch) return false;
                                             }
 
-                                            // Status Filter Logic
                                             if (recentOrdersFilter === 'Todos') return true;
                                             if (recentOrdersFilter === 'Abiertas') return ['pendiente', 'preparando', 'listo'].includes(o.status) && o.order_type === 'dine-in';
                                             if (recentOrdersFilter === 'Pendiente') return o.status === 'confirmado';
                                             if (recentOrdersFilter === 'Preparando') return o.status === 'preparando' || o.status === 'listo';
                                             if (recentOrdersFilter === 'Entregado') return o.status === 'entregado';
                                             return true;
-                                        })
-                                        .map((order) => (
-                                        <div key={order.id} className="bg-white rounded-3xl border border-gray-100 p-6 hover:shadow-xl transition-all group overflow-hidden relative">
-                                            <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-500 opacity-50"></div>
-                                            
-                                            <div className="relative z-10">
-                                                <div className="flex justify-between items-start mb-6">
-                                                    <div>
+                                        });
+
+                                        if (filtered.length === 0) {
+                                            return (
+                                                <div className="col-span-full h-96 flex flex-col items-center justify-center text-center p-8 animate-in fade-in zoom-in duration-500">
+                                                    <div className="size-24 bg-gray-50 text-gray-200 rounded-full flex items-center justify-center mb-6">
+                                                        <span className="material-icons-round text-5xl">{searchQuery ? 'search_off' : 'receipt_long'}</span>
+                                                    </div>
+                                                    <h3 className="text-2xl font-black text-[#181511] mb-2">
+                                                        {searchQuery ? 'No se encontró el pedido' : 'Sin pedidos registrados'}
+                                                    </h3>
+                                                    <p className="text-[#8c785f] text-sm max-w-xs mx-auto font-medium">
+                                                        {searchQuery 
+                                                            ? `No pudimos encontrar nada que coincida con "${searchQuery}". Revisa el ID o el nombre.`
+                                                            : 'Aún no hay pedidos en esta categoría para el periodo actual.'}
+                                                    </p>
+                                                    {searchQuery && (
+                                                        <button 
+                                                            onClick={() => setSearchQuery('')}
+                                                            className="mt-8 px-8 py-3 bg-[#181511] text-white rounded-xl font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all"
+                                                        >
+                                                            Limpiar Búsqueda
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            );
+                                        }
+
+                                        return filtered.map((order) => (
+                                            <div key={order.id} className="bg-white rounded-3xl border border-gray-100 p-6 hover:shadow-xl transition-all group overflow-hidden relative">
+                                                <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-500 opacity-50"></div>
+                                                
+                                                <div className="relative z-10">
+                                                    <div className="flex justify-between items-start mb-6">
                                                         <div className="flex items-center gap-2 mb-1">
                                                             <span className="px-2 py-0.5 bg-[#f7951d]/10 text-[#f7951d] rounded text-[10px] font-black italic">#{order.ticket_number || 'S/N'}</span>
                                                             <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
@@ -1681,147 +1922,151 @@ export default function CashierPage() {
                                                                 {order.status === 'entregado' ? 'Finalizado' : ['pendiente', 'preparando', 'listo'].includes(order.status) ? 'En Mesa' : order.status === 'confirmado' ? 'Recibido' : order.status}
                                                             </span>
                                                         </div>
-                                                        <p className="text-xl font-black text-[#181511] tracking-tight">
-                                                            {order.customer_name || (order.table_number ? `Mesa #${order.table_number}` : `Ticket #${order.ticket_number || order.id.toString().slice(-5)}`)}
-                                                        </p>
-                                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                                                            {new Date(order.created_at).toLocaleTimeString()} • {order.order_type === 'delivery' ? 'Domicilio' : 'Local'}
-                                                        </p>
                                                     </div>
-                                                    <p className="text-2xl font-black text-[#181511] tracking-tighter">${order.total_amount.toFixed(2)}</p>
-                                                </div>
-
-                                                <div className="space-y-2 mb-6">
-                                                    {order.order_items?.map((item: any, i: number) => (
-                                                        <div key={i} className="flex justify-between items-center text-xs">
-                                                            <span className="text-[#8c785f] font-medium"><span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}</span>
-                                                            <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                    <div className="flex items-start justify-between mb-4">
+                                                        <div>
+                                                            <p className="text-xl font-black text-[#181511] tracking-tight leading-none mb-1">
+                                                                {order.customer_name || (order.table_number ? `Mesa #${order.table_number}` : `Orden #${order.ticket_number || order.id.toString().slice(-4).toUpperCase()}`)}
+                                                            </p>
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                                    {new Date(order.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} • {order.order_type === 'delivery' ? 'Domicilio' : 'Local'}
+                                                                </p>
+                                                            </div>
                                                         </div>
-                                                    ))}
-                                                </div>
+                                                        <p className="text-2xl font-black text-[#181511] tracking-tighter leading-none">${order.total_amount.toFixed(2)}</p>
+                                                    </div>
 
-                                                <div className="flex gap-2">
-                                                    {['pendiente', 'preparando', 'listo'].includes(order.status) && (
-                                                        <>
-                                                            <button 
-                                                                onClick={() => {
-                                                                    setShowOrdersView(false);
-                                                                    setOrderType(order.order_type || 'dine-in');
-                                                                    setTableNumber(order.table_number || '');
-                                                                    setActiveOrderId(order.id);
-                                                                    setPaymentMethod(order.payment_method || 'efectivo');
-                                                                    setCustomerInfo({
-                                                                        name: order.customer_name || '',
-                                                                        phone: order.phone_number || '',
-                                                                        address: order.delivery_address || '',
-                                                                        street: (order.delivery_address || '').split(',')[0] || '',
-                                                                        neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                                        reference: ''
-                                                                    });
-                                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                                        id: item.product_id || 0,
-                                                                        name: item.product_name,
-                                                                        price: item.unit_price,
-                                                                        quantity: item.quantity,
-                                                                        selectedSize: item.selected_size,
-                                                                        extras: (function() {
-                                                                            if (!item.extras) return [];
-                                                                            if (typeof item.extras === 'string') {
-                                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                                            }
-                                                                            if (Array.isArray(item.extras)) return item.extras;
-                                                                            return [];
-                                                                        })(),
-                                                                        note: item.notes || '',
-                                                                        cartItemId: Math.random().toString(36).substr(2, 9)
-                                                                    }));
-                                                                    setCart(loadedCart);
-                                                                }}
-                                                                className="flex-1 bg-purple-50 text-purple-600 border-2 border-purple-200 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-100 transition-colors shadow-sm active:scale-95"
-                                                            >
-                                                                Abrir Comanda
-                                                            </button>
-                                                            <button 
-                                                                onClick={() => {
-                                                                    setShowOrdersView(false);
-                                                                    setOrderType(order.order_type || 'dine-in');
-                                                                    setTableNumber(order.table_number || '');
-                                                                    setActiveOrderId(order.id);
-                                                                    setPaymentMethod(order.payment_method || 'efectivo');
-                                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                                        id: item.product_id || 0,
-                                                                        name: item.product_name,
-                                                                        price: item.unit_price,
-                                                                        quantity: item.quantity,
-                                                                        selectedSize: item.selected_size,
-                                                                        extras: (function() {
-                                                                            if (!item.extras) return [];
-                                                                            if (typeof item.extras === 'string') {
-                                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                                            }
-                                                                            if (Array.isArray(item.extras)) return item.extras;
-                                                                            return [];
-                                                                        })(),
-                                                                        note: item.notes || '',
-                                                                        cartItemId: Math.random().toString(36).substr(2, 9)
-                                                                    }));
-                                                                    setCart(loadedCart);
-                                                                    setTimeout(() => {
-                                                                        isProcessingOrder.current = false;
-                                                                        setOrderLoading(false);
-                                                                        setShowPaymentModal(true);
-                                                                    }, 150);
-                                                                }}
-                                                                className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-colors shadow-sm active:scale-95 flex items-center justify-center gap-1"
-                                                            >
-                                                                <span className="material-icons-round text-sm">payments</span>
-                                                                Cobrar
-                                                            </button>
-                                                        </>
-                                                    )}
-                                                    <button 
-                                                        onClick={() => {
-                                                            const mappedItems = (order.order_items || []).map((it: any) => ({
-                                                                quantity: it.quantity || 0,
-                                                                name: it.product_name || '',
-                                                                price: it.unit_price || 0,
-                                                                product_name: it.product_name,
-                                                                unit_price: it.unit_price,
-                                                                selected_size: it.selected_size,
-                                                                notes: it.notes
-                                                            }));
-                                                            handleWhatsAppShare(order, mappedItems);
-                                                        }}
-                                                        className="size-12 shrink-0 bg-green-500 text-white rounded-2xl flex items-center justify-center hover:bg-green-600 transition-colors shadow-lg active:scale-95"
-                                                        title="WhatsApp"
-                                                    >
-                                                        <span className="material-icons-round">whatsapp</span>
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => {
-                                                            const mappedItems = (order.order_items || []).map((it: any) => ({
-                                                                quantity: it.quantity || 0,
-                                                                name: it.product_name || '',
-                                                                price: it.unit_price || 0,
-                                                                selectedSize: it.selected_size,
-                                                                extras: it.extras
-                                                            }));
-                                                            handleOpenTicketModal(order, mappedItems);
-                                                        }}
-                                                        className="flex-1 bg-[#181511] text-white py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-[#181511]/80 transition-colors shadow-lg active:scale-95"
-                                                    >
-                                                        Ticket
-                                                    </button>
+                                                    <div className="space-y-2 mb-6">
+                                                        {order.order_items?.map((item: any, i: number) => (
+                                                            <div key={i} className="flex justify-between items-center text-xs">
+                                                                <span className="text-[#8c785f] font-medium"><span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}</span>
+                                                                <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-2 mt-auto">
+                                                        {['pendiente', 'preparando', 'listo'].includes(order.status) && (
+                                                            <>
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setShowOrdersView(false);
+                                                                        setOrderType(order.order_type || 'dine-in');
+                                                                        setTableNumber(order.table_number || '');
+                                                                        setActiveOrderId(order.id);
+                                                                        setPaymentMethod(order.payment_method || 'efectivo');
+                                                                        setCustomerInfo({
+                                                                            name: order.customer_name || '',
+                                                                            phone: order.phone_number || '',
+                                                                            address: order.delivery_address || '',
+                                                                            street: (order.delivery_address || '').split(',')[0] || '',
+                                                                            neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                                            reference: ''
+                                                                        });
+                                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                                            id: item.product_id ?? item.id ?? 0,
+                                                                            name: item.product_name,
+                                                                            price: item.unit_price,
+                                                                            quantity: item.quantity,
+                                                                            selectedSize: item.selected_size,
+                                                                            extras: (function() {
+                                                                                if (!item.extras) return [];
+                                                                                if (typeof item.extras === 'string') {
+                                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                                }
+                                                                                if (Array.isArray(item.extras)) return item.extras;
+                                                                                return [];
+                                                                            })(),
+                                                                            note: item.notes || '',
+                                                                            cartItemId: Math.random().toString(36).substr(2, 9),
+                                                                            _originalProductId: item.product_id // preserve for API
+                                                                        }));
+                                                                        setCart(loadedCart);
+                                                                    }}
+                                                                    className="bg-purple-50 text-purple-600 border border-purple-100 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-purple-100 transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                                                                >
+                                                                    <span className="material-icons-round text-sm">edit_note</span>
+                                                                    Abrir
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setShowOrdersView(false);
+                                                                        setOrderType(order.order_type || 'dine-in');
+                                                                        setTableNumber(order.table_number || '');
+                                                                        setActiveOrderId(order.id);
+                                                                        setPaymentMethod(order.payment_method || 'efectivo');
+                                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                                            id: item.product_id ?? item.id ?? 0,
+                                                                            name: item.product_name,
+                                                                            price: item.unit_price,
+                                                                            quantity: item.quantity,
+                                                                            selectedSize: item.selected_size,
+                                                                            extras: (function() {
+                                                                                if (!item.extras) return [];
+                                                                                if (typeof item.extras === 'string') {
+                                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                                }
+                                                                                if (Array.isArray(item.extras)) return item.extras;
+                                                                                return [];
+                                                                            })(),
+                                                                            note: item.notes || '',
+                                                                            cartItemId: Math.random().toString(36).substr(2, 9),
+                                                                            _originalProductId: item.product_id // preserve for API
+                                                                        }));
+                                                                        setCart(loadedCart);
+                                                                        setTimeout(() => {
+                                                                            isProcessingOrder.current = false;
+                                                                            setOrderLoading(false);
+                                                                            setShowPaymentModal(true);
+                                                                        }, 150);
+                                                                    }}
+                                                                    className="bg-[#181511] text-white py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                                                                >
+                                                                    <span className="material-icons-round text-sm">payments</span>
+                                                                    Cobrar
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        <button 
+                                                            onClick={() => {
+                                                                const mappedItems = (order.order_items || []).map((it: any) => ({
+                                                                    quantity: it.quantity || 0,
+                                                                    name: it.product_name || '',
+                                                                    price: it.unit_price || 0,
+                                                                    product_name: it.product_name,
+                                                                    unit_price: it.unit_price,
+                                                                    selected_size: it.selected_size,
+                                                                    notes: it.notes
+                                                                }));
+                                                                handleWhatsAppShare(order, mappedItems);
+                                                            }}
+                                                            className="bg-green-500 text-white py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-green-600 transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                                                        >
+                                                            <span className="material-icons-round text-sm">send</span>
+                                                            WhatsApp
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => {
+                                                                const mappedItems = (order.order_items || []).map((it: any) => ({
+                                                                    quantity: it.quantity || 0,
+                                                                    name: it.product_name || '',
+                                                                    price: it.unit_price || 0,
+                                                                    selectedSize: it.selected_size,
+                                                                    extras: it.extras
+                                                                }));
+                                                                handleOpenTicketModal(order, mappedItems);
+                                                            }}
+                                                            className="bg-[#181511]/10 text-[#181511] py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-[#181511]/20 transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                                                        >
+                                                            <span className="material-icons-round text-sm">receipt_long</span>
+                                                            Ticket
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                    {recentOrders.length === 0 && (
-                                        <div className="col-span-full h-96 flex flex-col items-center justify-center opacity-30">
-                                            <span className="material-icons-round text-8xl mb-4">receipt_long</span>
-                                            <p className="text-xl font-black uppercase tracking-tighter">No hay pedidos registrados</p>
-                                        </div>
-                                    )}
+                                        ));
+                                    })()}
                                 </div>
                             )}
                         </section>
@@ -2064,6 +2309,7 @@ export default function CashierPage() {
 
             {/* RIGHT SIDEBAR - Separated into component */}
             <CashierSidebar
+                cashierName={cashierName}
                 isCartDrawerOpen={isCartDrawerOpen}
                 setIsCartDrawerOpen={setIsCartDrawerOpen}
                 cart={cart}
@@ -2098,6 +2344,8 @@ export default function CashierPage() {
                 setOrderLoading={setOrderLoading}
                 setShowPaymentModal={setShowPaymentModal}
                 handlePlaceOrder={handlePlaceOrder}
+                searchCustomerByTerm={searchCustomerByTerm}
+                foundCustomers={foundCustomers}
             />
 
             {/* ── CUENTAS ABIERTAS MODAL ── */}
@@ -2111,9 +2359,9 @@ export default function CashierPage() {
                         {/* Header */}
                         <div className="p-6 border-b border-gray-100 flex items-center justify-between shrink-0">
                             <div>
-                                <h2 className="text-2xl font-black text-[#181511] tracking-tight">Cuentas Abiertas</h2>
+                                <h2 className="text-2xl font-black text-[#181511] tracking-tight">Cuentas</h2>
                                 <p className="text-xs text-[#8c785f] font-bold mt-0.5">
-                                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').length} cuenta(s) pendiente(s) de cobro
+                                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length} cuenta(s) pendiente(s) de cobro
                                 </p>
                             </div>
                             <button
@@ -2124,155 +2372,267 @@ export default function CashierPage() {
                             </button>
                         </div>
 
+                        {/* Pestañas (Tab Switcher) */}
+                        <div className="flex border-b border-gray-100 p-2 bg-gray-50/50 shrink-0">
+                            <button
+                                onClick={() => setOpenTabsActiveTab('activas')}
+                                className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                                    openTabsActiveTab === 'activas'
+                                        ? 'bg-white text-[#181511] shadow-sm border border-gray-100'
+                                        : 'text-[#8c785f] hover:text-[#181511]'
+                                }`}
+                            >
+                                Cuentas Abiertas ({recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length})
+                            </button>
+                            <button
+                                onClick={() => setOpenTabsActiveTab('eliminados')}
+                                className={`flex-1 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                                    openTabsActiveTab === 'eliminados'
+                                        ? 'bg-white text-red-600 shadow-sm border border-gray-100'
+                                        : 'text-[#8c785f] hover:text-red-500'
+                                }`}
+                            >
+                                Eliminados ({recentOrders.filter(o => o.status === 'cancelado').length})
+                            </button>
+                        </div>
+
                         {/* List */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full opacity-20 gap-4">
-                                    <span className="material-icons-round text-6xl">receipt_long</span>
-                                    <p className="font-black text-sm uppercase tracking-widest">Sin cuentas abiertas</p>
-                                </div>
-                            ) : (
-                                recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').map(order => (
-                                    <div key={order.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                                        {/* Card header */}
-                                        <div className="flex items-center justify-between p-4 border-b border-gray-50">
-                                            <div className="flex items-center gap-3">
-                                                <div className="size-10 rounded-xl bg-purple-50 flex items-center justify-center">
-                                                    <span className="material-icons-round text-purple-600">
-                                                        {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <p className="font-black text-[#181511]">
-                                                        {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || `PARA LLEVAR #${order.ticket_number}`)}
-                                                    </p>
-                                                    <p className="text-[10px] text-gray-400 font-bold uppercase">
-                                                        {new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · #{order.id.toString().slice(-5)}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <span className="text-2xl font-black text-[#f7951d]">${order.total_amount?.toFixed(2)}</span>
+                            {openTabsActiveTab === 'activas' ? (
+                                recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-center p-6 animate-in fade-in zoom-in duration-300">
+                                        <div className="size-20 bg-gray-50 text-gray-200 rounded-full flex items-center justify-center mb-6">
+                                            <span className="material-icons-round text-4xl">receipt_long</span>
                                         </div>
-
-                                        {/* Items */}
-                                        <div className="px-4 py-3 space-y-1.5">
-                                            {(order.order_items || []).slice(0, 4).map((item: any, i: number) => (
-                                                <div key={i} className="flex justify-between text-xs">
-                                                    <span className="text-[#8c785f] font-medium">
-                                                        <span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}
-                                                        {item.selected_size && <span className="text-gray-300"> · {item.selected_size}</span>}
-                                                    </span>
-                                                    <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
-                                                </div>
-                                            ))}
-                                            {(order.order_items || []).length > 4 && (
-                                                <p className="text-[10px] text-gray-400 font-bold">+{(order.order_items || []).length - 4} más...</p>
-                                            )}
-                                        </div>
-
-                                        {/* Actions */}
-                                        <div className="flex gap-2 p-4 pt-2">
-                                            <button
-                                                onClick={() => {
-                                                    // Load order into cart
-                                                    setOrderType(order.order_type || 'dine-in');
-                                                    setTableNumber(order.table_number || '');
-                                                    setActiveOrderId(order.id);
-                                                    
-                                                    if (order.order_type !== 'dine-in') {
-                                                        setCustomerInfo({
-                                                            name: order.customer_name || '',
-                                                            phone: order.phone_number || '',
-                                                            address: order.delivery_address || '',
-                                                            street: (order.delivery_address || '').split(',')[0] || '',
-                                                            neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                            reference: ''
-                                                        });
-                                                    }
-
-                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                        id: item.product_id || 0,
-                                                        name: item.product_name,
-                                                        price: item.unit_price,
-                                                        quantity: item.quantity,
-                                                        selectedSize: item.selected_size,
-                                                        extras: (function() {
-                                                            if (!item.extras) return [];
-                                                            if (typeof item.extras === 'string') {
-                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                            }
-                                                            if (Array.isArray(item.extras)) return item.extras;
-                                                            return [];
-                                                        })(),
-                                                        note: item.notes || '',
-                                                        cartItemId: Math.random().toString(36).substr(2, 9)
-                                                    }));
-                                                    setCart(loadedCart);
-                                                    setShowOpenTabsModal(false);
-                                                }}
-                                                className="flex-1 flex items-center justify-center gap-2 bg-[#f8f7f5] text-[#181511] border border-gray-200 py-3 rounded-xl text-xs font-black hover:bg-gray-100 transition-all active:scale-95"
-                                            >
-                                                <span className="material-icons-round text-base">add_circle</span>
-                                                Agregar Más
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    // Load and go directly to payment
-                                                    setOrderType(order.order_type || 'dine-in');
-                                                    if (order.table_number) setTableNumber(order.table_number);
-                                                    else setTableNumber('');
-                                                    
-                                                    setActiveOrderId(order.id);
-                                                    
-                                                    if (order.order_type !== 'dine-in') {
-                                                        setCustomerInfo({
-                                                            name: order.customer_name || '',
-                                                            phone: order.phone_number || '',
-                                                            address: order.delivery_address || '',
-                                                            street: (order.delivery_address || '').split(',')[0] || '',
-                                                            neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                            reference: ''
-                                                        });
-                                                    }
-                                                    
-                                                    // ALWAYS load items into cart so the payment modal sees the total
-                                                    const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                        id: item.product_id || 0,
-                                                        name: item.product_name,
-                                                        price: item.unit_price,
-                                                        quantity: item.quantity,
-                                                        selectedSize: item.selected_size,
-                                                        extras: (function() {
-                                                            if (!item.extras) return [];
-                                                            if (typeof item.extras === 'string') {
-                                                                try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                            }
-                                                            if (Array.isArray(item.extras)) return item.extras;
-                                                            return [];
-                                                        })(),
-                                                        note: item.notes || '',
-                                                        cartItemId: Math.random().toString(36).substr(2, 9)
-                                                    }));
-                                                    setCart(loadedCart);
-                                                    
-                                                    setShowOpenTabsModal(false);
-                                                    setShowPaymentModal(true);
-                                                }}
-                                                className="flex-1 flex items-center justify-center gap-2 bg-[#181511] text-white py-3 rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 shadow-lg"
-                                            >
-                                                <span className="material-icons-round text-base">payments</span>
-                                                Cobrar
-                                            </button>
-                                            <button
-                                                onClick={() => handleCancelOrder(order.id)}
-                                                className="px-4 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center border border-red-100"
-                                                title="Eliminar Cuenta"
-                                            >
-                                                <span className="material-icons-round text-xl">delete_outline</span>
-                                            </button>
-                                        </div>
+                                        <h3 className="text-xl font-black text-[#181511] mb-2">Sin Cuentas Abiertas</h3>
+                                        <p className="text-[#8c785f] text-sm max-w-[200px] font-medium leading-relaxed">
+                                            No hay pedidos activos en este momento. ¡Todo está al día!
+                                        </p>
+                                        <button 
+                                            onClick={() => {
+                                                setShowOpenTabsModal(false);
+                                                setOrderType('dine-in');
+                                            }}
+                                            className="mt-8 px-6 py-3 bg-[#f7951d] text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-orange-100 active:scale-95 transition-all"
+                                        >
+                                            Comenzar Nueva Orden
+                                        </button>
                                     </div>
-                                ))
+                                ) : (
+                                    recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid').map(order => (
+                                        <div key={order.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                                            {/* Card header */}
+                                            <div className="flex items-center justify-between p-4 border-b border-gray-50">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="size-10 rounded-xl bg-purple-50 flex items-center justify-center">
+                                                        <span className="material-icons-round text-purple-600">
+                                                            {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-black text-[#181511]">
+                                                            {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || `PARA LLEVAR #${order.ticket_number}`)}
+                                                        </p>
+                                                        <p className="text-[10px] text-gray-400 font-bold uppercase">
+                                                            {new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · #{order.id.toString().slice(-5)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <span className="text-2xl font-black text-[#f7951d]">${order.total_amount?.toFixed(2)}</span>
+                                            </div>
+
+                                            {/* Items */}
+                                            <div className="px-4 py-3 space-y-1.5">
+                                                {(order.order_items || []).slice(0, 4).map((item: any, i: number) => (
+                                                    <div key={i} className="flex justify-between text-xs">
+                                                        <span className="text-[#8c785f] font-medium">
+                                                            <span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}
+                                                            {item.selected_size && <span className="text-gray-300"> · {item.selected_size}</span>}
+                                                        </span>
+                                                        <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                    </div>
+                                                ))}
+                                                {(order.order_items || []).length > 4 && (
+                                                    <p className="text-[10px] text-gray-400 font-bold">+{(order.order_items || []).length - 4} más...</p>
+                                                )}
+                                            </div>
+
+                                            {/* Actions */}
+                                            <div className="flex gap-2 p-4 pt-2">
+                                                <button
+                                                    onClick={() => {
+                                                        // Load order into cart
+                                                        setOrderType(order.order_type || 'dine-in');
+                                                        setTableNumber(order.table_number || '');
+                                                        setActiveOrderId(order.id);
+                                                        
+                                                        if (order.order_type !== 'dine-in') {
+                                                            setCustomerInfo({
+                                                                name: order.customer_name || '',
+                                                                phone: order.phone_number || '',
+                                                                address: order.delivery_address || '',
+                                                                street: (order.delivery_address || '').split(',')[0] || '',
+                                                                neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                                reference: ''
+                                                            });
+                                                        }
+
+                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                            id: item.product_id ?? 0,
+                                                            name: item.product_name,
+                                                            price: item.unit_price,
+                                                            quantity: item.quantity,
+                                                            selectedSize: item.selected_size,
+                                                            extras: (function() {
+                                                                if (!item.extras) return [];
+                                                                if (typeof item.extras === 'string') {
+                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                }
+                                                                if (Array.isArray(item.extras)) return item.extras;
+                                                                return [];
+                                                            })(),
+                                                            note: item.notes || '',
+                                                            cartItemId: Math.random().toString(36).substr(2, 9),
+                                                            _originalProductId: item.product_id
+                                                        }));
+                                                        setCart(loadedCart);
+                                                        setShowOpenTabsModal(false);
+                                                    }}
+                                                    className="flex-1 flex items-center justify-center gap-2 bg-[#f8f7f5] text-[#181511] border border-gray-200 py-3 rounded-xl text-xs font-black hover:bg-gray-100 transition-all active:scale-95"
+                                                >
+                                                    <span className="material-icons-round text-base">add_circle</span>
+                                                    Agregar Más
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        // Load and go directly to payment
+                                                        setOrderType(order.order_type || 'dine-in');
+                                                        if (order.table_number) setTableNumber(order.table_number);
+                                                        else setTableNumber('');
+                                                        
+                                                        setActiveOrderId(order.id);
+                                                        
+                                                        if (order.order_type !== 'dine-in') {
+                                                            setCustomerInfo({
+                                                                name: order.customer_name || '',
+                                                                phone: order.phone_number || '',
+                                                                address: order.delivery_address || '',
+                                                                street: (order.delivery_address || '').split(',')[0] || '',
+                                                                neighborhood: (order.delivery_address || '').split(',')[1] || '',
+                                                                reference: ''
+                                                            });
+                                                        }
+                                                        
+                                                        // ALWAYS load items into cart so the payment modal sees the total
+                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
+                                                            id: item.product_id ?? 0,
+                                                            name: item.product_name,
+                                                            price: item.unit_price,
+                                                            quantity: item.quantity,
+                                                            selectedSize: item.selected_size,
+                                                            extras: (function() {
+                                                                if (!item.extras) return [];
+                                                                if (typeof item.extras === 'string') {
+                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
+                                                                }
+                                                                if (Array.isArray(item.extras)) return item.extras;
+                                                                return [];
+                                                            })(),
+                                                            note: item.notes || '',
+                                                            cartItemId: Math.random().toString(36).substr(2, 9),
+                                                            _originalProductId: item.product_id
+                                                        }));
+                                                        setCart(loadedCart);
+                                                        
+                                                        setShowOpenTabsModal(false);
+                                                        setShowPaymentModal(true);
+                                                    }}
+                                                    className="flex-1 flex items-center justify-center gap-2 bg-[#181511] text-white py-3 rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 shadow-lg"
+                                                >
+                                                    <span className="material-icons-round text-base">payments</span>
+                                                    Cobrar
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const label = order.table_number 
+                                                            ? `Mesa ${order.table_number}` 
+                                                            : (order.customer_name || `Pedido #${order.ticket_number || order.id.toString().slice(-5)}`);
+                                                        setOrderToCancel({ id: order.id, label });
+                                                        setShowCancelModal(true);
+                                                    }}
+                                                    className="px-4 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center border border-red-100"
+                                                    title="Eliminar Cuenta"
+                                                >
+                                                    <span className="material-icons-round text-xl">delete_outline</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )
+                            ) : (
+                                recentOrders.filter(o => o.status === 'cancelado').length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-center p-6 animate-in fade-in zoom-in duration-300">
+                                        <div className="size-20 bg-red-50 text-red-350 rounded-full flex items-center justify-center mb-6">
+                                            <span className="material-icons-round text-4xl">delete</span>
+                                        </div>
+                                        <h3 className="text-xl font-black text-[#181511] mb-2">Sin Pedidos Eliminados</h3>
+                                        <p className="text-[#8c785f] text-sm max-w-[200px] font-medium leading-relaxed">
+                                            No hay pedidos cancelados o eliminados en esta sesión.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    recentOrders.filter(o => o.status === 'cancelado').map(order => (
+                                        <div key={order.id} className="bg-red-50/30 border border-red-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow animate-in slide-in-from-bottom-2 duration-200">
+                                            {/* Card header */}
+                                            <div className="flex items-center justify-between p-4 border-b border-red-100/40">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="size-10 rounded-xl bg-red-100/50 flex items-center justify-center">
+                                                        <span className="material-icons-round text-red-600">
+                                                            {order.order_type === 'takeout' ? 'shopping_bag' : 'table_restaurant'}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-black text-red-950">
+                                                            {order.table_number ? `Mesa ${order.table_number}` : (order.customer_name || `PARA LLEVAR #${order.ticket_number}`)}
+                                                        </p>
+                                                        <p className="text-[10px] text-red-400 font-bold uppercase">
+                                                            {new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} · #{order.id.toString().slice(-5)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <span className="text-2xl font-black text-red-700 line-through">${order.total_amount?.toFixed(2)}</span>
+                                            </div>
+
+                                            {/* Items */}
+                                            <div className="px-4 py-3 space-y-1.5 opacity-70">
+                                                {(order.order_items || []).map((item: any, i: number) => (
+                                                    <div key={i} className="flex justify-between text-xs">
+                                                        <span className="text-red-900/80 font-medium">
+                                                            <span className="font-black text-red-950">{item.quantity}x</span> {item.product_name}
+                                                            {item.selected_size && <span className="text-red-300"> · {item.selected_size}</span>}
+                                                        </span>
+                                                        <span className="font-bold text-red-950">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            {/* Bottom banner legend "Cuenta Cancelada" */}
+                                            <div className="bg-red-100/40 px-4 py-2 flex items-center justify-between gap-1.5 border-t border-red-100/30">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="material-icons-round text-xs text-red-600">cancel</span>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-red-700">Cuenta Cancelada</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleRecoverOrder(order.id)}
+                                                    className="px-3 py-1 bg-green-600 hover:bg-green-700 active:scale-95 transition-all text-[10px] font-black text-white uppercase tracking-wider rounded-lg flex items-center gap-1 shadow-sm cursor-pointer"
+                                                >
+                                                    <span className="material-icons-round text-xs">restore</span>
+                                                    Recuperar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )
                             )}
                         </div>
 
@@ -2618,7 +2978,7 @@ export default function CashierPage() {
                                                 type="tel"
                                                 placeholder="Teléfono"
                                                 value={customerInfo.phone || ''}
-                                                onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                                                onChange={(e) => handlePhoneChange(e.target.value)}
                                                 className="flex-1 text-xs font-black text-[#181511] outline-none bg-transparent placeholder-gray-300"
                                             />
                                         </div>
@@ -2832,11 +3192,18 @@ export default function CashierPage() {
                                 </button>
 
                                 <button
-                                    onClick={() => handleCancelOrder()}
+                                    onClick={() => {
+                                        if (!lastOrderId) return;
+                                        const label = tableNumber 
+                                            ? `Mesa ${tableNumber}` 
+                                            : (customerInfo.name || `Pedido #${lastOrderId.toString().slice(-5)}`);
+                                        setOrderToCancel({ id: lastOrderId, label });
+                                        setShowCancelModal(true);
+                                    }}
                                     className="w-full bg-white border-2 border-red-500 text-red-500 py-3 rounded-2xl font-black hover:bg-red-50 active:scale-95 transition-all flex items-center justify-center gap-2 group text-sm"
                                 >
                                     <span className="material-icons-round group-hover:rotate-90 transition-transform">cancel</span>
-                                    {orderLoading ? 'ELIMINANDO...' : 'CANCELAR PEDIDO'}
+                                    CANCELAR PEDIDO
                                 </button>
                             </div>
                         </div>
@@ -3001,6 +3368,54 @@ export default function CashierPage() {
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest animate-pulse">
                                 LA ALARMA CONTINUARÁ SONANDO HASTA ACEPTAR
                             </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Custom Delete Order Confirmation Modal */}
+            {showCancelModal && orderToCancel && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+                    {/* Backdrop with intense blur */}
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-md animate-in fade-in duration-300" onClick={() => {
+                        setShowCancelModal(false);
+                        setOrderToCancel(null);
+                    }} />
+
+                    {/* Centered Modal Content */}
+                    <div className="relative max-w-md w-full bg-white rounded-[32px] p-8 shadow-2xl text-center border border-gray-100 animate-in zoom-in-95 duration-300">
+                        {/* Red warning icon */}
+                        <div className="size-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                            <span className="material-icons-round text-4xl animate-pulse">delete_forever</span>
+                        </div>
+
+                        <h3 className="text-2xl font-black text-[#181511] tracking-tight mb-2">¿Eliminar Pedido?</h3>
+                        <p className="text-sm text-[#8c785f] font-medium mb-6">
+                            Estás a punto de cancelar permanentemente el pedido de <span className="font-black text-red-600 uppercase">{orderToCancel.label}</span>. Esta acción no se puede deshacer.
+                        </p>
+
+                        <div className="flex gap-4">
+                            <button
+                                onClick={() => {
+                                    setShowCancelModal(false);
+                                    setOrderToCancel(null);
+                                }}
+                                className="flex-1 py-4 bg-gray-100 text-gray-700 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-gray-200 transition-all active:scale-95"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    const id = orderToCancel.id;
+                                    setShowCancelModal(false);
+                                    setOrderToCancel(null);
+                                    await handleCancelOrder(id);
+                                }}
+                                disabled={orderLoading}
+                                className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-200 transition-all active:scale-95 disabled:opacity-50"
+                            >
+                                {orderLoading ? 'Eliminando...' : 'Sí, Eliminar'}
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -177,7 +177,33 @@ function TrackingContent() {
         : 'Calculando...';
 
     if (loading) return <div className="h-screen w-full flex items-center justify-center bg-[#fcfbf9] text-[#f7951d] font-black"><span className="material-icons-round text-4xl animate-spin">refresh</span></div>;
-    if (error) return <div className="h-screen w-full flex items-center justify-center font-black text-red-500">{error}</div>;
+    if (error) return (
+        <div className="h-screen w-full flex flex-col items-center justify-center bg-[#fcfbf9] p-6 text-center">
+            <div className="size-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-6 shadow-sm">
+                <span className="material-icons-round text-4xl">search_off</span>
+            </div>
+            <h2 className="text-2xl font-black text-gray-900 mb-2">Pedido No Encontrado</h2>
+            <p className="text-gray-500 max-w-xs mb-8">
+                Lo sentimos, no pudimos encontrar el pedido #{orderId || '??'}. 
+                Por favor, verifica que el enlace sea correcto o contacta al restaurante.
+            </p>
+            <div className="flex flex-col gap-3 w-full max-w-xs">
+                <button 
+                    onClick={() => window.location.href = '/tienda'}
+                    className="w-full py-4 bg-[#f7951d] text-white font-black rounded-2xl shadow-lg hover:bg-[#e68a1b] transition-all active:scale-95"
+                >
+                    IR A LA TIENDA
+                </button>
+                <button 
+                    onClick={() => window.location.reload()}
+                    className="w-full py-4 bg-white border-2 border-gray-100 text-gray-600 font-black rounded-2xl hover:bg-gray-50 transition-all"
+                >
+                    REINTENTAR
+                </button>
+            </div>
+            <p className="mt-12 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Casaleña POS • Rastreo en Tiempo Real</p>
+        </div>
+    );
 
     const isDelivered = order?.delivery_status === 'delivered' || order?.status === 'entregado';
 

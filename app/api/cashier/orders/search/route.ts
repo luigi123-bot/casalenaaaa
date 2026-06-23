@@ -1,30 +1,21 @@
-
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
-
 export async function GET(req: Request) {
     try {
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
+
         const { searchParams } = new URL(req.url);
         const tableNumber = searchParams.get('table_number');
 
-        if (!tableNumber) {
-            return NextResponse.json({ error: 'Falta table_number' }, { status: 400 });
+        if (!tableNumber || isNaN(Number(tableNumber))) {
+            return NextResponse.json({ error: 'Falta número de mesa válido' }, { status: 400 });
         }
 
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
             .from('orders')
             .select('*, order_items(*)')
             .eq('table_number', tableNumber)
@@ -37,7 +28,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ orders: data || [] });
 
     } catch (error: any) {
-        console.error('❌ [API-SearchOrder] Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Cashier Search Order API Error');
     }
 }
+

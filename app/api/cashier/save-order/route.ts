@@ -1,53 +1,100 @@
-
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    }
-);
+const orderItemSchema = z.object({
+    product_name: z.string(),
+    product_id: z.coerce.number().int().nonnegative().nullable().optional(),
+    quantity: z.number().int().positive(),
+    unit_price: z.number().nonnegative(),
+    selected_size: z.string().nullable().optional(),
+    extras: z.array(z.any()).nullable().optional(),
+    notes: z.string().nullable().optional(),
+    total_price: z.number().nonnegative().nullable().optional()
+});
+
+const orderSchema = z.object({
+    id: z.coerce.number().int().nullable().optional(),
+    customer_name: z.string().nullable().optional(),
+    phone_number: z.string().nullable().optional(),
+    order_type: z.enum(['local', 'takeout', 'delivery', 'dine-in', 'pickup']),
+    table_number: z.coerce.number().int().nullable().optional(),
+    delivery_address: z.string().nullable().optional(),
+    delivery_zone: z.string().nullable().optional(),
+    delivery_cost: z.number().nonnegative().optional().default(0),
+    total_amount: z.number().nonnegative(),
+    payment_method: z.string().optional().default('efectivo'),
+    payment_status: z.enum(['pending', 'paid', 'partially_paid']).optional().default('pending'),
+    status: z.enum(['pendiente', 'confirmado', 'preparando', 'listo', 'entregado', 'cancelado', 'completado', 'en_camino']).optional().default('pendiente'),
+    user_id: z.string().uuid().nullable().optional(),
+    cashier_name: z.string().nullable().optional()
+}).passthrough();
+
+const inputSchema = z.object({
+    order: orderSchema,
+    items: z.array(orderItemSchema)
+});
 
 export async function POST(req: Request) {
     try {
-        const body = await req.json();
-        const { order, items } = body;
+        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse) return errorResponse;
 
-        console.log(`🚀 [API-SaveOrder] Iniciando proceso para: ${order.customer_name || 'Sin nombre'} (${order.phone_number || 'Sin Tel'})`);
-        console.log(`📦 [API-SaveOrder] Payload completo:`, JSON.stringify(body, null, 2));
+        const body = await req.json().catch(() => ({}));
+        const parsed = inputSchema.safeParse(body);
+        if (!parsed.success) {
+            return NextResponse.json({ error: 'Datos de orden o items inválidos' }, { status: 400 });
+        }
 
-        // 1. GESTIÓN AUTOMÁTICA DE CLIENTE (Upsert)
-        // Solo si es delivery o takeout y tiene teléfono
+        const { order, items } = parsed.data;
+
+        // 1. GESTIÓN AUTOMÁTICA DE CLIENTE (Safe Save)
         if ((order.order_type === 'delivery' || order.order_type === 'takeout') && order.phone_number) {
             try {
                 const phoneClean = order.phone_number.replace(/\D/g, '');
                 if (phoneClean.length >= 7) {
-                    console.log(`👤 [API-SaveOrder] Upsert de cliente: ${phoneClean} (${order.customer_name})`);
-                    const { error: upsertError } = await supabase
+                    // Check if customer exists by phone
+                    const { data: existingCustomer } = await supabaseAdmin
                         .from('customers')
-                        .upsert({
-                            phone: phoneClean,
-                            full_name: order.customer_name || 'Cliente Nuevo',
-                            address: order.delivery_address || '',
-                            last_order_at: new Date().toISOString()
-                        }, { onConflict: 'phone' });
-                    
-                    if (upsertError) {
-                        console.error('❌ [API-SaveOrder] Error en upsert de cliente:', upsertError);
+                        .select('*')
+                        .eq('phone', phoneClean)
+                        .maybeSingle();
+
+                    if (existingCustomer) {
+                        const normExisting = (existingCustomer.full_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                        const normNew = (order.customer_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+                        const nameMatches = normExisting === normNew || normExisting === 'sin nombre' || normExisting === '';
+
+                        if (nameMatches) {
+                            // Update existing customer's details
+                            await supabaseAdmin
+                                .from('customers')
+                                .update({
+                                    full_name: order.customer_name || existingCustomer.full_name,
+                                    address: order.delivery_address || existingCustomer.address,
+                                    last_order_at: new Date().toISOString()
+                                })
+                                .eq('id', existingCustomer.id);
+                        } else {
+                            console.log(`⚠️ [SaveOrder API] Phone ${phoneClean} already belongs to '${existingCustomer.full_name}'. Skipping update to '${order.customer_name}' to avoid overwrite.`);
+                        }
                     } else {
-                        console.log('✅ [API-SaveOrder] Cliente sincronizado correctamente.');
+                        // Insert new customer
+                        await supabaseAdmin
+                            .from('customers')
+                            .insert({
+                                phone: phoneClean,
+                                full_name: order.customer_name || 'Cliente Nuevo',
+                                address: order.delivery_address || '',
+                                last_order_at: new Date().toISOString()
+                            });
                     }
                 }
-            } catch (err) {
-                console.warn('⚠️ [API-SaveOrder] Error no crítico guardando cliente:', err);
-                // No detenemos la orden por un error en el guardado de cliente
+            } catch (err: any) {
+                console.error('[SaveOrder] ⚠️ Excepción al guardar cliente (no crítico):', err?.message);
             }
         }
 
@@ -55,12 +102,15 @@ export async function POST(req: Request) {
         let orderId = order.id;
         let createdOrder = null;
 
+        // Omitir columnas que podrían no existir en la base de datos de órdenes
+        const { delivery_cost, delivery_zone, ...orderPayloadToDb } = order;
+
         if (orderId) {
             // Actualizar orden existente
-            const { data, error } = await supabase
+            const { data, error } = await supabaseAdmin
                 .from('orders')
                 .update({
-                    ...order,
+                    ...orderPayloadToDb,
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', orderId)
@@ -71,30 +121,37 @@ export async function POST(req: Request) {
             createdOrder = data;
 
             // Limpiar items anteriores para re-insertar
-            await supabase.from('order_items').delete().eq('order_id', orderId);
+            await supabaseAdmin.from('order_items').delete().eq('order_id', orderId);
         } else {
-            // Nueva orden
-            // Generar número de ticket diario buscando el primer hueco disponible
-            const today = new Date().toLocaleDateString('en-CA');
-            const { data: ticketData } = await supabase
+            // Nueva orden — número de ticket DIARIO
+            // ✅ Contador basado en el día actual en zona horaria de México (UTC-6 permanente).
+            // Desde 2023 México no tiene cambio de horario, por lo que UTC-6 es fijo.
+            // Esto garantiza que el contador se reinicia a las 12:00am hora local cada día,
+            // independientemente de cuántas sesiones de caja se abran durante el turno.
+            const now = new Date();
+            const mexicoDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+            // Medianoche México (UTC-6) = 06:00 UTC del mismo día
+            const dayStartISO = new Date(mexicoDateStr + 'T06:00:00.000Z').toISOString();
+
+            const { data: todayOrders } = await supabaseAdmin
                 .from('orders')
                 .select('ticket_number')
-                .gte('created_at', today + 'T00:00:00')
-                .lte('created_at', today + 'T23:59:59')
+                .gte('created_at', dayStartISO)
+                .not('ticket_number', 'is', null)
                 .order('ticket_number', { ascending: true });
 
             let dailySequence = 1;
-            if (ticketData && ticketData.length > 0) {
-                const usedNumbers = new Set(ticketData.map(o => Number(o.ticket_number)));
+            if (todayOrders && todayOrders.length > 0) {
+                const usedNumbers = new Set(todayOrders.map(o => Number(o.ticket_number)));
                 while (usedNumbers.has(dailySequence)) {
                     dailySequence++;
                 }
             }
 
-            const { data, error } = await supabase
+            const { data, error } = await supabaseAdmin
                 .from('orders')
                 .insert({
-                    ...order,
+                    ...orderPayloadToDb,
                     ticket_number: dailySequence,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
@@ -113,13 +170,11 @@ export async function POST(req: Request) {
             order_id: orderId
         }));
 
-        const { error: itemsError } = await supabase
+        const { error: itemsError } = await supabaseAdmin
             .from('order_items')
             .insert(itemsWithOrderId);
 
         if (itemsError) throw itemsError;
-
-        console.log(`✅ [API-SaveOrder] Orden ${orderId} guardada exitosamente.`);
 
         return NextResponse.json({
             success: true,
@@ -127,7 +182,8 @@ export async function POST(req: Request) {
         });
 
     } catch (error: any) {
-        console.error('❌ [API-SaveOrder] Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error("🛑 [SaveOrder API Error]:", error);
+        return NextResponse.json({ error: error.message || error.details || String(error) }, { status: 500 });
     }
 }
+

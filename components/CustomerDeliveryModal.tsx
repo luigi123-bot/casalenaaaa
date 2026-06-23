@@ -69,6 +69,43 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
     const [showHistory, setShowHistory] = React.useState(true);
     const [isSaving, setIsSaving] = React.useState(false);
 
+    const phoneDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const searchByPhoneRef = React.useRef(onSearchByPhone);
+
+    React.useEffect(() => {
+        searchByPhoneRef.current = onSearchByPhone;
+    }, [onSearchByPhone]);
+
+    React.useEffect(() => {
+        return () => {
+            if (phoneDebounceRef.current) {
+                clearTimeout(phoneDebounceRef.current);
+            }
+        };
+    }, []);
+
+    const handlePhoneChange = (newPhone: string) => {
+        setCustomerInfo({
+            phone: newPhone,
+            name: '',
+            address: '',
+            street: '',
+            neighborhood: '',
+            reference: ''
+        });
+
+        if (phoneDebounceRef.current) {
+            clearTimeout(phoneDebounceRef.current);
+        }
+
+        const digitsOnly = newPhone.replace(/\D/g, '');
+        if (digitsOnly.length >= 7) {
+            phoneDebounceRef.current = setTimeout(() => {
+                searchByPhoneRef.current?.();
+            }, 600);
+        }
+    };
+
     if (!isOpen) return null;
 
     const handleSaveAndAccept = async () => {
@@ -140,7 +177,7 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                             <input
                                 type="tel"
                                 value={customerInfo.phone || ''}
-                                onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                                onChange={(e) => handlePhoneChange(e.target.value)}
                                 className="bg-transparent border-none p-0 text-xl font-black text-[#181511] focus:ring-0 outline-none w-full placeholder:text-gray-200"
                                 placeholder="741 000 0000"
                             />
@@ -184,7 +221,7 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                     <div className="space-y-4">
                         {/* BUSCADOR DE CLIENTES */}
                         <div>
-                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Buscar Cliente (Nombre o Tel)</label>
+                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Buscar Cliente (Nombre o Celular)</label>
                             <div className="relative">
                                 <span className="material-icons-round absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">search</span>
                                 <input
@@ -192,7 +229,7 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                                     value={searchTerm}
                                     onChange={(e) => onSearchChange(e.target.value)}
                                     className="w-full bg-[#f8f7f5] border border-transparent rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold focus:bg-white focus:border-[#f7951d] outline-none transition-all"
-                                    placeholder="Nombre o teléfono..."
+                                    placeholder="Nombre o celular..."
                                 />
                             </div>
                         </div>
@@ -201,19 +238,35 @@ const CustomerDeliveryModal: React.FC<CustomerDeliveryModalProps> = ({
                         <div>
                             <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Resultados de búsqueda</label>
                             <div className="relative">
-                                <select
-                                    onChange={handleClientSelect}
-                                    className="w-full bg-[#f8f7f5] border border-transparent rounded-xl px-3 py-2.5 text-xs font-bold focus:bg-white focus:border-[#f7951d] outline-none transition-all appearance-none text-[#181511] cursor-pointer"
-                                    value={availableClients.find(c => c.phone === customerInfo.phone)?.id || ""}
-                                >
-                                    <option value="" disabled>-- {loadingClients ? 'Buscando...' : 'Selecciona un perfil'} --</option>
-                                    {availableClients.map((client) => (
-                                        <option key={`${client.origin}-${client.id}`} value={client.id}>
-                                            {client.name} {client.phone ? `(${client.phone})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                                <span className="material-icons-round absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-sm">unfold_more</span>
+                                {availableClients && availableClients.length > 0 ? (
+                                    <div className="bg-[#f8f7f5] border border-transparent rounded-xl overflow-hidden">
+                                        {availableClients.slice(0, 10).map((client) => (
+                                            <button
+                                                key={`${client.origin}-${client.id}`}
+                                                onClick={() => {
+                                                    const parts = (client.address || '').split(',').map((p: string) => p.trim());
+                                                    setCustomerInfo({
+                                                        name: client.name || '',
+                                                        phone: client.phone || '',
+                                                        address: client.address || '',
+                                                        street: parts[0] || '',
+                                                        neighborhood: parts[1] || '',
+                                                        reference: parts.slice(2).join(', ') || ''
+                                                    });
+                                                    onAccept();
+                                                }}
+                                                className="w-full text-left px-3 py-2.5 text-xs font-bold hover:bg-[#f0ece6] border-b border-[#f0ece6] last:border-0 flex items-center justify-between gap-2 transition-colors"
+                                            >
+                                                <span className="text-[#181511]">{client.name}</span>
+                                                <span className="text-[#f7941d] font-black">{client.phone}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="bg-[#f8f7f5] border border-transparent rounded-xl px-3 py-2.5 text-xs text-gray-400 text-center">
+                                        {loadingClients ? 'Buscando...' : 'Selecciona un perfil'}
+                                    </div>
+                                )}
                             </div>
                         </div>
 

@@ -85,7 +85,10 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-        {/* All icon fonts (Material Symbols Outlined + Material Icons Round) are self-hosted via @font-face in globals.css */}
+        {/* Fallback CDN for icons if self-hosted files fail */}
+        <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+        {/* All icon fonts (Material Symbols Outlined + Material Icons Round) are also self-hosted via @font-face in globals.css */}
 
       </head>
       <body

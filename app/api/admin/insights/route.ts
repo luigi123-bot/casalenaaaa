@@ -1,13 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { validateApiAccess, handleServerError, supabaseAdmin } from '@/utils/supabase/server';
 
 // Revalidate every 5 minutes — insights are not real-time critical
-export const revalidate = 300;
-
-const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+export const dynamic = 'force-dynamic';
 
 // Category keyword maps — adjust these to match your actual category names in Supabase
 const PIZZA_KEYWORDS = ['pizza', 'tradicional', 'especialidad', 'gourmet', 'orilla', 'snack'];
@@ -49,6 +44,9 @@ function getPeriodStart(period: string): string {
 
 export async function GET(request: Request) {
     try {
+        const { errorResponse } = await validateApiAccess(['administrador']);
+        if (errorResponse) return errorResponse;
+
         const { searchParams } = new URL(request.url);
         const period = searchParams.get('period') || 'month'; // week | month | year | all
         const startDate = searchParams.get('startDate');
@@ -196,7 +194,6 @@ export async function GET(request: Request) {
         });
 
     } catch (error: any) {
-        console.error('[Insights API] Error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return handleServerError(error, 'Admin Insights API Error');
     }
 }
