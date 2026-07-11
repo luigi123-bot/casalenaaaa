@@ -62,11 +62,23 @@ export async function GET(req: Request) {
                 summary.ventasPorHora[hour].count += 1;
 
                 // Por método de pago
-                const method = (order.payment_method || 'efectivo').toLowerCase();
-                if (method.includes('efectivo')) summary.ventasEfectivo += total;
-                else if (method.includes('tarjeta')) summary.ventasTarjeta += total;
-                else if (method.includes('transfer')) summary.ventasOtro += total;
-                else summary.ventasEfectivo += total;
+                // ✅ FIX: Órdenes sin método de pago registrado van a "otro",
+                // NO a efectivo. Antes, un null inflaba el efectivo esperado
+                // causando siempre un "faltante" en el cuadre de caja.
+                const rawMethod = (order.payment_method || '').toLowerCase().trim();
+                if (rawMethod.includes('efectivo') || rawMethod === 'cash') {
+                    summary.ventasEfectivo += total;
+                } else if (rawMethod.includes('tarjeta') || rawMethod === 'card') {
+                    summary.ventasTarjeta += total;
+                } else if (rawMethod.includes('transfer') || rawMethod.includes('transf')) {
+                    summary.ventasOtro += total;
+                } else if (rawMethod === '') {
+                    // Método no registrado — no afecta el cuadre de efectivo
+                    summary.ventasOtro += total;
+                } else {
+                    // Cualquier otro método (p.ej. "cortesía") va a otro
+                    summary.ventasOtro += total;
+                }
 
                 // Por tipo
                 const tipo = order.order_type || 'comedor';

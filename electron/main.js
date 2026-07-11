@@ -136,7 +136,10 @@ ipcMain.handle('print-silent', async (event, options) => {
             });
 
             // Load the HTML content
-            await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+            // ✅ FIX: Usar base64 en lugar de encodeURIComponent — evita límite de longitud de URL
+            // encodeURIComponent falla con HTML grandes (estilos de Tailwind incluidos).
+            const base64Html = Buffer.from(html, 'utf-8').toString('base64');
+            await printWindow.loadURL(`data:text/html;base64,${base64Html}`);
 
             // Print silently
             await new Promise((resolve, reject) => {

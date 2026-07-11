@@ -507,30 +507,54 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                         <div className="p-6 space-y-6">
                             <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex gap-3">
                                 <span className="material-symbols-outlined text-blue-500 shrink-0 mt-0.5">info</span>
-                                <p className="text-sm font-bold text-blue-700">Ingresa el fondo inicial (dinero que había en caja al empezar el turno) y cuánto efectivo contaste físicamente.</p>
+                                <p className="text-sm font-bold text-blue-700">
+                                    El <strong>fondo inicial</strong> se cargó automáticamente al abrir la caja. Solo cambia el <strong>efectivo contado</strong> — cuenta los billetes físicos que tienes en caja ahora.
+                                </p>
                             </div>
 
-                            {[
-                                { label: 'Fondo inicial del turno ($)', val: fondoInicial, set: setFondoInicial, placeholder: '0.00', hint: 'Dinero en caja al iniciar' },
-                                { label: 'Efectivo contado en caja ($)', val: efectivoContado, set: setEfectivoContado, placeholder: '0.00', hint: 'Cuenta los billetes y monedas ahora' },
-                            ].map(f => (
-                                <div key={f.label}>
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">{f.label}</label>
-                                    <div className="relative">
-                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-[#8c785f] text-lg">$</span>
-                                        <input
-                                            type="number"
-                                            value={f.val}
-                                            onChange={(e: any) => f.set(e.target.value)}
-                                            placeholder={f.placeholder}
-                                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl pl-8 pr-5 py-4 font-black text-[#181511] text-lg placeholder-gray-200 focus:border-[#F27405] outline-none transition-all"
-                                            step="0.01"
-                                            min="0"
-                                        />
-                                    </div>
-                                    <p className="text-[10px] text-gray-400 font-bold mt-1 ml-1">{f.hint}</p>
+                            {/* Fondo inicial — solo lectura, precargado de la BD */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">
+                                    Fondo inicial del turno ($)
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-[#8c785f] text-lg">$</span>
+                                    <input
+                                        type="number"
+                                        value={fondoInicial}
+                                        onChange={(e: any) => setFondoInicial(e.target.value)}
+                                        placeholder="0.00"
+                                        className="w-full bg-orange-50 border-2 border-orange-200 rounded-2xl pl-8 pr-12 py-4 font-black text-[#181511] text-lg placeholder-gray-200 focus:border-[#F27405] outline-none transition-all"
+                                        step="0.01"
+                                        min="0"
+                                    />
+                                    <span className="absolute right-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-orange-400 text-base">lock</span>
                                 </div>
-                            ))}
+                                <p className="text-[10px] text-orange-600 font-bold mt-1 ml-1">
+                                    ✓ Precargado desde la apertura de caja. No cambies este valor a menos que sea incorrecto.
+                                </p>
+                            </div>
+
+                            {/* Efectivo contado — ingresado manualmente */}
+                            <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">
+                                    Efectivo contado en caja ($)
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-[#8c785f] text-lg">$</span>
+                                    <input
+                                        type="number"
+                                        value={efectivoContado}
+                                        onChange={(e: any) => setEfectivoContado(e.target.value)}
+                                        placeholder="0.00"
+                                        autoFocus
+                                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl pl-8 pr-5 py-4 font-black text-[#181511] text-lg placeholder-gray-200 focus:border-[#F27405] outline-none transition-all"
+                                        step="0.01"
+                                        min="0"
+                                    />
+                                </div>
+                                <p className="text-[10px] text-gray-400 font-bold mt-1 ml-1">Cuenta físicamente los billetes y monedas que hay en caja en este momento</p>
+                            </div>
 
                             {/* Live cuadre preview */}
                             {(fondoInicial || efectivoContado) && data && (

@@ -112,6 +112,8 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
                 metodo_pago: order.payment_method || 'Efectivo',
                 pago_con: order.total_amount,
                 cambio: 0,
+                // ✅ FIX: pasar ticket_number para mostrar el número diario, no el ID global
+                ticket_number: (order as any).ticket_number ?? undefined,
             },
             productos: order.order_items.map(it => ({
                 cantidad: it.quantity,
