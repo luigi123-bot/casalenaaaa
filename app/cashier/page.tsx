@@ -1983,6 +1983,7 @@ export default function CashierPage() {
                                                                             _originalProductId: item.product_id // preserve for API
                                                                         }));
                                                                         setCart(loadedCart);
+                                                                        setIsCartDrawerOpen(true);
                                                                     }}
                                                                     className="bg-purple-50 text-purple-600 border border-purple-100 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-purple-100 transition-all active:scale-95 flex items-center justify-center gap-1.5"
                                                                 >
@@ -2496,6 +2497,7 @@ export default function CashierPage() {
                                                             _originalProductId: item.product_id
                                                         }));
                                                         setCart(loadedCart);
+                                                        setIsCartDrawerOpen(true);
                                                         setShowOpenTabsModal(false);
                                                     }}
                                                     className="flex-1 flex items-center justify-center gap-2 bg-[#f8f7f5] text-[#181511] border border-gray-200 py-3 rounded-xl text-xs font-black hover:bg-gray-100 transition-all active:scale-95"

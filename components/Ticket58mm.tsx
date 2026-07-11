@@ -230,7 +230,7 @@ const Ticket58mm: React.FC<Ticket58mmProps> = ({ data }: Ticket58mmProps) => {
                         <div className="flex justify-between items-end">
                             <div className="flex flex-col">
                                 <span className="text-[10px] uppercase opacity-60">Cliente:</span>
-                                <span className="font-black uppercase text-[13px]">{data.cliente.nombre.split(' ')[0]}</span>
+                                <span className="font-black uppercase text-[13px]">{(data.cliente.nombre || 'Cliente').split(' ')[0]}</span>
                             </div>
                         </div>
                         <div className="flex flex-col">

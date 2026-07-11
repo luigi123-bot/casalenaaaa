@@ -435,17 +435,32 @@ export default function CashierSidebar({
                         <div className="flex gap-1.5">
                             <button onClick={clearCart} className="size-10 bg-white border border-gray-200 text-gray-300 rounded-lg flex items-center justify-center shrink-0"><span className="material-icons-round">delete</span></button>
                             <button 
-                                onClick={() => handlePlaceOrder(false, 'efectivo')} 
-                                disabled={cart.length === 0 || orderLoading || (orderType === 'delivery' && !customerInfo.name)} 
+                                onClick={() => {
+                                    // ✅ FIX: isFinalPayment=true para que se genere un ticket final
+                                    // y se marque la orden como pagada. Antes era false (pre-ticket)
+                                    // lo que guardaba como pendiente y limpiaba el carrito sin imprimir correctamente.
+                                    isProcessingOrder.current = false;
+                                    setOrderLoading(false);
+                                    setShowPaymentModal(true);
+                                }} 
+                                disabled={cart.length === 0 || orderLoading} 
                                 className="flex-1 bg-[#181511] text-white font-black py-2 rounded-lg shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
                             >
-                                <span className="material-icons-round text-sm">print</span>
-                                {orderLoading ? '...' : 'Imprimir Ticket'}
+                                <span className="material-icons-round text-sm">payments</span>
+                                {orderLoading ? '...' : 'Cobrar / Ticket'}
                             </button>
                         </div>
                         <button 
+                            onClick={() => handlePlaceOrder(false, 'efectivo')} 
+                            disabled={cart.length === 0 || orderLoading} 
+                            className="w-full bg-gray-600 text-white font-black py-2 rounded-lg shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
+                        >
+                            <span className="material-icons-round text-sm">save</span>
+                            {orderLoading ? '...' : 'Solo Guardar (sin ticket)'}
+                        </button>
+                        <button 
                             onClick={() => handlePlaceOrder(true, 'transferencia')} 
-                            disabled={cart.length === 0 || orderLoading || (orderType === 'delivery' && !customerInfo.name)} 
+                            disabled={cart.length === 0 || orderLoading} 
                             className="w-full bg-blue-600 text-white font-black py-2 rounded-lg shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
                         >
                             <span className="material-icons-round text-sm">account_balance</span>
