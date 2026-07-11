@@ -33,9 +33,10 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
 
     // Detectar si estamos en el entorno de escritorio (Electron)
     const isElectron = typeof window !== 'undefined' &&
+                      (window as any).electron !== undefined &&
                       ((window as any).electron?.isElectron || navigator.userAgent.toLowerCase().includes('electron'));
 
-    if (isElectron) {
+    if (isElectron && (window as any).electron?.printSilent) {
       try {
         // ✅ FIX: En Electron, solo incluir estilos inline (<style>).
         // Los <link rel="stylesheet"> apuntan a localhost y no se pueden resolver
@@ -68,8 +69,10 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
         return;
       } catch (err) {
         // Safe console output, no client personal information exposed
-        console.error('[Print] Error in Electron printing process');
+        console.error('[Print] Error in Electron printing process:', err);
         isPrintingRef.current = false;
+        onClose(); // ✅ FIX: Always call onClose even on error to reset state
+        return;
       }
     }
 
@@ -85,6 +88,7 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
     const doc = iframe.contentWindow?.document;
     if (!doc) {
       isPrintingRef.current = false;
+      onClose(); // ✅ FIX: Always call onClose even on error to reset state
       return;
     }
 
@@ -129,10 +133,11 @@ const TicketPrintModal: React.FC<TicketPrintModalProps> = ({ isOpen, onClose, da
       const printArea = document.getElementById('print-area');
       if (!printArea) {
         console.warn('[TicketPrintModal] #print-area no encontrado — el ticket aún no montó.');
+        onClose(); // ✅ FIX: Call onClose if print area not found to reset state
         return;
       }
       handlePrint();
-      const isElectronEnv = (window as any).electron?.isElectron;
+      const isElectronEnv = typeof window !== 'undefined' && (window as any).electron?.isElectron;
       if (!isElectronEnv) {
         setTimeout(onClose, 500);
       }

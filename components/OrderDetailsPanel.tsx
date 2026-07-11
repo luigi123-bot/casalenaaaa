@@ -160,6 +160,19 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
 
     if (!order) return null;
 
+    if ((order as any)._printOnly) {
+        return (
+            <TicketPrintModal
+                isOpen={showTicketModal}
+                onClose={() => {
+                    setShowTicketModal(false);
+                    onClose();
+                }}
+                data={ticketData}
+            />
+        );
+    }
+
     const handleUpdateStatus = async (newStatus: string) => {
         if (updating) return;
         setUpdating(true);
