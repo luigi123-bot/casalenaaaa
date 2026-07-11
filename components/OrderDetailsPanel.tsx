@@ -53,7 +53,9 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     const ORIGIN: [number, number] = [16.6853, -98.4116]; 
 
     useEffect(() => {
+        console.log('[OrderDetailsPanel] 🔄 useEffect de order/printOnly ejecutado. order_id:', order?.id, ' | _printOnly:', order ? (order as any)._printOnly : 'no-order');
         if (order && (order as any)._printOnly) {
+            console.log('[OrderDetailsPanel] ➡️ Detectado _printOnly en la orden, imprimiendo...');
             handlePrintTicket();
         }
     }, [order]);
@@ -99,7 +101,12 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     }, [order?.delivery_address, order?.order_type]);
 
     const handlePrintTicket = () => {
-        if (!order) return;
+        console.log('[OrderDetailsPanel] 🖨️ handlePrintTicket() invocado para la orden:', order?.id);
+        if (!order) {
+            console.warn('[OrderDetailsPanel] ⚠️ handlePrintTicket() cancelado: no hay orden.');
+            return;
+        }
+        console.log('[OrderDetailsPanel] 📋 Datos de la orden para imprimir:', order);
         const data: TicketData = {
             atendido_por: (order as any).cashier_name || (typeof window !== 'undefined' ? localStorage.getItem('cached_cashier_name') || 'CAJERO' : 'CAJERO'),
             comercio: { nombre: "Casalena Pizza & Grill", telefono: "741-101-1595", direccion: "Blvd. Juan N Alvarez, CP 41706" },
@@ -128,8 +135,10 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
                 direccion: order.delivery_address || ''
             } : undefined
         };
+        console.log('[OrderDetailsPanel] 📄 TicketData generado:', data);
         setTicketData(data);
         setShowTicketModal(true);
+        console.log('[OrderDetailsPanel] 🚀 showTicketModal establecido en true y ticketData guardado');
     };
 
     useEffect(() => {
