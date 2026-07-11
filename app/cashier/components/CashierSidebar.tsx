@@ -160,7 +160,7 @@ export default function CashierSidebar({
                 </div>
 
                 {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length > 0 && (
-                    <div className="mb-2 animate-in fade-in slide-in-from-top-2">
+                    <div className="mb-2">
                         <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
                             {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status)).map(order => {
                                 const isSelected = activeOrderId === order.id || (order.table_number && tableNumber === order.table_number);
@@ -222,7 +222,7 @@ export default function CashierSidebar({
                 )}
 
                 {orderType === 'dine-in' && (
-                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 animate-in fade-in slide-in-from-top-2 flex items-center justify-between mb-4">
+                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 flex items-center justify-between mb-4">
                         <span className="text-[10px] font-black text-blue-500 uppercase">Configuración de Mesa</span>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-blue-400">#</span>
@@ -238,7 +238,7 @@ export default function CashierSidebar({
                 )}
 
                 {(orderType === 'takeout' || orderType === 'delivery') && (
-                    <div ref={dropdownRef} className="bg-gray-50/50 rounded-xl px-2 py-2 border border-gray-100 animate-in fade-in slide-in-from-top-2 mb-2 relative">
+                    <div ref={dropdownRef} className="bg-gray-50/50 rounded-xl px-2 py-2 border border-gray-100 mb-2 relative">
                         <div className="flex items-center gap-2 mb-1.5">
                             <div className="flex-1 flex items-center gap-1.5 bg-white rounded-lg px-2 py-1.5 border border-gray-100">
                                 <span className="material-icons-round text-xs text-gray-400">person</span>
@@ -250,8 +250,8 @@ export default function CashierSidebar({
                                     className="w-full text-[10px] font-bold text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
                                 />
                             </div>
-                            <div className={`flex-1 flex items-center gap-1.5 bg-white rounded-lg px-2 py-1.5 border transition-all duration-300 ${isAutoSearching ? 'border-[#f7951d] shadow-sm' : 'border-gray-100'}`}>
-                                <span className={`material-icons-round text-xs transition-colors ${isAutoSearching ? 'text-[#f7951d] animate-pulse' : 'text-gray-400'}`}>phone</span>
+                            <div className="flex-1 flex items-center gap-1.5 bg-white rounded-lg px-2 py-1.5 border border-gray-100">
+                                <span className="material-icons-round text-xs text-gray-400">phone</span>
                                 <input
                                     type="tel"
                                     placeholder="Teléfono"
@@ -269,7 +269,7 @@ export default function CashierSidebar({
                                     className="w-full text-[10px] font-bold text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
                                 />
                                 {isAutoSearching && (
-                                    <span className="material-icons-round text-[#f7951d] text-xs animate-spin shrink-0">progress_activity</span>
+                                    <span className="text-[8px] font-bold text-[#f7951d] uppercase shrink-0">Buscando...</span>
                                 )}
                             </div>
                             <button
@@ -315,7 +315,7 @@ export default function CashierSidebar({
 
                         {/* Dropdown de coincidencia de clientes por número parcial */}
                         {showDropdown && foundCustomers.length > 0 && (
-                            <div className="absolute left-0 right-0 mt-1.5 bg-white border border-gray-100 rounded-xl shadow-xl z-[100] max-h-48 overflow-y-auto divide-y divide-gray-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                            <div className="absolute left-0 right-0 mt-1.5 bg-white border border-gray-100 rounded-xl shadow-xl z-[100] max-h-48 overflow-y-auto divide-y divide-gray-50">
                                 {foundCustomers.map((customer) => (
                                     <button
                                         key={customer.id || customer.phone}
@@ -450,14 +450,7 @@ export default function CashierSidebar({
                                 {orderLoading ? '...' : 'Cobrar / Ticket'}
                             </button>
                         </div>
-                        <button 
-                            onClick={() => handlePlaceOrder(false, 'efectivo')} 
-                            disabled={cart.length === 0 || orderLoading} 
-                            className="w-full bg-gray-600 text-white font-black py-2 rounded-lg shadow-md active:scale-95 transition-all disabled:opacity-50 text-[10px] uppercase flex items-center justify-center gap-2"
-                        >
-                            <span className="material-icons-round text-sm">save</span>
-                            {orderLoading ? '...' : 'Solo Guardar (sin ticket)'}
-                        </button>
+
                         <button 
                             onClick={() => handlePlaceOrder(true, 'transferencia')} 
                             disabled={cart.length === 0 || orderLoading} 
