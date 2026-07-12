@@ -10,7 +10,6 @@ import NotificationPanel from '@/components/NotificationPanel';
 import CashierSupportChat from '@/components/CashierSupportChat';
 import TicketPrintModal from '@/components/TicketPrintModal';
 import CierreCajaModal from '@/components/CierreCajaModal';
-import AperturaCajaModal from '@/components/AperturaCajaModal';
 import CustomerDeliveryModal from '@/components/CustomerDeliveryModal';
 import { useAuth } from '@/contexts/AuthContext';
 import CashierSidebar from './components/CashierSidebar';
@@ -253,8 +252,7 @@ export default function CashierPage() {
         }
     };
 
-    // Shift Management State
-    const [shiftState, setShiftState] = useState<'checking' | 'too_early' | 'must_open' | 'open' | 'must_close' | 'closed'>('checking');
+    const [mustClose, setMustClose] = useState(false);
     const [systemSettings, setSystemSettings] = useState<any>(null);
     const [isAdmin, setIsAdmin] = useState(false);
 
@@ -335,134 +333,19 @@ export default function CashierPage() {
         return () => { isMounted = false; };
     }, []);
 
+    // Shift Management — solo se usa para el cierre forzado (must_close)
     useEffect(() => {
-        // Esperar a que AuthContext termine de cargar antes de verificar
-        if (authLoading) return;
-
-        let isEffectActive = true;
-
-        const evaluateShiftStrict = async () => {
-            try {
-                console.log('[Shift] 🔄 Verificando sesión...');
-
-                // 1. Usar el user ya resuelto por AuthContext (sin llamadas extra a Supabase)
-                if (!user) {
-                    // No mostrar "Turno Cerrado" — eso confunde cuando solo expiró la sesión.
-                    // El efecto de autenticación (auth useEffect) ya redirige a /login.
-                    console.warn('[Shift] Sin usuario autenticado — esperando redirección de auth.');
-                    return; // Mantenemos 'checking' hasta que el redirect ocurra
-                }
-
-                console.log('[Shift] 👤 Usuario:', user.id, '| Rol:', user.role);
-
-                // 2. Verificar rol de administrador desde AuthContext (sin query extra)
-                const isAdminUser = user.role === 'administrador';
-                setIsAdmin(isAdminUser);
-
-                if (isAdminUser) {
-                    console.log('[Shift] 👑 Admin detectado, acceso directo.');
-                    setShiftState('open');
-                    return;
-                }
-
-                // 3. Verificación ESTRICTA a través de la API (con timeout)
-                console.log('[Shift] 🔍 Consultando estado de caja en API...');
-                const res = await Promise.race([
-                    fetch(`/api/cashier/sessions/status?userId=${user.id}`),
-                    // ✅ FIX: Aumentado de 8s a 10s — el safety global ahora es mayor,
-                    // así la API siempre tiene oportunidad de responder primero.
-                    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout-api')), 10000))
-                ]) as Response;
-
-                if (!isEffectActive) return;
-
-                if (!res.ok) {
-                    console.error('[Shift] Error en API de estado:', await res.text());
-                    setShiftState('must_open');
-                    return;
-                }
-
-                const { isOpen, session } = await res.json();
-
-                // 4. Decision: Abierta vs Cerrada
-                if (isOpen && session) {
-                    console.log(`✅ [Shift] Caja ABIERTA (Sesión: ${session.id})`);
-                    setShiftState('open');
-                } else {
-                    console.log('🔒 [Shift] Caja CERRADA. Requiere apertura.');
-                    setShiftState('must_open');
-                }
-
-            } catch (err: any) {
-                if (!isEffectActive) return;
-                if (isAbortError(err)) return;
-                console.warn('[Shift] ⚠️ Error en verificación:', err.message);
-                // ✅ FIX: Si es un timeout de red (no error de lógica), intentar continuar
-                // en lugar de forzar must_open que crea sesiones duplicadas.
-                // Sólo forzamos must_open si es un error real de API.
-                if (err.message === 'timeout-api') {
-                    console.warn('[Shift] ⏱️ Timeout de API — mostrando apertura de caja como fallback seguro.');
-                }
-                setShiftState('must_open');
-            }
-        };
-
-        // ✅ FIX: Safety timeout ahora en 14s (mayor que el timeout de API de 10s).
-        // Antes era 5s, lo que hacía que siempre ganara sobre la API (8s), rompiendo
-        // el flujo de verificación de sesión en conexiones lentas.
-        const globalSafety = setTimeout(() => {
-            if (isEffectActive) {
-                console.warn('[Shift] ⏱️ Safety timeout — forzando pantalla de apertura');
-                setShiftState(prev => prev === 'checking' ? 'must_open' : prev);
-            }
-        }, 14000);
-
-        evaluateShiftStrict().finally(() => clearTimeout(globalSafety));
-
-        return () => { isEffectActive = false; clearTimeout(globalSafety); };
-    }, [authLoading, user]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    const handleOpenShift = async (info: { fondo: number, notas: string }) => {
-        setShiftState('checking'); // Show loading while processing
-        try {
-            // Guardar en la base de datos a través de la API estrictamente
-            const res = await fetch('/api/cashier/sessions/open', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    cashier_name: cashierName,
-                    user_id: user?.id,
-                    initial_fund: info.fondo,
-                    notes: info.notas
-                })
-            });
-            
-            if (!res.ok) {
-                const errorData = await res.json();
-                throw new Error(errorData.error || 'Error al conectar con la base de datos');
-            }
-            
-            const data = await res.json();
-            
-            if (data.success && data.session) {
-                console.log('✅ [Shift] Apertura de caja registrada en el servidor:', data.session.id);
-                setShiftState('open');
-            } else {
-                throw new Error('Respuesta inválida del servidor');
-            }
-
-        } catch (err: any) {
-            console.error('❌ [Shift] Error al registrar apertura en la base de datos:', err);
-            alert(`No se pudo abrir la caja: ${err.message}. La caja DEBE registrarse en el servidor para operar.`);
-            setShiftState('must_open');
+        if (!authLoading && user) {
+            const isAdminUser = user.role === 'administrador';
+            setIsAdmin(isAdminUser);
         }
-    };
-    
+    }, [authLoading, user]);
+
+
     const handleCloseShiftSuccess = () => {
-         setShiftState('closed');
-         // Recargar para forzar una re-evaluación limpia desde la base de datos
-         window.location.reload();
+        window.location.reload();
     };
+
 
     useEffect(() => {
         fetchClientsForDropdown();
@@ -3059,25 +2942,18 @@ export default function CashierPage() {
                                 <div className="flex flex-col gap-3 pt-2">
                                     {orderType === 'dine-in' && (
                                         <button
-                                            onClick={() => {
-                                                isProcessingOrder.current = false;
-                                                setOrderLoading(false);
-                                                setTimeout(() => handlePlaceOrder(false), 50);
-                                            }}
-                                            disabled={!tableNumber.trim() || cart.length === 0}
+                                            onClick={() => handlePlaceOrder(false)}
+                                            disabled={orderLoading || !tableNumber.trim() || cart.length === 0}
                                             className="w-full bg-white border-2 border-[#181511] text-[#181511] font-black py-4 rounded-2xl shadow-sm active:scale-95 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
                                         >
                                             <span className="material-icons-round">print</span>
                                             {orderLoading ? 'PROCESANDO...' : 'SOLO IMPRIMIR (CUENTA ABIERTA)'}
-                                        </button>                                    )}
+                                        </button>
+                                    )}
 
                                     <div className="flex flex-col gap-2">
                                         <button
-                                            onClick={() => {
-                                                isProcessingOrder.current = false;
-                                                setOrderLoading(false);
-                                                setTimeout(() => handlePlaceOrder(true), 50);
-                                            }}
+                                            onClick={() => handlePlaceOrder(true)}
                                             disabled={
                                                 orderLoading ||
                                                 (paymentMethod === 'efectivo' && orderType !== 'delivery' && !isSufficientPayment) ||
@@ -3251,59 +3127,10 @@ export default function CashierPage() {
                     cashierName={cashierName}
                     userId={user?.id}
                     onClose={() => setShowCierreCaja(false)}
-                    mustClose={shiftState === 'must_close'}
+                    mustClose={mustClose}
                     onCloseSuccess={handleCloseShiftSuccess}
                 />
             )}
-
-            {shiftState === 'checking' && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#f8f7f5] flex-col gap-4">
-                    <span className="material-icons-round animate-spin text-4xl text-[#F27405]">progress_activity</span>
-                    <p className="text-xs font-bold text-gray-400 animate-pulse">Verificando sesión...</p>
-                </div>
-            )}
-
-
-
-            {shiftState === 'closed' && (
-                <div className="fixed inset-0 z-[200] bg-[#181511] flex items-center justify-center p-4">
-                    <div className="max-w-md w-full bg-[#1c1917] rounded-[32px] p-8 border border-white/5 text-center shadow-2xl animate-in zoom-in-95 duration-500">
-                        <div className="size-20 bg-green-500/10 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                            <span className="material-icons-round text-4xl text-green-500">lock_clock</span>
-                        </div>
-                        <h2 className="text-3xl font-black text-white mb-4">Turno Cerrado</h2>
-                        <p className="text-gray-400 font-medium mb-8">
-                            El turno de hoy ya ha finalizado. No se pueden procesar más órdenes.
-                        </p>
-                        
-
-                        
-                        <div className="space-y-3">
-                            <button
-                                onClick={() => router.push('/login')}
-                                className="w-full bg-[#f7951d] text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-all text-xs uppercase tracking-widest"
-                            >
-                                Desconectarse
-                            </button>
-                            
-                            {/* Emergency Bypass for Admins */}
-                            {isAdmin && (
-                                <button
-                                    onClick={() => setShiftState('open')}
-                                    className="w-full bg-white/5 text-gray-500 font-black py-3 rounded-xl hover:bg-white/10 transition-all text-[10px] uppercase tracking-widest"
-                                >
-                                    Forzar Entrada (Solo Admin)
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {shiftState === 'must_open' && (
-                <AperturaCajaModal cashierName={cashierName} onOpen={handleOpenShift} />
-            )}
-
 
 
             {/* Urgent New Order Alert Modal (Persistent) */}

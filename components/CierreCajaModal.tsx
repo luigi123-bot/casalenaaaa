@@ -522,18 +522,21 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                                     <input
                                         type="number"
                                         value={fondoInicial}
-                                        onChange={(e: any) => setFondoInicial(e.target.value)}
+                                        readOnly
+                                        tabIndex={-1}
                                         placeholder="0.00"
-                                        className="w-full bg-orange-50 border-2 border-orange-200 rounded-2xl pl-8 pr-12 py-4 font-black text-[#181511] text-lg placeholder-gray-200 focus:border-[#F27405] outline-none transition-all"
+                                        onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                        className="w-full bg-orange-50 border-2 border-orange-200 rounded-2xl pl-8 pr-12 py-4 font-black text-[#181511] text-lg placeholder-gray-200 outline-none cursor-not-allowed select-none"
                                         step="0.01"
                                         min="0"
                                     />
                                     <span className="absolute right-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-orange-400 text-base">lock</span>
                                 </div>
                                 <p className="text-[10px] text-orange-600 font-bold mt-1 ml-1">
-                                    ✓ Precargado desde la apertura de caja. No cambies este valor a menos que sea incorrecto.
+                                    ✓ Registrado en la apertura de caja. Este valor no puede modificarse.
                                 </p>
                             </div>
+
 
                             {/* Efectivo contado — ingresado manualmente */}
                             <div>
@@ -546,6 +549,7 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                                         type="number"
                                         value={efectivoContado}
                                         onChange={(e: any) => setEfectivoContado(e.target.value)}
+                                        onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                         placeholder="0.00"
                                         autoFocus
                                         className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl pl-8 pr-5 py-4 font-black text-[#181511] text-lg placeholder-gray-200 focus:border-[#F27405] outline-none transition-all"
@@ -633,6 +637,7 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                                             type="number"
                                             value={f.val}
                                             onChange={(e: any) => f.set(e.target.value)}
+                                            onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                             placeholder="0.00"
                                             className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl pl-8 pr-5 py-4 font-black text-[#181511] text-lg placeholder-gray-200 focus:border-[#F27405] outline-none transition-all"
                                             step="0.01"

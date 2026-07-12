@@ -1,27 +1,82 @@
 import { NextResponse } from "next/server";
 import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
+const querySchema = z.object({
+    sessionId: z.string().uuid().optional(),
+    userId: z.string().uuid().nullable().optional()
+});
+
 export async function GET(req: Request) {
     try {
-        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
-        if (errorResponse) return errorResponse;
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
+        if (errorResponse || !user) return errorResponse;
 
-        // Siempre usamos el inicio del día actual en horario México (UTC-6)
+        const { searchParams } = new URL(req.url);
+        const parsed = querySchema.safeParse({
+            sessionId: searchParams.get('sessionId') || undefined,
+            userId: searchParams.get('userId') || null
+        });
+
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Parámetros inválidos" }, { status: 400 });
+        }
+
+        const { sessionId } = parsed.data;
+
+        // IDOR: cajero solo puede ver su propia sesión. Admin puede ver cualquiera.
+        const resolvedUserId = user.role === 'administrador'
+            ? (parsed.data.userId || user.id)
+            : user.id;
+
+        // ─── Obtener la sesión activa para conocer opened_at (inicio del turno) ────
+        let sessionOpenedAt: string | null = null;
+
+        if (sessionId) {
+            const { data: session, error: sessErr } = await supabaseAdmin
+                .from('cashier_sessions')
+                .select('id, opened_at, user_id')
+                .eq('id', sessionId)
+                .single();
+
+            if (sessErr || !session) {
+                return NextResponse.json({ error: 'Sesión no encontrada' }, { status: 404 });
+            }
+
+            // Verificar que la sesión pertenece al usuario (anti-IDOR)
+            if (user.role !== 'administrador' && session.user_id !== resolvedUserId) {
+                return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+            }
+
+            sessionOpenedAt = session.opened_at;
+        }
+
+        // ─── Filtro de tiempo ─────────────────────────────────────────────────────
+        // Si tenemos sessionId: filtrar desde el opened_at de esa sesión.
+        // Fallback: inicio del día en horario México (UTC-6).
         const now = new Date();
-        const mxOffset = -6; // UTC-6
-        const mxNow = new Date(now.getTime() + mxOffset * 3600 * 1000);
-        const startOfDayMx = new Date(mxNow);
-        startOfDayMx.setUTCHours(0, 0, 0, 0);
-        // Convertir de vuelta a UTC para la query
-        const filterStart = new Date(startOfDayMx.getTime() - mxOffset * 3600 * 1000).toISOString();
+        let filterStart: string;
 
+        if (sessionOpenedAt) {
+            filterStart = sessionOpenedAt; // Solo las ventas de ESTE turno
+        } else {
+            const mxOffset = -6;
+            const mxNow = new Date(now.getTime() + mxOffset * 3600 * 1000);
+            const startOfDayMx = new Date(mxNow);
+            startOfDayMx.setUTCHours(0, 0, 0, 0);
+            filterStart = new Date(startOfDayMx.getTime() - mxOffset * 3600 * 1000).toISOString();
+        }
+
+        // ─── Query de órdenes ──────────────────────────────────────────────────────
+        // Filtrar por user_id del cajero Y desde el inicio de su sesión
         const { data: orders, error } = await supabaseAdmin
             .from('orders')
-            .select('id, ticket_number, total_amount, payment_method, order_type, status, created_at, order_items(product_name, quantity)')
-            .gte('created_at', filterStart)
-            .neq('status', 'cancelado'); // Excluimos cancelados del total, pero los contamos aparte
+            .select('id, ticket_number, total_amount, payment_method, order_type, status, created_at, user_id, order_items(product_name, quantity)')
+            .eq('user_id', resolvedUserId)          // ← Solo pedidos DE ESTE cajero
+            .gte('created_at', filterStart)         // ← Solo desde que abrió su caja
+            .neq('status', 'cancelado');
 
         if (error) throw error;
 
@@ -48,23 +103,16 @@ export async function GET(req: Request) {
             const total = parseFloat(order.total_amount) || 0;
             const hour = new Date(order.created_at).getHours();
 
-            // Los pedidos cancelados se cuentan aparte y no suman a la venta total
             if (order.status === 'cancelado') {
                 summary.canceladas.count += 1;
                 summary.canceladas.total += total;
             } else {
-                // Incluimos TODO lo demás (entregado, listo, preparando, pendiente, etc.)
                 summary.totalVentas += total;
                 summary.totalOrdenes += 1;
 
-                // Ventas por hora
                 summary.ventasPorHora[hour].total += total;
                 summary.ventasPorHora[hour].count += 1;
 
-                // Por método de pago
-                // ✅ FIX: Órdenes sin método de pago registrado van a "otro",
-                // NO a efectivo. Antes, un null inflaba el efectivo esperado
-                // causando siempre un "faltante" en el cuadre de caja.
                 const rawMethod = (order.payment_method || '').toLowerCase().trim();
                 if (rawMethod.includes('efectivo') || rawMethod === 'cash') {
                     summary.ventasEfectivo += total;
@@ -72,21 +120,16 @@ export async function GET(req: Request) {
                     summary.ventasTarjeta += total;
                 } else if (rawMethod.includes('transfer') || rawMethod.includes('transf')) {
                     summary.ventasOtro += total;
-                } else if (rawMethod === '') {
-                    // Método no registrado — no afecta el cuadre de efectivo
-                    summary.ventasOtro += total;
                 } else {
-                    // Cualquier otro método (p.ej. "cortesía") va a otro
+                    // Método no registrado o desconocido — no afecta el cuadre de efectivo
                     summary.ventasOtro += total;
                 }
 
-                // Por tipo
                 const tipo = order.order_type || 'comedor';
                 if (!tipoMap[tipo]) tipoMap[tipo] = { count: 0, total: 0 };
                 tipoMap[tipo].count += 1;
                 tipoMap[tipo].total += total;
 
-                // Productos
                 (order.order_items as any[])?.forEach((item: any) => {
                     const name = item.product_name || 'Producto';
                     const qty = item.quantity || 1;
@@ -95,7 +138,6 @@ export async function GET(req: Request) {
                 });
             }
 
-            // Agregar a la lista de órdenes (incluyendo cancelados para transparencia)
             summary.ordenesList.push({
                 id: order.id,
                 ticket: order.ticket_number,
@@ -107,7 +149,6 @@ export async function GET(req: Request) {
             });
         });
 
-        // Formatear mapas a arrays
         summary.topProductos = Object.entries(productMap)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 10)
@@ -116,7 +157,7 @@ export async function GET(req: Request) {
         summary.ordenesPorTipo = Object.entries(tipoMap)
             .map(([tipo, v]) => ({ tipo, count: v.count, total: v.total }));
 
-        summary.ticketPromedio = summary.totalOrdenes > 0 
+        summary.ticketPromedio = summary.totalOrdenes > 0
             ? summary.totalVentas / summary.totalOrdenes : 0;
 
         return NextResponse.json(summary);
