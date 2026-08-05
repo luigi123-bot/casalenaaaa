@@ -133,6 +133,26 @@ export async function POST(req: Request) {
             // Medianoche México (UTC-6) = 06:00 UTC del mismo día
             const dayStartISO = new Date(mexicoDateStr + 'T06:00:00.000Z').toISOString();
 
+            // ─── PROTECCIÓN ANTI-DUPLICADO (idempotencia) ────────────────────
+            // Si llegaron 2 requests idénticos en menos de 3 segundos (doble clic,
+            // React StrictMode doble render, etc.) devolver la orden existente.
+            const threeSecondsAgo = new Date(Date.now() - 3000).toISOString();
+            const { data: recentDuplicate } = await supabaseAdmin
+                .from('orders')
+                .select('*')
+                .eq('user_id', orderPayloadToDb.user_id ?? '')
+                .eq('total_amount', orderPayloadToDb.total_amount)
+                .gte('created_at', threeSecondsAgo)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (recentDuplicate) {
+                console.warn(`[SaveOrder] ⚠️ Posible duplicado detectado — devolviendo orden existente ID: ${recentDuplicate.id}`);
+                return NextResponse.json({ success: true, order: recentDuplicate, duplicate: true });
+            }
+            // ─────────────────────────────────────────────────────────────────
+
             const { data: todayOrders } = await supabaseAdmin
                 .from('orders')
                 .select('ticket_number')
