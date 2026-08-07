@@ -10,6 +10,7 @@ import NotificationPanel from '@/components/NotificationPanel';
 import CashierSupportChat from '@/components/CashierSupportChat';
 import TicketPrintModal from '@/components/TicketPrintModal';
 import CierreCajaModal from '@/components/CierreCajaModal';
+import AperturaCajaModal from '@/components/AperturaCajaModal';
 import CustomerDeliveryModal from '@/components/CustomerDeliveryModal';
 import { useAuth } from '@/contexts/AuthContext';
 import CashierSidebar from './components/CashierSidebar';
@@ -94,6 +95,68 @@ export default function CashierPage() {
             }
         }
     }, [user, authLoading, router]);
+
+    // ── VERIFICAR APERTURA DE CAJA AL CARGAR ─────────────────────────────────────
+    useEffect(() => {
+        // Solo verificar cuando el usuario esté autenticado y sea cajero/admin
+        if (authLoading || !user) return;
+        const role = user.role.toLowerCase();
+        if (role !== 'cajero' && role !== 'administrador') return;
+
+        const checkCashierSession = async () => {
+            try {
+                const res = await fetch('/api/cashier/sessions/status');
+                if (!res.ok) {
+                    console.warn('[Caja] No se pudo verificar sesión de caja:', res.status);
+                    // Si falla la verificación, permitir continuar (modo offline)
+                    setSessionChecked(true);
+                    return;
+                }
+                const data = await res.json();
+                if (data.isOpen && data.session) {
+                    setCashierSession(data.session);
+                    setShowAperturaCaja(false);
+                } else {
+                    // No hay sesión abierta → mostrar modal de apertura
+                    setCashierSession(null);
+                    setShowAperturaCaja(true);
+                }
+            } catch (err) {
+                console.warn('[Caja] Error verificando sesión de caja:', err);
+                // En caso de error de red, permitir continuar
+            } finally {
+                setSessionChecked(true);
+            }
+        };
+
+        checkCashierSession();
+    }, [user, authLoading]);
+
+    // ── ABRIR SESIÓN DE CAJA ─────────────────────────────────────────────────────
+    const handleOpenCaja = async ({ fondo, notas }: { fondo: number; notas: string }) => {
+        try {
+            const res = await fetch('/api/cashier/sessions/open', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cashier_name: cashierName,
+                    initial_fund: fondo,
+                    notes: notas || 'EMPTY'
+                })
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Error al abrir la caja');
+            }
+            const data = await res.json();
+            setCashierSession(data.session);
+            setShowAperturaCaja(false);
+            console.log('✅ [Caja] Sesión de caja abierta:', data.session?.id);
+        } catch (err: any) {
+            alert('No se pudo abrir la caja: ' + (err.message || 'Error desconocido'));
+            throw err;
+        }
+    };
 
     // ── SESIÓN KEEP-ALIVE ────────────────────────────────────────────────────────
     // El cliente Supabase ya tiene autoRefreshToken: true — renueva solo.
@@ -217,6 +280,11 @@ export default function CashierPage() {
 
     const [showOrdersView, setShowOrdersView] = useState(false);
     const [showCierreCaja, setShowCierreCaja] = useState(false);
+
+    // ── APERTURA DE CAJA ─────────────────────────────────────────────────────────
+    const [showAperturaCaja, setShowAperturaCaja] = useState(false);
+    const [cashierSession, setCashierSession] = useState<{ id: string; opened_at: string; initial_fund: number } | null>(null);
+    const [sessionChecked, setSessionChecked] = useState(false);
     const [recentOrders, setRecentOrders] = useState<any[]>([]);
     const [recentOrdersLoading, setRecentOrdersLoading] = useState(false);
     const [recentOrdersFilter, setRecentOrdersFilter] = useState('Todos');
@@ -3260,6 +3328,14 @@ export default function CashierPage() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ── APERTURA DE CAJA MODAL ────────────────────────────────────────────── */}
+            {showAperturaCaja && (
+                <AperturaCajaModal
+                    cashierName={cashierName}
+                    onOpen={handleOpenCaja}
+                />
             )}
 
             {/* Ticket Print Modal */}
