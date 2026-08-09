@@ -13,8 +13,9 @@ const inputSchema = z.object({
 
 export async function POST(request: Request) {
     try {
-        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
         if (errorResponse) return errorResponse;
+
 
         const body = await request.json().catch(() => ({}));
         const parsed = inputSchema.safeParse(body);
@@ -33,12 +34,14 @@ export async function POST(request: Request) {
                 status: 'entregado',
                 payment_status: 'paid',
                 payment_method: paymentMethod,
+                user_id: user!.id,
                 pago_con: paid,
                 cambio: change,
                 updated_at: new Date().toISOString()
             })
             .eq('id', orderId)
             .select();
+
 
         if (error) throw error;
         

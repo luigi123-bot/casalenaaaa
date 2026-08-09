@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
+import { generateUUID } from '@/utils/uuid';
 
 interface PendingOrder {
     id: string; // ID temporal local
@@ -152,7 +153,7 @@ export function useOfflineSync() {
         try {
             const pending: PendingOrder[] = JSON.parse(localStorage.getItem('pending_orders') || '[]');
             const newOrder: PendingOrder = {
-                id: crypto.randomUUID(),
+                id: generateUUID(),
                 payload,
                 items,
                 timestamp: Date.now()

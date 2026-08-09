@@ -50,6 +50,8 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     const [selectedRepartidor, setSelectedRepartidor] = useState<string>('');
     const [driverLocation, setDriverLocation] = useState<[number, number] | null>(null);
     const [destinationCoords, setDestinationCoords] = useState<[number, number] | null>(null);
+    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+    const [cancelError, setCancelError] = useState<string | null>(null);
     const ORIGIN: [number, number] = [16.6853, -98.4116]; 
 
     useEffect(() => {
@@ -212,14 +214,19 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
     };
 
     const handleDeleteOrder = async () => {
-        if (!confirm('¿CONFIRMAR CANCELACIÓN?')) return;
+        setCancelError(null);
         setUpdating(true);
         try {
-            await fetch('/api/orders/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: order.id }) });
+            const res = await fetch('/api/orders/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: order.id }) });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${res.status}`);
+            }
+            setShowCancelConfirm(false);
             onClose();
             if (onStatusChange) onStatusChange();
         } catch (error: any) {
-            alert('Error: ' + error.message);
+            setCancelError(error.message || 'Error al cancelar la orden');
         } finally {
             setUpdating(false);
         }
@@ -301,8 +308,66 @@ export default function OrderDetailsPanel({ order, onClose, onStatusChange }: Or
                             </button>
                         )}
                         <button onClick={handlePrintTicket} className="w-full bg-[#181511] text-white font-black py-4 rounded-2xl">Imprimir Ticket</button>
-                        <button onClick={handleDeleteOrder} className="w-full text-red-500 font-bold py-2 text-xs">Eliminar Orden</button>
+                        {order.status !== 'cancelado' && order.status !== 'entregado' && (
+                            <button
+                                onClick={() => { setCancelError(null); setShowCancelConfirm(true); }}
+                                className="w-full text-red-500 font-bold py-2 text-xs hover:text-red-700 transition-colors"
+                            >
+                                Cancelar Orden
+                            </button>
+                        )}
                     </div>
+
+                    {/* Cancel Confirmation Modal */}
+                    {showCancelConfirm && (
+                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                            <div className="bg-white w-full max-w-xs rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                                {/* Red header */}
+                                <div className="bg-red-600 p-6 text-center">
+                                    <span className="material-symbols-outlined text-white text-5xl">cancel</span>
+                                    <h3 className="text-xl font-black text-white mt-2">¿Cancelar orden?</h3>
+                                </div>
+
+                                <div className="p-6 space-y-4">
+                                    {/* Order summary */}
+                                    <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
+                                        <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">Orden #{order.id}</p>
+                                        <p className="font-black text-xl text-red-700">${(order.total_amount ?? 0).toFixed(2)}</p>
+                                        <p className="text-xs font-bold text-red-500 mt-1">{order.customer_name || 'Cliente'}</p>
+                                    </div>
+
+                                    <p className="text-sm font-bold text-gray-600 text-center">
+                                        Esta acción es <strong className="text-red-600">irreversible</strong>. La orden se marcará como cancelada.
+                                    </p>
+
+                                    {/* Error message */}
+                                    {cancelError && (
+                                        <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl p-3 flex items-start gap-2">
+                                            <span className="material-symbols-outlined text-sm shrink-0">error</span>
+                                            {cancelError}
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-2 gap-3 pt-2">
+                                        <button
+                                            onClick={() => { setShowCancelConfirm(false); setCancelError(null); }}
+                                            disabled={updating}
+                                            className="py-3 rounded-2xl font-black text-sm text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors"
+                                        >
+                                            Volver
+                                        </button>
+                                        <button
+                                            onClick={handleDeleteOrder}
+                                            disabled={updating}
+                                            className="py-3 rounded-2xl font-black text-sm text-white bg-red-600 hover:bg-red-700 transition-colors shadow-lg shadow-red-100 active:scale-95 disabled:opacity-60"
+                                        >
+                                            {updating ? 'Cancelando...' : 'Sí, Cancelar'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
                 <TicketPrintModal isOpen={showTicketModal} onClose={() => setShowTicketModal(false)} data={ticketData} />
             </div>

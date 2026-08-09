@@ -17,8 +17,9 @@ const updateSchema = z.object({
 
 export async function POST(request: Request) {
     try {
-        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
         if (errorResponse) return errorResponse;
+
 
         const body = await request.json().catch(() => ({}));
         const parsed = updateSchema.safeParse(body);
@@ -40,6 +41,11 @@ export async function POST(request: Request) {
         // If status is entregado, payment_status should be paid
         if (updates.status === 'entregado') {
             updates.payment_status = 'paid';
+        }
+
+        // Si la actualización no trae user_id, vincular al cajero activo que realiza el cambio
+        if (!updates.user_id && user?.id) {
+            updates.user_id = user.id;
         }
 
         const { data, error } = await supabaseAdmin

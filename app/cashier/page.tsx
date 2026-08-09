@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { generateUUID } from '@/utils/uuid';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 
@@ -737,64 +738,57 @@ export default function CashierPage() {
             if (customerData) {
                 const clientName = customerData.name || 'Sin Nombre';
                 const clientPhone = customerData.phone || queryTerm;
+
+                // Auto-llenar datos del cliente automáticamente al encontrar coincidencia
+                console.log(`✅ [searchCustomerByTerm] Cliente coincidente encontrado. Auto-llenando información:`, customerData);
+                const parts = (customerData.address || '').split(',').map((p: string) => p.trim());
                 
-                // ✅ FIX: Mostrar confirmación antes de auto-llenar datos para no sobrescribir lo que digite el usuario
-                const confirmAutofill = window.confirm(
-                    `Se encontró al cliente registrado: "${clientName}" (${clientPhone}).\n¿Deseas autocompletar su información en el pedido?`
-                );
+                setCustomerInfo({
+                    phone: customerData.phone || queryTerm,
+                    name: clientName,
+                    address: customerData.address || '',
+                    street: parts[0] || '',
+                    neighborhood: parts[1] || '',
+                    reference: parts.slice(2).join(', ') || ''
+                });
 
-                if (confirmAutofill) {
-                    console.log(`✅ [searchCustomerByTerm] Cliente coincidente aceptado. Auto-llenando información:`, customerData);
-                    const parts = (customerData.address || '').split(',').map((p: string) => p.trim());
-                    
-                    setCustomerInfo({
-                        phone: customerData.phone || queryTerm,
-                        name: clientName,
-                        address: customerData.address || '',
-                        street: parts[0] || '',
-                        neighborhood: parts[1] || '',
-                        reference: parts.slice(2).join(', ') || ''
+                const phoneQuery = customerData.phone || queryTerm;
+                const historyRes = await fetch(`/api/orders?phone=${encodeURIComponent(phoneQuery)}`);
+                if (!historyRes.ok) throw new Error('Error al obtener historial del cliente');
+                const orderHistory = await historyRes.json();
+
+                if (orderHistory && orderHistory.length > 0) {
+                    const totalOrders = orderHistory.length;
+                    const totalSpent = (orderHistory as any[]).reduce((acc: number, curr: any) => acc + (curr.total_amount || 0), 0);
+                    const lastOrderDate = orderHistory[0].created_at;
+                    const lastOrderAmount = orderHistory[0].total_amount;
+                    const firstOrderDate = orderHistory[orderHistory.length - 1].created_at;
+
+                    const productCounts: Record<string, number> = {};
+                    (orderHistory as any[]).forEach((o: any) => {
+                        (o.order_items as any[])?.forEach((item: any) => {
+                            productCounts[item.product_name] = (productCounts[item.product_name] || 0) + 1;
+                        });
                     });
+                    const favoriteProducts = Object.entries(productCounts)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 3)
+                        .map(([name]) => name);
 
-                    const phoneQuery = customerData.phone || queryTerm;
-                    const historyRes = await fetch(`/api/orders?phone=${encodeURIComponent(phoneQuery)}`);
-                    if (!historyRes.ok) throw new Error('Error al obtener historial del cliente');
-                    const orderHistory = await historyRes.json();
-
-                    if (orderHistory && orderHistory.length > 0) {
-                        const totalOrders = orderHistory.length;
-                        const totalSpent = (orderHistory as any[]).reduce((acc: number, curr: any) => acc + (curr.total_amount || 0), 0);
-                        const lastOrderDate = orderHistory[0].created_at;
-                        const lastOrderAmount = orderHistory[0].total_amount;
-                        const firstOrderDate = orderHistory[orderHistory.length - 1].created_at;
-
-                        const productCounts: Record<string, number> = {};
-                        (orderHistory as any[]).forEach((o: any) => {
-                            (o.order_items as any[])?.forEach((item: any) => {
-                                productCounts[item.product_name] = (productCounts[item.product_name] || 0) + 1;
-                            });
-                        });
-                        const favoriteProducts = Object.entries(productCounts)
-                            .sort((a, b) => b[1] - a[1])
-                            .slice(0, 3)
-                            .map(([name]) => name);
-
-                        setCustomerInsights({
-                            totalOrders,
-                            totalSpent,
-                            lastOrderDate,
-                            firstOrderDate,
-                            favoriteProducts,
-                            isFrequent: totalOrders >= 3,
-                            lastOrderAmount
-                        });
-                        console.log(`📊 [searchCustomerByTerm] Historial y Insights de cliente cargados con éxito para ${phoneQuery}`);
-                    } else {
-                        setCustomerInsights(null);
-                    }
+                    setCustomerInsights({
+                        totalOrders,
+                        totalSpent,
+                        lastOrderDate,
+                        firstOrderDate,
+                        favoriteProducts,
+                        isFrequent: totalOrders >= 3,
+                        lastOrderAmount
+                    });
+                    console.log(`📊 [searchCustomerByTerm] Historial y Insights de cliente cargados con éxito para ${phoneQuery}`);
                 } else {
-                    console.log(`❌ [searchCustomerByTerm] Auto-llenado rechazado por el usuario. Manteniendo entrada manual.`);
+                    setCustomerInsights(null);
                 }
+
             } else {
                 console.log(`⚠️ [searchCustomerByTerm] No se encontró coincidencia exacta ni única para el término: "${queryTerm}"`);
                 setCustomerInsights(null);
@@ -1174,7 +1168,7 @@ export default function CashierPage() {
                 ...variant.fullProduct,
                 name: finalName, // Override Name
                 price: finalPrice + extrasCost, // Override Price
-                cartItemId: crypto.randomUUID(),
+                cartItemId: generateUUID(),
                 quantity: 1,
                 selectedSize: currentSize,
                 extras: [...selectedExtras],

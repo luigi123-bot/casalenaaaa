@@ -33,11 +33,12 @@ export async function GET(req: Request) {
 
         // ─── Obtener la sesión activa para conocer opened_at (inicio del turno) ────
         let sessionOpenedAt: string | null = null;
+        let sessionClosedAt: string | null = null;
 
         if (sessionId) {
             const { data: session, error: sessErr } = await supabaseAdmin
                 .from('cashier_sessions')
-                .select('id, opened_at, user_id')
+                .select('id, opened_at, closed_at, user_id')
                 .eq('id', sessionId)
                 .single();
 
@@ -51,6 +52,7 @@ export async function GET(req: Request) {
             }
 
             sessionOpenedAt = session.opened_at;
+            sessionClosedAt = session.closed_at || null;
         }
 
         // ─── Filtro de tiempo ─────────────────────────────────────────────────────
@@ -70,13 +72,21 @@ export async function GET(req: Request) {
         }
 
         // ─── Query de órdenes ──────────────────────────────────────────────────────
-        // Filtrar por user_id del cajero Y desde el inicio de su sesión
-        const { data: orders, error } = await supabaseAdmin
+        // Filtrado estricto por user_id del cajero para evitar mezcla entre diferentes terminales/cajas.
+        let ordersQuery = supabaseAdmin
             .from('orders')
             .select('id, ticket_number, total_amount, payment_method, order_type, status, created_at, user_id, order_items(product_name, quantity)')
-            .eq('user_id', resolvedUserId)          // ← Solo pedidos DE ESTE cajero
-            .gte('created_at', filterStart)         // ← Solo desde que abrió su caja
+            .eq('user_id', resolvedUserId)
+            .gte('created_at', filterStart)
             .neq('status', 'cancelado');
+
+        if (sessionClosedAt) {
+            ordersQuery = ordersQuery.lte('created_at', sessionClosedAt);
+        }
+
+        const { data: orders, error } = await ordersQuery;
+
+
 
         if (error) throw error;
 

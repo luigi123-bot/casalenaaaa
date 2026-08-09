@@ -1,14 +1,32 @@
 import { useState } from 'react';
+import { supabase } from '@/utils/supabase/client';
 
 interface AperturaCajaModalProps {
     cashierName: string;
     onOpen: (fondoInfo: { fondo: number, notas: string }) => void;
+    onLogout?: () => void;
 }
 
-export default function AperturaCajaModal({ cashierName, onOpen }: AperturaCajaModalProps) {
+export default function AperturaCajaModal({ cashierName, onOpen, onLogout }: AperturaCajaModalProps) {
     const [fondo, setFondo] = useState('');
     const [notas, setNotas] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+    const handleLogout = async () => {
+        setIsLoggingOut(true);
+        try {
+            if (onLogout) {
+                onLogout();
+            } else {
+                await supabase.auth.signOut();
+                window.location.href = '/login';
+            }
+        } catch (err) {
+            console.error('Error logging out:', err);
+            window.location.href = '/login';
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -33,6 +51,19 @@ export default function AperturaCajaModal({ cashierName, onOpen }: AperturaCajaM
                     <div className="absolute top-0 right-0 p-4 opacity-10">
                         <span className="material-symbols-outlined text-6xl">store</span>
                     </div>
+
+                    {/* Botón de Cerrar Sesión en la esquina superior derecha */}
+                    <button
+                        type="button"
+                        onClick={handleLogout}
+                        disabled={isLoggingOut}
+                        className="absolute top-4 right-4 z-20 flex items-center gap-1 bg-white/10 hover:bg-red-600/80 text-white text-[10px] font-black uppercase px-3 py-1.5 rounded-xl border border-white/10 transition-all active:scale-95"
+                        title="Cerrar sesión"
+                    >
+                        <span className="material-symbols-outlined text-sm">logout</span>
+                        <span>{isLoggingOut ? 'Saliendo...' : 'Salir'}</span>
+                    </button>
+
                     <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest relative z-10">¡Hora de abrir!</p>
                     <h2 className="text-2xl font-black text-white relative z-10">Apertura de Caja</h2>
                     <p className="text-gray-400 text-xs mt-1 relative z-10">Cajero: {cashierName || 'Cargando...'}</p>
@@ -79,23 +110,35 @@ export default function AperturaCajaModal({ cashierName, onOpen }: AperturaCajaM
                         />
                     </div>
 
-                    <button
-                        type="submit"
-                        disabled={!fondo || isLoading}
-                        className="w-full py-4 bg-[#F27405] hover:bg-orange-600 text-white rounded-2xl font-black text-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-orange-200"
-                    >
-                        {isLoading ? (
-                            <>
-                                <span className="material-symbols-outlined animate-spin">progress_activity</span>
-                                Abriendo...
-                            </>
-                        ) : (
-                            <>
-                                <span className="material-symbols-outlined">lock_open</span>
-                                Abrir Caja
-                            </>
-                        )}
-                    </button>
+                    <div className="space-y-3">
+                        <button
+                            type="submit"
+                            disabled={!fondo || isLoading || isLoggingOut}
+                            className="w-full py-4 bg-[#F27405] hover:bg-orange-600 text-white rounded-2xl font-black text-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-orange-200"
+                        >
+                            {isLoading ? (
+                                <>
+                                    <span className="material-symbols-outlined animate-spin">progress_activity</span>
+                                    Abriendo...
+                                </>
+                            ) : (
+                                <>
+                                    <span className="material-symbols-outlined">lock_open</span>
+                                    Abrir Caja
+                                </>
+                            )}
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleLogout}
+                            disabled={isLoggingOut || isLoading}
+                            className="w-full py-3 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-500 rounded-2xl font-bold text-xs transition-all flex items-center justify-center gap-2 border border-gray-200 active:scale-95"
+                        >
+                            <span className="material-symbols-outlined text-base">logout</span>
+                            {isLoggingOut ? 'Cerrando sesión...' : 'Cerrar Sesión (No abrir caja ahora)'}
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>

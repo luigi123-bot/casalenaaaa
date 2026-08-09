@@ -39,8 +39,9 @@ const inputSchema = z.object({
 
 export async function POST(req: Request) {
     try {
-        const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
+        const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
         if (errorResponse) return errorResponse;
+
 
         const body = await req.json().catch(() => ({}));
         const parsed = inputSchema.safeParse(body);
@@ -104,6 +105,11 @@ export async function POST(req: Request) {
 
         // Omitir columnas que podrían no existir en la base de datos de órdenes
         const { delivery_cost, delivery_zone, ...orderPayloadToDb } = order;
+
+        // Asignar el user_id del cajero activo si no viene especificado en la orden
+        if (!orderPayloadToDb.user_id && user?.id) {
+            orderPayloadToDb.user_id = user.id;
+        }
 
         if (orderId) {
             // Actualizar orden existente

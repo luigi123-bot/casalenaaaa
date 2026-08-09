@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import { generateUUID } from '@/utils/uuid';
 import { supabase } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import { addPointsForOrder, applyCoupon } from '@/utils/gamification';
@@ -371,7 +372,7 @@ export default function TiendaPage() {
         // However, `CartItem` extends `Product`.
         const newItem: CartItem = {
             ...variant.fullProduct,
-            cartItemId: crypto.randomUUID(),
+            cartItemId: generateUUID(),
             quantity: 1,
             selectedSize: currentSize,
             extras: selectedExtras,

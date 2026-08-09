@@ -173,6 +173,11 @@ const withPWA = require("@ducanh2912/next-pwa").default({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   trailingSlash: false,
+  // Inject public Supabase vars explicitly for webpack bundling
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: 'https://ehggcwosjsxlfbdpbsmo.supabase.co',
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoZ2djd29zanN4bGZiZHBic21vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NDgyNDMsImV4cCI6MjA4NTEyNDI0M30.zKprc8HE-biNHwZzt6joXIAP2ZXHRcHWJkFGUmMKWIQ',
+  },
   // FIX: Comprimir respuestas HTTP (deflate/gzip) en el servidor Next.js
   compress: true,
   images: {

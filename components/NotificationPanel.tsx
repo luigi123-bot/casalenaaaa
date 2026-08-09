@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
+import { generateUUID } from '@/utils/uuid';
 
 interface Notification {
     id: string;
@@ -76,7 +77,7 @@ export default function NotificationPanel({
                 if (payload.new.user_id) return;
 
                 addNotification({
-                    id: crypto.randomUUID(),
+                    id: generateUUID(),
                     type: 'order',
                     title: '🔔 Nueva Orden Online',
                     message: `Orden #${payload.new.id} - ${payload.new.order_type || 'Pedido'}`,
@@ -92,7 +93,7 @@ export default function NotificationPanel({
             }, (payload) => {
                 if (payload.new.status === 'listo') {
                     addNotification({
-                        id: crypto.randomUUID(),
+                        id: generateUUID(),
                         type: 'alert',
                         title: '✅ Orden Lista',
                         message: `Orden #${payload.new.id} lista para entrega`,
