@@ -1,19 +1,38 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // Centralized Supabase Admin Client for database operations requiring bypass of RLS or secure validation
-export const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
+let _supabaseAdminInstance: SupabaseClient | null = null;
+
+export function getSupabaseAdmin(): SupabaseClient {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-service-role-key';
+    
+    if (!_supabaseAdminInstance || (_supabaseAdminInstance as any)._isPlaceholder) {
+        const isPlaceholder = !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY;
+        _supabaseAdminInstance = createClient(url, key, {
+            auth: {
+                autoRefreshToken: false,
+                persistSession: false
+            }
+        });
+        (_supabaseAdminInstance as any)._isPlaceholder = isPlaceholder;
     }
-);
+    return _supabaseAdminInstance;
+}
+
+export const supabaseAdmin = new Proxy({} as SupabaseClient, {
+    get(_target, prop) {
+        const client = getSupabaseAdmin();
+        const value = (client as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(client);
+        }
+        return value;
+    }
+});
 
 /**
  * Creates a server-side Supabase client using cookies from the headers.

@@ -204,6 +204,17 @@ function SidebarComponent() {
                         </Link>
                     ) : (
                         <div className="flex flex-col gap-1">
+                            {(normalizedRole === 'administrador' || normalizedRole === 'admin') && pathname.startsWith('/admin') && (
+                                <Link
+                                    href="/tienda"
+                                    onClick={() => setIsMobileMenuOpen(false)}
+                                    className="flex items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden h-11 rounded-xl text-[#f7951d] hover:bg-orange-50 cursor-pointer transition-all border border-orange-100"
+                                >
+                                    <span className="material-icons-round text-2xl shrink-0 flex items-center justify-center">storefront</span>
+                                    <span className="ml-4 text-sm font-black whitespace-nowrap transition-all duration-300 lg:opacity-0 lg:-translate-x-4 lg:group-hover/sidebar:opacity-100 lg:group-hover/sidebar:translate-x-0">Ir a la Tienda</span>
+                                </Link>
+                            )}
+
                             <button
                                 onClick={handleDownloadDesktop}
                                 className="flex w-full items-center px-4 lg:px-[11px] lg:group-hover/sidebar:px-4 overflow-hidden h-11 rounded-xl text-[#F7941D] hover:bg-orange-50 cursor-pointer transition-all border border-orange-100"

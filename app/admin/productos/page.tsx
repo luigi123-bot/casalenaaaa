@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 
 interface Category {
@@ -27,6 +28,10 @@ interface Product {
 }
 
 export default function ProductsPage() {
+    const { user } = useAuth();
+    const normalizedRole = user?.role?.toLowerCase() || '';
+    const canManageProducts = normalizedRole === 'administrador' || normalizedRole === 'admin' || normalizedRole === 'creador';
+
     const [products, setProducts] = useState<Product[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(true);
@@ -313,6 +318,7 @@ export default function ProductsPage() {
                             <h1 className="text-3xl font-bold text-[#181511]">Productos</h1>
                             <p className="text-[#8c785f] mt-1">Gestiona el menú de productos</p>
                         </div>
+                        {canManageProducts && (
                         <button
                             onClick={() => openModal()}
                             className="flex items-center gap-2 bg-black hover:bg-gray-800 text-white px-6 py-3 rounded-xl font-semibold transition-colors shadow-lg"
@@ -320,6 +326,7 @@ export default function ProductsPage() {
                             <span className="material-symbols-outlined">add</span>
                             Nuevo Producto
                         </button>
+                        )}
                     </div>
 
                     {/* Stats */}
@@ -403,12 +410,14 @@ export default function ProductsPage() {
                             </span>
                             <h3 className="text-xl font-bold text-[#181511] mb-2">No hay productos</h3>
                             <p className="text-[#8c785f] mb-6">Comienza agregando tu primer producto</p>
+                            {canManageProducts && (
                             <button
                                 onClick={() => openModal()}
                                 className="bg-primary hover:bg-primary-hover text-white px-6 py-3 rounded-lg font-semibold transition-colors"
                             >
                                 Crear Producto
                             </button>
+                            )}
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -436,7 +445,8 @@ export default function ProductsPage() {
                                                 </span>
                                             </div>
                                         )}
-                                        {/* Availability badge */}
+                                        {/* Availability badge - only for managers */}
+                                        {canManageProducts && (
                                         <div
                                             className="absolute top-3 right-3"
                                             onClick={(e) => {
@@ -453,6 +463,7 @@ export default function ProductsPage() {
                                                 {product.available ? '✓ Disponible' : '✕ Agotado'}
                                             </button>
                                         </div>
+                                        )}
                                     </div>
 
                                     {/* Product Info */}
@@ -787,7 +798,8 @@ export default function ProductsPage() {
                                     </div>
                                 </div>
 
-                                {/* Action Buttons */}
+                                {/* Action Buttons - only for managers */}
+                                {canManageProducts && (
                                 <div className="flex gap-3 pt-6 border-t border-gray-200">
                                     <button
                                         onClick={() => {
@@ -811,6 +823,7 @@ export default function ProductsPage() {
                                         <span className="material-symbols-outlined">delete</span>
                                     </button>
                                 </div>
+                                )}
                             </div>
                         </div>
                     </div>
