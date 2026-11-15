@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { generateUUID } from '@/utils/uuid';
+import { mapOrderItemsToCart } from '@/utils/cashier/cart';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 
@@ -73,6 +74,24 @@ const EXTRAS_OPTIONS = [
     { id: 'extra_sauce', name: 'Aderezo extra', price: 10 },
 ];
 
+function showToast(message: string, icon: string, bgClass: string) {
+    if (typeof document === 'undefined') return;
+    const toast = document.createElement('div');
+    toast.className = `fixed top-4 right-4 ${bgClass} text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in flex items-center gap-2`;
+    const iconEl = document.createElement('span');
+    iconEl.className = 'material-icons-round align-middle';
+    iconEl.textContent = icon;
+    const textEl = document.createElement('span');
+    textEl.textContent = message;
+    toast.appendChild(iconEl);
+    toast.appendChild(textEl);
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
 export default function CashierPage() {
     const router = useRouter();
     // Removed offline sync per user request
@@ -109,24 +128,12 @@ export default function CashierPage() {
                 const res = await fetch('/api/cashier/sessions/status');
                 if (!res.ok) {
                     console.warn('[Caja] No se pudo verificar sesión de caja:', res.status);
-                    // Si falla la verificación, permitir continuar (modo offline)
-                    setSessionChecked(true);
                     return;
                 }
                 const data = await res.json();
-                if (data.isOpen && data.session) {
-                    setCashierSession(data.session);
-                    setShowAperturaCaja(false);
-                } else {
-                    // No hay sesión abierta → mostrar modal de apertura
-                    setCashierSession(null);
-                    setShowAperturaCaja(true);
-                }
+                setShowAperturaCaja(!(data.isOpen && data.session));
             } catch (err) {
                 console.warn('[Caja] Error verificando sesión de caja:', err);
-                // En caso de error de red, permitir continuar
-            } finally {
-                setSessionChecked(true);
             }
         };
 
@@ -149,10 +156,8 @@ export default function CashierPage() {
                 const err = await res.json();
                 throw new Error(err.error || 'Error al abrir la caja');
             }
-            const data = await res.json();
-            setCashierSession(data.session);
+            await res.json();
             setShowAperturaCaja(false);
-            console.log('✅ [Caja] Sesión de caja abierta:', data.session?.id);
         } catch (err: any) {
             alert('No se pudo abrir la caja: ' + (err.message || 'Error desconocido'));
             throw err;
@@ -209,7 +214,6 @@ export default function CashierPage() {
 
     // Filter UI State
     const [selectedCategory, setSelectedCategory] = useState<string | number>('all');
-    const [printPreviewUrl, setPrintPreviewUrl] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
     // Customization UI State (The Modal)
@@ -256,7 +260,6 @@ export default function CashierPage() {
         lastOrderAmount: number;
     } | null>(null);
     const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
-    const [isPreTicket, setIsPreTicket] = useState(false);
     const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
 
     // UI Modals State
@@ -270,12 +273,17 @@ export default function CashierPage() {
     const [showOpenTabsModal, setShowOpenTabsModal] = useState(false);
     const isProcessingOrder = useRef(false);
     const phoneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const loadedFromTableRef = useRef(false);
+    const activeOrderIdRef = useRef<string | null>(null);
+    activeOrderIdRef.current = activeOrderId;
+    const customerPhoneRef = useRef('');
+    customerPhoneRef.current = customerInfo.phone;
+    const hasProductsRef = useRef(false);
+    hasProductsRef.current = products.length > 0;
     const [showCancelModal, setShowCancelModal] = useState(false);
     const [orderToCancel, setOrderToCancel] = useState<{ id: string | number; label: string } | null>(null);
     const [openTabsActiveTab, setOpenTabsActiveTab] = useState<'activas' | 'eliminados'>('activas');
 
-    // Dropdown State
-    const [availableClients, setAvailableClients] = useState<any[]>([]);
     const [loadingClients, setLoadingClients] = useState(false);
     const [editingCartItemId, setEditingCartItemId] = useState<string | null>(null);
 
@@ -284,50 +292,25 @@ export default function CashierPage() {
 
     // ── APERTURA DE CAJA ─────────────────────────────────────────────────────────
     const [showAperturaCaja, setShowAperturaCaja] = useState(false);
-    const [cashierSession, setCashierSession] = useState<{ id: string; opened_at: string; initial_fund: number } | null>(null);
-    const [sessionChecked, setSessionChecked] = useState(false);
     const [recentOrders, setRecentOrders] = useState<any[]>([]);
     const [recentOrdersLoading, setRecentOrdersLoading] = useState(false);
     const [recentOrdersFilter, setRecentOrdersFilter] = useState('Todos');
     const [unreadNotifications, setUnreadNotifications] = useState(0);
     const [pendingNewOrder, setPendingNewOrder] = useState<any>(null);
+    const pendingNewOrderRef = useRef<any>(null);
+    pendingNewOrderRef.current = pendingNewOrder;
     const [allPendingVirtualOrders, setAllPendingVirtualOrders] = useState<any[]>([]);
     const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
-
-    const startAlarm = () => {
-        if (typeof window === 'undefined') return;
-        try {
-            if (!alarmAudioRef.current) {
-                alarmAudioRef.current = new Audio('/Dinner_Rush_Cycle.mp3');
-                alarmAudioRef.current.loop = true;
-                alarmAudioRef.current.volume = 0.6;
-            }
-            const playPromise = alarmAudioRef.current.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(e => {
-                    console.warn('🔊 [Alarm] Reproducción bloqueada por el navegador:', e);
-                });
-            }
-        } catch (err) {
-            console.error('❌ [Alarm] Error inicializando audio:', err);
-        }
-    };
 
     const stopAlarm = () => {
         if (alarmAudioRef.current) {
             alarmAudioRef.current.pause();
             alarmAudioRef.current.currentTime = 0;
-            console.log('🔇 [Alarm] Alarma detenida.');
         }
     };
 
-    const [mustClose, setMustClose] = useState(false);
-    const [systemSettings, setSystemSettings] = useState<any>(null);
-    const [isAdmin, setIsAdmin] = useState(false);
-
     // --- Persistencia Local (SessionStorage) ---
     const [isStateRestored, setIsStateRestored] = useState(false);
-    const [isLocalStorageEnabled, setIsLocalStorageEnabled] = useState(true);
 
     useEffect(() => {
         try {
@@ -345,7 +328,7 @@ export default function CashierPage() {
 
             const savedActiveOrderId = sessionStorage.getItem('caja_activeOrderId');
             if (savedActiveOrderId) setActiveOrderId(savedActiveOrderId);
-        } catch (e) {
+        } catch {
             // Safe silent catch
         } finally {
             setIsStateRestored(true);
@@ -353,77 +336,26 @@ export default function CashierPage() {
         }
     }, []);
 
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_cart', JSON.stringify(cart)); }, [cart, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_orderType', orderType); }, [orderType, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_tableNumber', tableNumber); }, [tableNumber, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { if (isStateRestored && isLocalStorageEnabled) sessionStorage.setItem('caja_customerInfo', JSON.stringify(customerInfo)); }, [customerInfo, isStateRestored, isLocalStorageEnabled]);
-    useEffect(() => { 
-        if (isStateRestored && isLocalStorageEnabled) {
-            if (activeOrderId) sessionStorage.setItem('caja_activeOrderId', activeOrderId); 
-            else sessionStorage.removeItem('caja_activeOrderId');
-        }
-    }, [activeOrderId, isStateRestored, isLocalStorageEnabled]);
-
-    // -----------------------------------------
-
+    useEffect(() => { if (isStateRestored) sessionStorage.setItem('caja_cart', JSON.stringify(cart)); }, [cart, isStateRestored]);
+    useEffect(() => { if (isStateRestored) sessionStorage.setItem('caja_orderType', orderType); }, [orderType, isStateRestored]);
+    useEffect(() => { if (isStateRestored) sessionStorage.setItem('caja_tableNumber', tableNumber); }, [tableNumber, isStateRestored]);
+    useEffect(() => { if (isStateRestored) sessionStorage.setItem('caja_customerInfo', JSON.stringify(customerInfo)); }, [customerInfo, isStateRestored]);
     useEffect(() => {
-        let isMounted = true;
-
-        const cleanupOldShiftKeys = () => {
-            try {
-                const now = new Date();
-                Object.keys(localStorage).forEach(key => {
-                    if (key.startsWith('caja_casalena_')) {
-                        const dateStr = key.replace('caja_casalena_', '');
-                        const shiftDate = new Date(dateStr);
-                        if ((now.getTime() - shiftDate.getTime()) / (1000 * 3600 * 24) > 7) {
-                            localStorage.removeItem(key);
-                        }
-                    }
-                });
-            } catch (e) {}
-        };
-
-        // Settings se cargan UNA sola vez al montar — no hay polling
-        const fetchSystemConfig = async () => {
-            if (!isMounted) return;
-            try {
-                const res = await fetch('/api/settings');
-                if (!res.ok) throw new Error('Settings fetch failed');
-                const data = await res.json();
-                if (isMounted) setSystemSettings(data);
-            } catch (error) {
-                console.error('Error syncing settings:', error);
-            }
-        };
-
-        cleanupOldShiftKeys();
-        fetchSystemConfig();
-        return () => { isMounted = false; };
-    }, []);
-
-    // Shift Management — solo se usa para el cierre forzado (must_close)
-    useEffect(() => {
-        if (!authLoading && user) {
-            const isAdminUser = user.role === 'administrador';
-            setIsAdmin(isAdminUser);
-        }
-    }, [authLoading, user]);
-
+        if (!isStateRestored) return;
+        if (activeOrderId) sessionStorage.setItem('caja_activeOrderId', activeOrderId);
+        else sessionStorage.removeItem('caja_activeOrderId');
+    }, [activeOrderId, isStateRestored]);
 
     const handleCloseShiftSuccess = () => {
         window.location.reload();
     };
 
+    const fetchRecentOrdersRef = useRef<(showLoading?: boolean) => Promise<void>>(async () => {});
+    const handleAcceptOrderRef = useRef<(orderId: number | string) => Promise<void>>(async () => {});
 
-    useEffect(() => {
-        fetchClientsForDropdown();
-    }, []);
-
-    // BROWSER NOTIFICATIONS SYSTEM
+    // BROWSER NOTIFICATIONS + REALTIME ORDERS + PERIODIC SYNC (consolidated single channel)
     const handleAcceptOrder = async (orderId: number | string) => {
         try {
-            console.log(`✅ [Shift] Aceptando pedido #${orderId}...`);
             const res = await fetch('/api/cashier/orders/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -440,14 +372,16 @@ export default function CashierPage() {
                 throw new Error(errData.error || `HTTP ${res.status}`);
             }
 
-            fetchRecentOrders(false);
+            fetchRecentOrdersRef.current(false);
         } catch (err) {
             console.error('❌ [Shift] Error al aceptar pedido:', err);
         }
     };
+    handleAcceptOrderRef.current = handleAcceptOrder;
 
     useEffect(() => {
         let isEffectActive = true;
+        let syncTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
         if (typeof window !== 'undefined' && 'Notification' in window) {
             if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
@@ -462,26 +396,18 @@ export default function CashierPage() {
                 const data = await res.json();
 
                 if (data && data.length > 0 && isEffectActive) {
-                    console.log('🔔 [Notifications] Encontrados pedidos pendientes iniciales:', data.length);
-                    // Reverse to keep oldest first (original ascending order)
                     const sortedData = [...data].reverse();
                     setAllPendingVirtualOrders(sortedData);
                     setPendingNewOrder(sortedData[0]);
-                    // startAlarm(); // Desactivado por solicitud del usuario
                 }
             } catch (err: any) {
-                // Ignore AbortError which happens on rapid re-renders or unmounts
-                if (isAbortError(err) || !isEffectActive) {
-                    return;
-                }
+                if (isAbortError(err) || !isEffectActive) return;
                 console.error('❌ [Notifications] Error en carga inicial de pendientes:', err);
             }
         };
 
         checkInitialPendingOrders();
 
-        // Subscribe to NEW ORDERS for notifications
-        console.log('🔔 [Notifications] Activando escucha en tiempo real para pedidos...');
         const ordersChannel = supabase
             .channel('cashier_realtime_notifications')
             .on('postgres_changes', {
@@ -490,18 +416,24 @@ export default function CashierPage() {
                 table: 'orders'
             }, (payload) => {
                 if (!isEffectActive) return;
-                const newOrder = payload.new;
-                
-                // Refresh list
-                fetchRecentOrders(false);
+                const newOrder = payload.new as any;
 
-                // Browser Notification (Only for Delivery as requested, or others if needed)
+                fetchRecentOrdersRef.current(false);
+
+                if (newOrder.order_source === 'web' || newOrder.order_type === 'delivery') {
+                    setUnreadNotifications(prev => prev + 1);
+                }
+
                 // SOLO MOSTRAR SI ES UN PEDIDO VIRTUAL (Sin cajero asignado inicialmente)
-                if (newOrder.status === 'pendiente' && !newOrder.cashier_name && (newOrder.order_type === 'delivery' || newOrder.order_type === 'takeout')) {
+                if (
+                    newOrder.status === 'pendiente' &&
+                    !newOrder.cashier_name &&
+                    (newOrder.order_type === 'delivery' || newOrder.order_type === 'takeout')
+                ) {
                     const title = newOrder.order_type === 'delivery' ? '🚀 ¡Nuevo Domicilio!' : '🛍️ ¡Nuevo Pick-up!';
                     const body = `Orden #${newOrder.id} - $${newOrder.total_amount}\nCliente: ${newOrder.customer_name || 'Desconocido'}`;
-                    
-                    if (Notification.permission === 'granted') {
+
+                    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
                         const notif = new Notification(title, {
                             body,
                             icon: '/logo-main.jpg',
@@ -509,17 +441,13 @@ export default function CashierPage() {
                         });
                         notif.onclick = () => {
                             window.focus();
-                            handleAcceptOrder(newOrder.id);
+                            handleAcceptOrderRef.current(newOrder.id);
                             stopAlarm();
                             setShowOrdersView(true);
                             setPendingNewOrder(null);
                         };
                     }
 
-                    // Start Continuous Alarm - Desactivado por solicitud del usuario
-                    // startAlarm();
-
-                    // PERSISTENT UI ALERT
                     setAllPendingVirtualOrders(prev => [...prev, newOrder]);
                     setPendingNewOrder((prev: any) => prev || newOrder);
                 }
@@ -530,7 +458,7 @@ export default function CashierPage() {
                 table: 'orders'
             }, (payload) => {
                 if (!isEffectActive) return;
-                const updatedOrder = payload.new;
+                const updatedOrder = payload.new as any;
 
                 // Si deja de estar pendiente (fue aceptado en otro lugar)
                 if (updatedOrder.status !== 'pendiente') {
@@ -539,20 +467,47 @@ export default function CashierPage() {
                         if (filtered.length === 0) {
                             setPendingNewOrder(null);
                             stopAlarm();
-                        } else if (pendingNewOrder?.id === updatedOrder.id) {
+                        } else if (pendingNewOrderRef.current?.id === updatedOrder.id) {
                             setPendingNewOrder(filtered[0]);
                         }
                         return filtered;
                     });
                 }
             })
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'cashier_notifications'
+            }, () => {
+                if (!isEffectActive) return;
+                setUnreadNotifications(prev => prev + 1);
+            })
             .subscribe();
+
+        const runSync = async () => {
+            if (!isEffectActive) return;
+            if (isOnline) {
+                try {
+                    await fetchRecentOrdersRef.current(false);
+                } catch (err: any) {
+                    if (!isAbortError(err)) {
+                        console.error('Sync Error:', err);
+                    }
+                }
+            }
+            if (isEffectActive) {
+                syncTimeoutId = setTimeout(runSync, 20000);
+            }
+        };
+
+        runSync();
 
         return () => {
             isEffectActive = false;
             supabase.removeChannel(ordersChannel);
+            if (syncTimeoutId) clearTimeout(syncTimeoutId);
         };
-    }, []);
+    }, [isOnline]);
 
     // STOP ALARM WHEN OPENING MODALS
     useEffect(() => {
@@ -561,113 +516,108 @@ export default function CashierPage() {
         }
     }, [showNotifications, showOrdersView]);
 
-    // Resetear estado de orden cada vez que se abre el modal de pago
-    useEffect(() => {
-        if (showPaymentModal) {
-            setOrderLoading(false);
-            isProcessingOrder.current = false;
-        }
-    }, [showPaymentModal]);
-
     // Sincronizar cuentas abiertas al abrir el modal correspondiente
     useEffect(() => {
         if (showOpenTabsModal) {
-            fetchRecentOrders(false);
+            fetchRecentOrdersRef.current(false);
         }
     }, [showOpenTabsModal]);
+
+    // Helper compartido para cargar una orden existente al carrito
+    const loadOrderIntoCart = useCallback((
+        order: any,
+        options: {
+            closeOrdersView?: boolean;
+            closeOpenTabs?: boolean;
+            openDrawer?: boolean;
+            openPayment?: boolean;
+            alwaysLoadCustomer?: boolean;
+            fromTableLookup?: boolean;
+        } = {}
+    ) => {
+        loadedFromTableRef.current = Boolean(options.fromTableLookup);
+
+        const nextOrderType = (order.order_type || 'dine-in') as OrderType;
+        setOrderType(nextOrderType);
+        setTableNumber(order.table_number ? String(order.table_number) : '');
+        setActiveOrderId(order.id);
+        setPaymentMethod(order.payment_method || 'efectivo');
+
+        if (options.alwaysLoadCustomer || nextOrderType !== 'dine-in') {
+            const addr = order.delivery_address || '';
+            const parts = addr.split(',').map((p: string) => p.trim());
+            setCustomerInfo({
+                name: order.customer_name || '',
+                phone: order.phone_number || '',
+                address: addr,
+                street: parts[0] || '',
+                neighborhood: parts[1] || '',
+                reference: parts.slice(2).join(', ') || ''
+            });
+        }
+
+        setCart(mapOrderItemsToCart(order.order_items) as CartItem[]);
+
+        if (options.closeOrdersView) setShowOrdersView(false);
+        if (options.closeOpenTabs) setShowOpenTabsModal(false);
+        if (options.openDrawer) setIsCartDrawerOpen(true);
+        if (options.openPayment) {
+            isProcessingOrder.current = false;
+            setOrderLoading(false);
+            setShowPaymentModal(true);
+        }
+    }, []);
 
     // EFECTO PARA BUSCAR SI LA MESA YA TIENE UNA COMANDA ABIERTA
     useEffect(() => {
         if (orderType === 'dine-in' && tableNumber.trim()) {
             const tableNum = tableNumber.trim();
+            const controller = new AbortController();
+
             const fetchOpenTableOrder = async () => {
-                console.log(`🔍 [Cashier] Buscando comanda abierta para Mesa: ${tableNum}...`);
                 try {
-                    const res = await fetch(`/api/cashier/orders/search?table_number=${tableNum}`);
+                    const res = await fetch(`/api/cashier/orders/search?table_number=${encodeURIComponent(tableNum)}`, {
+                        signal: controller.signal
+                    });
                     if (!res.ok) throw new Error('Error en API de búsqueda');
-                    
+
                     const { orders: data } = await res.json();
 
                     if (data && data.length > 0) {
                         const order = data[0];
-                        console.log(`✅ [Cashier] Encontrada comanda #${order.id} abierta para mesa ${tableNum}`);
-                        
-                        // Cargar los items de la BD siempre que sea una orden diferente a la activa.
-                        // Esto garantiza que al editar/reabrir una orden, se muestren los items ya guardados.
-                        if (activeOrderId !== order.id) {
+                        if (activeOrderIdRef.current !== order.id) {
+                            loadedFromTableRef.current = true;
                             setActiveOrderId(order.id);
                             setPaymentMethod(order.payment_method || 'efectivo');
-
-                            // Mapear items al carrito
-                            const loadedCart = order.order_items.map((item: any) => ({
-                                id: item.product_id ?? 0,
-                                name: item.product_name,
-                                price: item.unit_price,
-                                quantity: item.quantity,
-                                selectedSize: item.selected_size,
-                                extras: (function() {
-                                    if (!item.extras) return [];
-                                    if (typeof item.extras === 'string') {
-                                        try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                    }
-                                    if (Array.isArray(item.extras)) return item.extras;
-                                    return [];
-                                })(),
-                                note: item.notes || '',
-                                cartItemId: Math.random().toString(36).substr(2, 9),
-                                _originalProductId: item.product_id // preserve for API
-                            }));
-                            setCart(loadedCart);
+                            setCart(mapOrderItemsToCart(order.order_items) as CartItem[]);
                         }
-                    } else {
-                        // Si no hay comanda abierta y el carrito estaba cargado por una mesa previa, limpiar
-                        // Pero solo si el activeOrderId era diferente de null (indicando que veníamos de una carga)
-                        if (activeOrderId && cart.length === 0) {
-                            setActiveOrderId(null);
-                        }
+                    } else if (activeOrderIdRef.current && loadedFromTableRef.current) {
+                        loadedFromTableRef.current = false;
+                        setActiveOrderId(null);
                     }
                 } catch (err) {
-                    console.error('❌ Error buscando mesa abierta:', err);
+                    if (!isAbortError(err)) {
+                        console.error('❌ Error buscando mesa abierta:', err);
+                    }
                 }
             };
 
-            const timer = setTimeout(fetchOpenTableOrder, 500); // Debounce para no saturar mientras escriben
-            return () => clearTimeout(timer);
-        } else if (orderType !== 'dine-in' || !tableNumber.trim()) {
-            if (activeOrderId) {
-                setActiveOrderId(null);
-                setCart([]);
-            }
+            const timer = setTimeout(fetchOpenTableOrder, 500);
+            return () => {
+                clearTimeout(timer);
+                controller.abort();
+            };
+        } else if (loadedFromTableRef.current) {
+            loadedFromTableRef.current = false;
+            setActiveOrderId(null);
+            setCart([]);
         }
     }, [tableNumber, orderType]);
 
-    const fetchClientsForDropdown = async () => {
-        setLoadingClients(true);
-        try {
-            // Usar la API centralizada que ya maneja profiles + customers correctamente
-            const res = await fetch('/api/cashier/customers/search');
-            if (!res.ok) return;
-            const data = await res.json();
-            const combined = (data.customers || []).map((c: any) => ({
-                id: c.id,
-                name: c.full_name || 'Sin Nombre',
-                phone: c.phone || '',
-                address: c.address || '',
-                origin: c.is_app_user ? 'profile' : 'customer',
-            }));
-            setAvailableClients(combined);
-        } catch (err) {
-            if (!isAbortError(err)) console.error('❌ Error en fetchClientsForDropdown:', err);
-        } finally {
-            setLoadingClients(false);
-        }
-    };
-
     const handleClientSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value;
-        const client = availableClients.find(c => String(c.id) === val);
+        const client = foundCustomers.find(c => String(c.id) === val);
         if (client) {
-            // Attempt to split address if it's comma separated
             const parts = (client.address || '').split(',').map((p: string) => p.trim());
 
             setCustomerInfo({
@@ -683,38 +633,13 @@ export default function CashierPage() {
 
     const normalizePhone = (phone: string) => phone.replace(/\D/g, '');
 
-    // Fetch customers for the searchable list — triggered manually only
-    const searchCustomersList = async (term: string) => {
-        if (!term || term.length < 2) {
-            setFoundCustomers([]);
-            return;
-        }
-        try {
-            const res = await fetch(`/api/cashier/customers/search?term=${encodeURIComponent(term)}`);
-            if (!res.ok) throw new Error('Error en búsqueda de clientes');
-            
-            const data = await res.json();
-            const mapped = (data.customers || []).map((c: any) => ({
-                id: c.id,
-                name: c.full_name || c.name || 'Sin Nombre',
-                phone: c.phone || '',
-                address: c.address || '',
-                origin: c.is_app_user ? 'profile' : 'customer'
-            }));
-            setFoundCustomers(mapped);
-        } catch (err) {
-            console.error('Error searching customers:', err);
-        }
-    };
-
     // ── NO auto-search useEffect — búsqueda solo se dispara manualmente ──────
 
     const searchCustomerByTerm = useCallback(async (manualTerm?: string) => {
-        const queryTerm = manualTerm || customerInfo.phone.trim();
+        const queryTerm = (manualTerm ?? customerPhoneRef.current).trim();
         if (queryTerm.length < 3) return;
 
         setIsSearchingCustomer(true);
-        console.log(`🔍 [searchCustomerByTerm] Buscando cliente con el término: "${queryTerm}"`);
         try {
             const res = await fetch(`/api/cashier/customers/search?term=${encodeURIComponent(queryTerm)}`);
             const data = await res.json();
@@ -726,10 +651,7 @@ export default function CashierPage() {
                 origin: c.is_app_user ? 'profile' : 'customer'
             }));
 
-            console.log(`✨ [searchCustomerByTerm] Resultados obtenidos de la búsqueda para "${queryTerm}":`, mapped);
-
             setFoundCustomers(mapped);
-            setAvailableClients(mapped);
             setSearchTerm(queryTerm);
 
             const exactMatch = mapped.find((c: any) => normalizePhone(c.phone || '') === normalizePhone(queryTerm));
@@ -737,12 +659,8 @@ export default function CashierPage() {
 
             if (customerData) {
                 const clientName = customerData.name || 'Sin Nombre';
-                const clientPhone = customerData.phone || queryTerm;
-
-                // Auto-llenar datos del cliente automáticamente al encontrar coincidencia
-                console.log(`✅ [searchCustomerByTerm] Cliente coincidente encontrado. Auto-llenando información:`, customerData);
                 const parts = (customerData.address || '').split(',').map((p: string) => p.trim());
-                
+
                 setCustomerInfo({
                     phone: customerData.phone || queryTerm,
                     name: clientName,
@@ -784,13 +702,10 @@ export default function CashierPage() {
                         isFrequent: totalOrders >= 3,
                         lastOrderAmount
                     });
-                    console.log(`📊 [searchCustomerByTerm] Historial y Insights de cliente cargados con éxito para ${phoneQuery}`);
                 } else {
                     setCustomerInsights(null);
                 }
-
             } else {
-                console.log(`⚠️ [searchCustomerByTerm] No se encontró coincidencia exacta ni única para el término: "${queryTerm}"`);
                 setCustomerInsights(null);
             }
         } catch (err) {
@@ -798,7 +713,7 @@ export default function CashierPage() {
         } finally {
             setIsSearchingCustomer(false);
         }
-    }, [customerInfo.phone]);
+    }, []);
 
     // Clear customer insights if phone or name is empty
     useEffect(() => {
@@ -807,16 +722,9 @@ export default function CashierPage() {
         }
     }, [customerInfo.phone, customerInfo.name]);
 
-    // Handle phone input changes with debounce search
+    // Handle phone input changes with debounce search (preserving manually entered name/address)
     const handlePhoneChange = useCallback((newPhone: string) => {
-        setCustomerInfo({
-            phone: newPhone,
-            name: '',
-            address: '',
-            street: '',
-            neighborhood: '',
-            reference: ''
-        });
+        setCustomerInfo(prev => ({ ...prev, phone: newPhone }));
 
         if (phoneDebounceRef.current) {
             clearTimeout(phoneDebounceRef.current);
@@ -882,11 +790,7 @@ export default function CashierPage() {
         }
     }, [showPaymentModal]);
 
-    useEffect(() => {
-        fetchMenu();
-    }, []);
-
-    async function fetchMenu(retryCount = 0) {
+    const fetchMenu = useCallback(async function loadMenu(retryCount = 0) {
         // ── 1. Mostrar caché inmediatamente (no bloquear la UI) ──────────────
         try {
             const cachedProds = localStorage.getItem('cached_products');
@@ -901,7 +805,7 @@ export default function CashierPage() {
                     console.log(`⚡ [Caja] ${parsedProds.length} productos cargados desde caché local.`);
                 }
             }
-        } catch (_) { /* caché inaccesible — continuar con fetch */ }
+        } catch { /* caché inaccesible — continuar con fetch */ }
 
         // ── 2. Fetch desde servidor con timeout de 8s ────────────────────────
         const controller = new AbortController();
@@ -961,12 +865,11 @@ export default function CashierPage() {
             // ── 5. Actualizar estado y caché ─────────────────────────────────
             setProducts(productList);
             setCategories(sortedCategories);
-            console.log(`✅ [Caja] ${productList.length} productos actualizados desde servidor.`);
 
             try {
                 localStorage.setItem('cached_products', JSON.stringify(productList));
                 localStorage.setItem('cached_categories', JSON.stringify(sortedCategories));
-            } catch (_) { /* quota exceeded — no critical */ }
+            } catch { /* quota exceeded — no critical */ }
 
         } catch (err: any) {
             clearTimeout(timeoutId);
@@ -979,8 +882,7 @@ export default function CashierPage() {
             } else if (isNetwork && retryCount < 2) {
                 // Auto-retry once on network failure with exponential backoff
                 const delay = 1500 * (retryCount + 1);
-                console.warn(`🔄 [Caja] Error de red. Reintentando en ${delay}ms... (intento ${retryCount + 1}/2)`);
-                setTimeout(() => fetchMenu(retryCount + 1), delay);
+                setTimeout(() => loadMenu(retryCount + 1), delay);
                 return;
             } else {
                 console.warn('⚠️ [Caja] Error al cargar productos:', err.message);
@@ -988,7 +890,7 @@ export default function CashierPage() {
 
             // Fallback a caché si todavía no tenemos productos
             try {
-                if (products.length === 0) {
+                if (!hasProductsRef.current) {
                     const cachedCats = localStorage.getItem('cached_categories');
                     const cachedProds = localStorage.getItem('cached_products');
                     if (cachedCats) setCategories(JSON.parse(cachedCats));
@@ -997,11 +899,15 @@ export default function CashierPage() {
                         if (Array.isArray(p)) setProducts(p);
                     }
                 }
-            } catch (_) { /* localStorage inaccesible */ }
+            } catch { /* localStorage inaccesible */ }
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        fetchMenu();
+    }, [fetchMenu]);
 
     // Derived State: Group Products (Logic from Tienda)
     const groupedProducts = useMemo(() => {
@@ -1190,10 +1096,6 @@ export default function CashierPage() {
         setSecondHalf(null);
     };
 
-    const removeFromCart = (cartItemId: string) => {
-        setCart(prev => prev.filter(item => item.cartItemId !== cartItemId));
-    };
-
     const updateQuantity = (cartItemId: string, delta: number) => {
         setCart(prev => {
             const updated = prev.map(item => {
@@ -1210,14 +1112,17 @@ export default function CashierPage() {
 
     const clearCart = () => {
         if (cart.length > 0 && !window.confirm('¿Estás seguro de limpiar la comanda actual? Se perderán los productos no guardados.')) return;
+        loadedFromTableRef.current = false;
         setCart([]);
         setTableNumber('');
         setActiveOrderId(null);
+        setAmountPaid('');
         setCustomerInfo({ name: '', phone: '', address: '', street: '', neighborhood: '', reference: '' });
     };
 
     const handleOpenTicketModal = (orderData: any, items: CartItem[]) => {
-        console.log('🚀 [Caja] Abriendo modal de ticket para orden:', orderData.id);
+        const pagoConValue = orderData.pago_con ?? (parseFloat(amountPaid) || 0);
+        const cambioValue = orderData.cambio ?? Math.max(0, pagoConValue - (orderData.total_amount ?? 0));
 
         const data = {
             atendido_por: orderData.cashier_name || cashierName,
@@ -1233,13 +1138,12 @@ export default function CashierPage() {
                 subtotal: orderData.subtotal || orderData.total_amount,
                 total: orderData.total_amount,
                 metodo_pago: orderData.payment_method || 'Efectivo',
-                pago_con: parseFloat(amountPaid) || 0,
-                cambio: Math.max(0, (parseFloat(amountPaid) || 0) - orderData.total_amount),
+                pago_con: pagoConValue,
+                cambio: cambioValue,
                 is_pre_ticket: orderData.is_pre_ticket || false,
                 ticket_number: orderData.ticket_number,
             },
             productos: items.map(it => {
-                // Map extra IDs to names
                 const extrasNames = it.extras?.map(extraId => {
                     const extra = EXTRAS_OPTIONS.find(e => e.id === extraId);
                     return extra ? extra.name : extraId;
@@ -1268,168 +1172,153 @@ export default function CashierPage() {
     const handlePlaceOrder = async (isFinalPayment: boolean = true, overridePaymentMethod?: string, skipPrinting: boolean = false) => {
         if (isProcessingOrder.current) {
             console.warn('⚠️ [Cashier] Ya hay un proceso en curso.');
-            setOrderLoading(false);
-            isProcessingOrder.current = false;
             return;
         }
 
-        if (orderType === 'dine-in' && !tableNumber.trim()) {
-            alert('⚠️ POR FAVOR INGRESA EL NÚMERO DE MESA.');
-            return;
+        const trimmedTable = tableNumber.trim();
+        if (orderType === 'dine-in') {
+            if (!trimmedTable) {
+                alert('⚠️ POR FAVOR INGRESA EL NÚMERO DE MESA.');
+                return;
+            }
+            if (Number.isNaN(Number(trimmedTable))) {
+                alert('⚠️ EL NÚMERO DE MESA DEBE SER NUMÉRICO.');
+                return;
+            }
         }
 
-            setOrderLoading(true);
-            isProcessingOrder.current = true;
+        setOrderLoading(true);
+        isProcessingOrder.current = true;
 
-            try {
-                const userId = await getUserIdSafe();
+        try {
+            const userId = await getUserIdSafe();
 
-                // El status es 'pendiente' si es pre-ticket.
-                // Para llevar -> 'preparando' para que siga en Cuentas Abiertas.
-                // Domicilio -> 'confirmado'.
-                // Mesa -> 'entregado' (ya que se consume ahí).
-                const finalStatus = isFinalPayment 
-                    ? (orderType === 'delivery' ? 'confirmado' : (orderType === 'takeout' ? 'preparando' : 'entregado')) 
-                    : 'pendiente';
+            // El status es 'pendiente' si es pre-ticket.
+            // Para llevar -> 'preparando' para que siga en Cuentas Abiertas.
+            // Domicilio -> 'confirmado'.
+            // Mesa -> 'entregado' (ya que se consume ahí).
+            const finalStatus = isFinalPayment
+                ? (orderType === 'delivery' ? 'confirmado' : (orderType === 'takeout' ? 'preparando' : 'entregado'))
+                : 'pendiente';
 
-                const orderPayload: any = {
-                    user_id: userId,
-                    status: finalStatus,
-                    payment_status: isFinalPayment ? 'paid' : 'pending',
-                    total_amount: cartTotals.total,
-                    tax_amount: cartTotals.tax,
-                    order_type: orderType,
-                    payment_method: (overridePaymentMethod || paymentMethod).toLowerCase().trim(),
-                    customer_name: orderType === 'dine-in' ? null : customerInfo.name,
-                    phone_number: orderType === 'dine-in' ? null : customerInfo.phone,
-                    delivery_address: orderType === 'delivery' ? customerInfo.address : null,
-                    table_number: orderType === 'dine-in' ? tableNumber : null,
-                    pago_con: (overridePaymentMethod || paymentMethod).toLowerCase().trim() === 'efectivo' ? (parseFloat(amountPaid) || cartTotals.total) : cartTotals.total,
-                    cambio: (overridePaymentMethod || paymentMethod).toLowerCase().trim() === 'efectivo' ? Math.max(0, (parseFloat(amountPaid) || cartTotals.total) - cartTotals.total) : 0,
-                    updated_at: new Date().toISOString(),
-                    cashier_name: cashierName
-                };
+            const normalizedPayment = (overridePaymentMethod || paymentMethod).toLowerCase().trim();
+            const tenderedCash = normalizedPayment === 'efectivo' ? (parseFloat(amountPaid) || cartTotals.total) : cartTotals.total;
+            const changeGiven = normalizedPayment === 'efectivo' ? Math.max(0, tenderedCash - cartTotals.total) : 0;
 
-                if (!activeOrderId) {
-                    orderPayload.created_at = new Date().toISOString();
-                }
+            const orderPayload: any = {
+                user_id: userId,
+                status: finalStatus,
+                payment_status: isFinalPayment ? 'paid' : 'pending',
+                total_amount: cartTotals.total,
+                tax_amount: cartTotals.tax,
+                order_type: orderType,
+                payment_method: normalizedPayment,
+                customer_name: orderType === 'dine-in' ? null : customerInfo.name,
+                phone_number: orderType === 'dine-in' ? null : customerInfo.phone,
+                delivery_address: orderType === 'delivery'
+                    ? (customerInfo.address || [customerInfo.street, customerInfo.neighborhood, customerInfo.reference].filter(Boolean).join(', ') || null)
+                    : null,
+                table_number: orderType === 'dine-in' ? trimmedTable : null,
+                pago_con: tenderedCash,
+                cambio: changeGiven,
+                updated_at: new Date().toISOString(),
+                cashier_name: cashierName
+            };
 
-                const orderItemsPayload = cart.map(item => {
-                    const extrasData: any[] = [...(item.extras || [])];
-                    if (item.isHalfAndHalf && item.secondHalfVariant) {
-                        extrasData.push({
-                            type: 'half_and_half',
-                            second_half_id: item.secondHalfVariant.id,
-                            second_half_name: item.secondHalfVariant.name,
-                            second_half_price: item.secondHalfVariant.price
-                        });
-                    }
+            if (!activeOrderId) {
+                orderPayload.created_at = new Date().toISOString();
+            }
 
-                    // Si el item fue cargado desde el historial, puede tener id=0
-                    // Usamos _originalProductId si está disponible, o null para no fallar la API
-                    const productId = (item as any)._originalProductId ?? (item.id > 0 ? item.id : null);
-                    return {
-                        product_id: productId,
-                        product_name: item.name,
-                        quantity: item.quantity,
-                        unit_price: item.price,
-                        total_price: item.price * item.quantity,
-                        selected_size: item.selectedSize,
-                        extras: extrasData.length > 0 ? extrasData : null,
-                        notes: item.note || null
-                    };
-                });
-
-                console.log('🚀 [Cashier] Enviando orden al servidor...');
-                
-                const controller = new AbortController();
-                const fetchTimeout = setTimeout(() => controller.abort(), 15000);
-
-                const payloadOrderInfo = { ...orderPayload };
-                if (activeOrderId) {
-                    payloadOrderInfo.id = activeOrderId;
-                }
-
-                const response = await fetch('/api/cashier/save-order', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        order: payloadOrderInfo,
-                        items: orderItemsPayload
-                    }),
-                    signal: controller.signal
-                }).finally(() => clearTimeout(fetchTimeout));
-
-                if (!response.ok) {
-                    const errData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-                    throw new Error(errData.error || `Error al guardar (${response.status})`);
-                }
-
-                const result = await response.json();
-                const createdOrder = result.order;
-                console.log(`✅ [Cashier] ORDEN GUARDADA (ID: ${createdOrder?.id})`);
-
-                // UI SUCCESS FLOW
-                if (createdOrder) {
-                setLastOrderId(createdOrder.id);
-
-                // AUTO-GUARDAR CLIENTE: si es llevar/domicilio y hay teléfono, guardar silenciosamente
-                if ((orderType === 'takeout' || orderType === 'delivery') && customerInfo.phone?.trim() && customerInfo.name?.trim()) {
-                    const autoSaveAddr = customerInfo.address || [customerInfo.street, customerInfo.neighborhood, customerInfo.reference].filter(Boolean).join(', ') || '';
-                    fetch('/api/cashier/customers/save', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            phone: customerInfo.phone.trim(),
-                            full_name: customerInfo.name.trim(),
-                            address: autoSaveAddr
-                        })
-                    }).then(() => {
-                        console.log('✅ [Cashier] Cliente guardado automáticamente.');
-                    }).catch((err) => {
-                        console.warn('⚠️ [Cashier] No se pudo guardar cliente automáticamente:', err?.message);
+            const orderItemsPayload = cart.map(item => {
+                const extrasData: any[] = [...(item.extras || [])];
+                if (item.isHalfAndHalf && item.secondHalfVariant) {
+                    extrasData.push({
+                        type: 'half_and_half',
+                        second_half_id: item.secondHalfVariant.id,
+                        second_half_name: item.secondHalfVariant.name,
+                        second_half_price: item.secondHalfVariant.price
                     });
                 }
 
-                // Capturar copia del carrito ANTES de limpiar
+                // Si el item fue cargado desde el historial, puede tener id=0
+                // Usamos _originalProductId si está disponible, o null para no fallar la API
+                const productId = (item as any)._originalProductId ?? (item.id > 0 ? item.id : null);
+                return {
+                    product_id: productId,
+                    product_name: item.name,
+                    quantity: item.quantity,
+                    unit_price: item.price,
+                    total_price: item.price * item.quantity,
+                    selected_size: item.selectedSize,
+                    extras: extrasData.length > 0 ? extrasData : null,
+                    notes: item.note || null
+                };
+            });
+
+            const controller = new AbortController();
+            const fetchTimeout = setTimeout(() => controller.abort(), 15000);
+
+            const payloadOrderInfo = activeOrderId
+                ? { ...orderPayload, id: activeOrderId }
+                : orderPayload;
+
+            const response = await fetch('/api/cashier/save-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    order: payloadOrderInfo,
+                    items: orderItemsPayload
+                }),
+                signal: controller.signal
+            }).finally(() => clearTimeout(fetchTimeout));
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+                throw new Error(errData.error || `Error al guardar (${response.status})`);
+            }
+
+            const result = await response.json();
+            const createdOrder = result.order;
+
+            // UI SUCCESS FLOW
+            if (createdOrder) {
+                setLastOrderId(createdOrder.id);
+
                 const cartSnapshot = [...cart];
 
-                // Generar Ticket (Pre-cuenta o Final) — siempre, a menos que skipPrinting
                 if (!skipPrinting) {
                     try {
-                        handleOpenTicketModal({ ...createdOrder, is_pre_ticket: !isFinalPayment }, cartSnapshot);
+                        handleOpenTicketModal(
+                            {
+                                ...createdOrder,
+                                pago_con: tenderedCash,
+                                cambio: changeGiven,
+                                is_pre_ticket: !isFinalPayment
+                            },
+                            cartSnapshot
+                        );
                     } catch (printErr) {
                         console.error('⚠️ [Cashier] Error abriendo modal de ticket:', printErr);
                     }
                 }
 
-                // Solo mostrar success modal para pago final Y cuando no hay ticket abierto
                 if (isFinalPayment && skipPrinting) {
                     setShowSuccessModal(true);
                     successModalRef.current = true;
                 } else if (!isFinalPayment) {
-                    // Pre-ticket: toast sutil
-                    const toast = document.createElement('div');
-                    toast.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in';
-                    toast.innerHTML = '<span class="material-icons-round align-middle mr-2">save</span> Cuenta Abierta Guardada';
-                    document.body.appendChild(toast);
-                    setTimeout(() => { toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10'); setTimeout(() => toast.remove(), 300); }, 3000);
+                    showToast('Cuenta Abierta Guardada', 'save', 'bg-green-500');
                 }
 
-                // SIEMPRE LIMPIAMOS TODO (Incluso en Solo Guardar) para liberar la máquina
+                loadedFromTableRef.current = false;
                 setCart([]);
                 setTableNumber('');
                 setActiveOrderId(null);
+                setAmountPaid('');
                 setCustomerInfo({ name: '', phone: '', address: '', street: '', neighborhood: '', reference: '' });
                 setShowPaymentModal(false);
 
-                // ACTUALIZAR LA VISTA DE INMEDIATO PARA VER LA NUEVA CUENTA MÁS RÁPIDO
-                setTimeout(() => fetchRecentOrders(false), 500);
+                setTimeout(() => fetchRecentOrdersRef.current(false), 500);
             }
-
-            setOrderLoading(false);
-            isProcessingOrder.current = false;
-
         } catch (error: any) {
             console.error('🛑 [Cashier] ERROR EN PROCESO:', error);
             if (!isAbortError(error)) {
@@ -1493,17 +1382,9 @@ export default function CashierPage() {
         setRecentOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'pendiente' } : o));
 
         // Feedback Toast inmediato
-        const toast = document.createElement('div');
-        toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in';
-        toast.innerHTML = '<span class="material-icons-round align-middle mr-2">restore</span> Pedido Recuperado';
-        document.body.appendChild(toast);
-        setTimeout(() => {
-            toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10');
-            setTimeout(() => toast.remove(), 300);
-        }, 3000);
+        showToast('Pedido Recuperado', 'restore', 'bg-green-600');
 
         try {
-            console.log(`♻️ [Cashier] Recuperando pedido ID: ${orderId}...`);
             const res = await fetch('/api/cashier/orders/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1511,71 +1392,11 @@ export default function CashierPage() {
             });
 
             if (!res.ok) throw new Error('Error al recuperar el pedido en el servidor');
-            console.log('✅ [Cashier] Pedido recuperado correctamente.');
         } catch (err: any) {
             console.error('❌ [Cashier] Error al recuperar:', err);
-            // Revertir a la lista original en caso de error
             setRecentOrders(originalOrders);
             alert('No se pudo recuperar el pedido: ' + err.message);
         }
-    };
-
-    useEffect(() => {
-        let isEffectActive = true;
-        let timeoutId: NodeJS.Timeout;
-
-        // PERSISTENT BACKGROUND NOTIFICATION LISTENER
-        const ordersChannel = supabase
-            .channel('global_cashier_notifications')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
-                if (!isEffectActive) return;
-                if (payload.new.order_source === 'web' || payload.new.order_type === 'delivery') {
-                    // playNotificationSound(); // Desactivado por solicitud del usuario
-                    setUnreadNotifications(prev => prev + 1);
-                }
-            })
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'cashier_notifications' }, (payload) => {
-                if (!isEffectActive) return;
-                // playNotificationSound(); // Desactivado por solicitud del usuario
-                setUnreadNotifications(prev => prev + 1);
-            })
-            .subscribe();
-
-        // Safe recursive sync to avoid AbortError and overlapping
-        const runSync = async () => {
-            if (!isEffectActive) return;
-            
-            if (isOnline) {
-                try {
-                    await fetchRecentOrders(false);
-                } catch (err: any) {
-                    // Ignore abort errors from the environment
-                    if (!isAbortError(err)) {
-                        console.error('Sync Error:', err);
-                    }
-                }
-            }
-
-            if (isEffectActive) {
-                timeoutId = setTimeout(runSync, 20000); // ✅ FIX: 20s (was 7s) — Realtime handles instant updates
-            }
-        };
-
-        runSync();
-
-        return () => {
-            isEffectActive = false;
-            supabase.removeChannel(ordersChannel);
-            if (timeoutId) clearTimeout(timeoutId);
-        };
-    }, [isOnline]); // Depend on isOnline to restart/stop if needed
-
-    const playNotificationSound = () => {
-        try {
-            const audio = new Audio('/notification.mp3');
-            audio.volume = 0.5;
-            audio.play().catch(() => { });
-        } catch (e) { }
     };
 
     const handleLogout = async () => {
@@ -1593,11 +1414,10 @@ export default function CashierPage() {
             const url = userId ? `/api/cashier/orders/list?userId=${userId}` : '/api/cashier/orders/list';
             const res = await fetch(url);
             if (!res.ok) throw new Error('Error al obtener lista de órdenes');
-            
+
             const data = await res.json();
-            
+
             if (data.success) {
-                // Combinar cuentas abiertas primero, luego el historial
                 const combined = [...data.openOrders, ...data.history];
                 setRecentOrders(combined);
             }
@@ -1607,14 +1427,12 @@ export default function CashierPage() {
             if (showLoading) setRecentOrdersLoading(false);
         }
     };
-
-    // Removed the restricted useEffect for fetching - replaced by global listener
+    fetchRecentOrdersRef.current = fetchRecentOrders;
 
     const handleSaveCustomer = async (info: any) => {
-        console.log('🚀 [Cashier] Intentando guardar cliente vía API...', info);
         try {
             if (!info.phone) throw new Error('El teléfono es obligatorio');
-            
+
             const response = await fetch('/api/cashier/customers/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1630,19 +1448,8 @@ export default function CashierPage() {
             if (!response.ok) {
                 throw new Error(result.error || 'Error desconocido en el servidor');
             }
-            
-            console.log(`✅ [Cashier] Cliente guardado con éxito vía API.`);
-            
-            // Feedback visual
-            const toast = document.createElement('div');
-            toast.className = `fixed top-4 right-4 bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-2xl z-[9999] font-black uppercase text-xs animate-in slide-in-from-top-10 fade-in`;
-            toast.innerHTML = `<span class="material-icons-round align-middle mr-2">person_add</span> Cliente Guardado / Actualizado`;
-            document.body.appendChild(toast);
-            setTimeout(() => { 
-                toast.classList.add('animate-out', 'fade-out', 'slide-out-to-top-10');
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
 
+            showToast('Cliente Guardado / Actualizado', 'person_add', 'bg-blue-600');
         } catch (error: any) {
             console.error('🛑 [Cashier] ERROR AL GUARDAR CLIENTE:', error.message);
             alert('Error al guardar cliente: ' + error.message);
@@ -1891,14 +1698,14 @@ export default function CashierPage() {
                                                                 </p>
                                                             </div>
                                                         </div>
-                                                        <p className="text-2xl font-black text-[#181511] tracking-tighter leading-none">${order.total_amount.toFixed(2)}</p>
+                                                        <p className="text-2xl font-black text-[#181511] tracking-tighter leading-none">${(order.total_amount ?? 0).toFixed(2)}</p>
                                                     </div>
 
                                                     <div className="space-y-2 mb-6">
                                                         {order.order_items?.map((item: any, i: number) => (
                                                             <div key={i} className="flex justify-between items-center text-xs">
                                                                 <span className="text-[#8c785f] font-medium"><span className="font-black text-[#181511]">{item.quantity}x</span> {item.product_name}</span>
-                                                                <span className="font-bold text-[#181511]">${(item.unit_price * item.quantity).toFixed(2)}</span>
+                                                                <span className="font-bold text-[#181511]">${((item.unit_price ?? 0) * (item.quantity ?? 0)).toFixed(2)}</span>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -1907,78 +1714,14 @@ export default function CashierPage() {
                                                         {['pendiente', 'preparando', 'listo'].includes(order.status) && (
                                                             <>
                                                                 <button 
-                                                                    onClick={() => {
-                                                                        setShowOrdersView(false);
-                                                                        setOrderType(order.order_type || 'dine-in');
-                                                                        setTableNumber(order.table_number || '');
-                                                                        setActiveOrderId(order.id);
-                                                                        setPaymentMethod(order.payment_method || 'efectivo');
-                                                                        setCustomerInfo({
-                                                                            name: order.customer_name || '',
-                                                                            phone: order.phone_number || '',
-                                                                            address: order.delivery_address || '',
-                                                                            street: (order.delivery_address || '').split(',')[0] || '',
-                                                                            neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                                            reference: ''
-                                                                        });
-                                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                                            id: item.product_id ?? item.id ?? 0,
-                                                                            name: item.product_name,
-                                                                            price: item.unit_price,
-                                                                            quantity: item.quantity,
-                                                                            selectedSize: item.selected_size,
-                                                                            extras: (function() {
-                                                                                if (!item.extras) return [];
-                                                                                if (typeof item.extras === 'string') {
-                                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                                                }
-                                                                                if (Array.isArray(item.extras)) return item.extras;
-                                                                                return [];
-                                                                            })(),
-                                                                            note: item.notes || '',
-                                                                            cartItemId: Math.random().toString(36).substr(2, 9),
-                                                                            _originalProductId: item.product_id // preserve for API
-                                                                        }));
-                                                                        setCart(loadedCart);
-                                                                        setIsCartDrawerOpen(true);
-                                                                    }}
+                                                                    onClick={() => loadOrderIntoCart(order, { closeOrdersView: true, openDrawer: true, alwaysLoadCustomer: true })}
                                                                     className="bg-purple-50 text-purple-600 border border-purple-100 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-purple-100 transition-all active:scale-95 flex items-center justify-center gap-1.5"
                                                                 >
                                                                     <span className="material-icons-round text-sm">edit_note</span>
                                                                     Abrir
                                                                 </button>
                                                                 <button 
-                                                                    onClick={() => {
-                                                                        setShowOrdersView(false);
-                                                                        setOrderType(order.order_type || 'dine-in');
-                                                                        setTableNumber(order.table_number || '');
-                                                                        setActiveOrderId(order.id);
-                                                                        setPaymentMethod(order.payment_method || 'efectivo');
-                                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                                            id: item.product_id ?? item.id ?? 0,
-                                                                            name: item.product_name,
-                                                                            price: item.unit_price,
-                                                                            quantity: item.quantity,
-                                                                            selectedSize: item.selected_size,
-                                                                            extras: (function() {
-                                                                                if (!item.extras) return [];
-                                                                                if (typeof item.extras === 'string') {
-                                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                                                }
-                                                                                if (Array.isArray(item.extras)) return item.extras;
-                                                                                return [];
-                                                                            })(),
-                                                                            note: item.notes || '',
-                                                                            cartItemId: Math.random().toString(36).substr(2, 9),
-                                                                            _originalProductId: item.product_id // preserve for API
-                                                                        }));
-                                                                        setCart(loadedCart);
-                                                                        setTimeout(() => {
-                                                                            isProcessingOrder.current = false;
-                                                                            setOrderLoading(false);
-                                                                            setShowPaymentModal(true);
-                                                                        }, 150);
-                                                                    }}
+                                                                    onClick={() => loadOrderIntoCart(order, { closeOrdersView: true, openPayment: true })}
                                                                     className="bg-[#181511] text-white py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-1.5"
                                                                 >
                                                                     <span className="material-icons-round text-sm">payments</span>
@@ -2289,8 +2032,8 @@ export default function CashierPage() {
                 handleSaveCustomer={handleSaveCustomer}
                 setLoadingClients={setLoadingClients}
                 setShowCustomerModal={setShowCustomerModal}
-                setAvailableClients={setAvailableClients}
                 setFoundCustomers={setFoundCustomers}
+                onSelectOrder={(order) => loadOrderIntoCart(order)}
                 updateQuantity={updateQuantity}
                 groupedProducts={groupedProducts}
                 openProductCustomizer={openProductCustomizer}
@@ -2418,94 +2161,14 @@ export default function CashierPage() {
                                             {/* Actions */}
                                             <div className="flex gap-2 p-4 pt-2">
                                                 <button
-                                                    onClick={() => {
-                                                        // Load order into cart
-                                                        setOrderType(order.order_type || 'dine-in');
-                                                        setTableNumber(order.table_number || '');
-                                                        setActiveOrderId(order.id);
-                                                        
-                                                        if (order.order_type !== 'dine-in') {
-                                                            setCustomerInfo({
-                                                                name: order.customer_name || '',
-                                                                phone: order.phone_number || '',
-                                                                address: order.delivery_address || '',
-                                                                street: (order.delivery_address || '').split(',')[0] || '',
-                                                                neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                                reference: ''
-                                                            });
-                                                        }
-
-                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                            id: item.product_id ?? 0,
-                                                            name: item.product_name,
-                                                            price: item.unit_price,
-                                                            quantity: item.quantity,
-                                                            selectedSize: item.selected_size,
-                                                            extras: (function() {
-                                                                if (!item.extras) return [];
-                                                                if (typeof item.extras === 'string') {
-                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                                }
-                                                                if (Array.isArray(item.extras)) return item.extras;
-                                                                return [];
-                                                            })(),
-                                                            note: item.notes || '',
-                                                            cartItemId: Math.random().toString(36).substr(2, 9),
-                                                            _originalProductId: item.product_id
-                                                        }));
-                                                        setCart(loadedCart);
-                                                        setIsCartDrawerOpen(true);
-                                                        setShowOpenTabsModal(false);
-                                                    }}
+                                                    onClick={() => loadOrderIntoCart(order, { openDrawer: true, closeOpenTabs: true })}
                                                     className="flex-1 flex items-center justify-center gap-2 bg-[#f8f7f5] text-[#181511] border border-gray-200 py-3 rounded-xl text-xs font-black hover:bg-gray-100 transition-all active:scale-95"
                                                 >
                                                     <span className="material-icons-round text-base">add_circle</span>
                                                     Agregar Más
                                                 </button>
                                                 <button
-                                                    onClick={() => {
-                                                        // Load and go directly to payment
-                                                        setOrderType(order.order_type || 'dine-in');
-                                                        if (order.table_number) setTableNumber(order.table_number);
-                                                        else setTableNumber('');
-                                                        
-                                                        setActiveOrderId(order.id);
-                                                        
-                                                        if (order.order_type !== 'dine-in') {
-                                                            setCustomerInfo({
-                                                                name: order.customer_name || '',
-                                                                phone: order.phone_number || '',
-                                                                address: order.delivery_address || '',
-                                                                street: (order.delivery_address || '').split(',')[0] || '',
-                                                                neighborhood: (order.delivery_address || '').split(',')[1] || '',
-                                                                reference: ''
-                                                            });
-                                                        }
-                                                        
-                                                        // ALWAYS load items into cart so the payment modal sees the total
-                                                        const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                            id: item.product_id ?? 0,
-                                                            name: item.product_name,
-                                                            price: item.unit_price,
-                                                            quantity: item.quantity,
-                                                            selectedSize: item.selected_size,
-                                                            extras: (function() {
-                                                                if (!item.extras) return [];
-                                                                if (typeof item.extras === 'string') {
-                                                                    try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                                }
-                                                                if (Array.isArray(item.extras)) return item.extras;
-                                                                return [];
-                                                            })(),
-                                                            note: item.notes || '',
-                                                            cartItemId: Math.random().toString(36).substr(2, 9),
-                                                            _originalProductId: item.product_id
-                                                        }));
-                                                        setCart(loadedCart);
-                                                        
-                                                        setShowOpenTabsModal(false);
-                                                        setShowPaymentModal(true);
-                                                    }}
+                                                    onClick={() => loadOrderIntoCart(order, { closeOpenTabs: true, openPayment: true })}
                                                     className="flex-1 flex items-center justify-center gap-2 bg-[#181511] text-white py-3 rounded-xl text-xs font-black hover:bg-black transition-all active:scale-95 shadow-lg"
                                                 >
                                                     <span className="material-icons-round text-base">payments</span>
@@ -2667,7 +2330,7 @@ export default function CashierPage() {
                                 </div>
 
                                 {/* Desktop Close Button */}
-                                <button onClick={() => { setSelectedGroupedProduct(null); setIsHalfAndHalf(false); setSecondHalf(null); }} className="hidden md:block absolute top-4 right-4 size-8 flex items-center justify-center bg-gray-100 rounded-full z-20 hover:bg-red-50 hover:text-red-500 transition-colors">
+                                <button onClick={() => { setSelectedGroupedProduct(null); setIsHalfAndHalf(false); setSecondHalf(null); }} className="hidden md:flex absolute top-4 right-4 size-8 items-center justify-center bg-gray-100 rounded-full z-20 hover:bg-red-50 hover:text-red-500 transition-colors">
                                     <span className="material-icons-round text-lg">close</span>
                                 </button>
 
@@ -2908,7 +2571,6 @@ export default function CashierPage() {
                                                                 address: c.address || '',
                                                                 origin: c.is_app_user ? 'profile' : 'customer',
                                                             }));
-                                                            setAvailableClients(mapped);
                                                             setFoundCustomers(mapped);
                                                         }
                                                     } catch { /* ignore */ } finally {
@@ -3083,7 +2745,6 @@ export default function CashierPage() {
                             origin: c.is_app_user ? 'profile' : 'customer',
                         }));
                         setFoundCustomers(mapped);
-                        setAvailableClients(mapped);
                     } catch { /* ignore */ }
                 }}
                 onSearchByPhone={searchCustomerByTerm}
@@ -3189,7 +2850,6 @@ export default function CashierPage() {
                     cashierName={cashierName}
                     userId={user?.id}
                     onClose={() => setShowCierreCaja(false)}
-                    mustClose={mustClose}
                     onCloseSuccess={handleCloseShiftSuccess}
                 />
             )}

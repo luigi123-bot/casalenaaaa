@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/utils/supabase/client';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import DOMPurify from 'dompurify';
+import { escapeHtml } from '@/utils/html';
+import { roundCurrency } from '@/utils/timezone';
 
 
 interface CierreData {
@@ -40,139 +41,173 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
     const [gastosCombustible, setGastosCombustible] = useState('');
     const [gastosInsumoCocina, setGastosInsumoCocina] = useState('');
     const [gastosInsumoLimpieza, setGastosInsumoLimpieza] = useState('');
+    const [restoredDraftUserId, setRestoredDraftUserId] = useState<string | null>(null);
+    const fetchControllerRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
         if (!userId) return;
-        const e = sessionStorage.getItem(`caja_casalena_efectivo_${userId}`);
-        const gc = sessionStorage.getItem(`caja_casalena_gcom_${userId}`);
-        const gk = sessionStorage.getItem(`caja_casalena_gcoc_${userId}`);
-        const gl = sessionStorage.getItem(`caja_casalena_glim_${userId}`);
-        if (e) setEfectivoContado(e);
-        if (gc) setGastosCombustible(gc);
-        if (gk) setGastosInsumoCocina(gk);
-        if (gl) setGastosInsumoLimpieza(gl);
+        try {
+            const e = sessionStorage.getItem(`caja_casalena_efectivo_${userId}`);
+            const gc = sessionStorage.getItem(`caja_casalena_gcom_${userId}`);
+            const gk = sessionStorage.getItem(`caja_casalena_gcoc_${userId}`);
+            const gl = sessionStorage.getItem(`caja_casalena_glim_${userId}`);
+            if (e !== null) setEfectivoContado(e);
+            if (gc !== null) setGastosCombustible(gc);
+            if (gk !== null) setGastosInsumoCocina(gk);
+            if (gl !== null) setGastosInsumoLimpieza(gl);
+        } catch {
+            // sessionStorage puede no estar disponible
+        }
+        setRestoredDraftUserId(userId);
     }, [userId]);
 
     useEffect(() => {
-        if (!userId) return;
-        sessionStorage.setItem(`caja_casalena_efectivo_${userId}`, efectivoContado);
-        sessionStorage.setItem(`caja_casalena_gcom_${userId}`, gastosCombustible);
-        sessionStorage.setItem(`caja_casalena_gcoc_${userId}`, gastosInsumoCocina);
-        sessionStorage.setItem(`caja_casalena_glim_${userId}`, gastosInsumoLimpieza);
-    }, [efectivoContado, gastosCombustible, gastosInsumoCocina, gastosInsumoLimpieza, userId]);
-
+        if (!userId || restoredDraftUserId !== userId) return;
+        try {
+            sessionStorage.setItem(`caja_casalena_efectivo_${userId}`, efectivoContado);
+            sessionStorage.setItem(`caja_casalena_gcom_${userId}`, gastosCombustible);
+            sessionStorage.setItem(`caja_casalena_gcoc_${userId}`, gastosInsumoCocina);
+            sessionStorage.setItem(`caja_casalena_glim_${userId}`, gastosInsumoLimpieza);
+        } catch {
+            // Ignorar errores de almacenamiento
+        }
+    }, [efectivoContado, gastosCombustible, gastosInsumoCocina, gastosInsumoLimpieza, userId, restoredDraftUserId]);
 
     const fetchCierreData = useCallback(async () => {
-        console.log('🚀 [Cierre] Iniciando proceso de cálculo de ventas...');
+        fetchControllerRef.current?.abort();
+        const controller = new AbortController();
+        fetchControllerRef.current = controller;
+        let timedOut = false;
+        const timeoutId = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, 15000);
+
         setLoading(true);
         setError(null);
         try {
-            // 1. Obtener la sesión activa directamente de la API (reemplaza localStorage)
-            const statusRes = await fetch(`/api/cashier/sessions/status?userId=${userId || ''}`);
+            // 1. Obtener la sesión activa directamente de la API
+            const statusRes = await fetch(`/api/cashier/sessions/status?userId=${encodeURIComponent(userId || '')}`, {
+                signal: controller.signal
+            });
             if (!statusRes.ok) throw new Error('No se pudo verificar la sesión activa');
             const { isOpen, session } = await statusRes.json();
-            
+
             if (!isOpen || !session) {
-                 throw new Error('No se encontró una sesión de caja abierta en la base de datos.');
+                throw new Error('No se encontró una sesión de caja abierta en la base de datos.');
             }
 
             // Establecer el fondo inicial desde la base de datos
-            if (session.initial_fund !== undefined) {
+            if (session.initial_fund !== undefined && session.initial_fund !== null) {
                 setFondoInicial(session.initial_fund.toString());
             }
-            
+
             setActiveSessionId(session.id);
 
-            console.log('📡 [Cierre] Consultando resumen al servidor (API)...');
-            
             const searchParams = new URLSearchParams();
             searchParams.set('sessionId', session.id);
             if (userId) searchParams.set('userId', userId);
-            
-            const res = await Promise.race([
-                fetch(`/api/cashier/closure-summary?${searchParams.toString()}`),
-                new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))
-            ]);
+
+            const res = await fetch(`/api/cashier/closure-summary?${searchParams.toString()}`, {
+                signal: controller.signal
+            });
 
             if (!res.ok) {
-                const errData = await res.json();
+                const errData = await res.json().catch(() => ({}));
                 throw new Error(errData.error || 'Error al obtener el resumen del servidor');
             }
 
             const cierre = await res.json();
-            console.log('✅ [Cierre] Resumen recibido del servidor:', cierre);
-            
             setData(cierre);
         } catch (err: any) {
-            if (err.name === 'AbortError') {
-                setError('La conexión es lenta. El servidor no respondió a tiempo. Reintenta por favor.');
-            } else {
-                setError(err.message || 'Error al conectar con la base de datos');
+            if (err?.name === 'AbortError') {
+                if (timedOut) {
+                    setError('La conexión es lenta. El servidor no respondió a tiempo. Reintenta por favor.');
+                }
+                return;
             }
+            setError(err?.message || 'Error al conectar con la base de datos');
         } finally {
-            setLoading(false);
+            clearTimeout(timeoutId);
+            if (fetchControllerRef.current === controller) {
+                fetchControllerRef.current = null;
+                setLoading(false);
+            }
         }
     }, [userId]);
 
     useEffect(() => {
-        console.log('🔄 [Cierre] Montando componente / Re-ejecutando useEffect');
-        fetchCierreData(); 
-
-        // Respaldo final: si después de 40s sigue cargando, forzar cierre del loader
-        const finalSafety = setTimeout(() => setLoading(false), 40000);
-        return () => clearTimeout(finalSafety);
+        fetchCierreData();
+        return () => {
+            fetchControllerRef.current?.abort();
+        };
     }, [fetchCierreData]);
 
     // Gastos totals
     const gastosCombustibleNum = parseFloat(gastosCombustible) || 0;
     const gastosInsumoCocinaNum = parseFloat(gastosInsumoCocina) || 0;
     const gastosInsumoLimpiezaNum = parseFloat(gastosInsumoLimpieza) || 0;
-    const totalGastos = gastosCombustibleNum + gastosInsumoCocinaNum + gastosInsumoLimpiezaNum;
+    const totalGastos = roundCurrency(gastosCombustibleNum + gastosInsumoCocinaNum + gastosInsumoLimpiezaNum);
 
     // Calculated difference
-    const fondoNum = parseFloat(fondoInicial) || 0;
-    const contadoNum = parseFloat(efectivoContado) || 0;
-    const expectedCash = fondoNum + (data?.ventasEfectivo ?? 0) - totalGastos;
-    const diferencia = contadoNum - expectedCash;
+    const fondoNum = roundCurrency(parseFloat(fondoInicial) || 0);
+    const contadoNum = roundCurrency(parseFloat(efectivoContado) || 0);
+    const expectedCash = roundCurrency(fondoNum + (data?.ventasEfectivo ?? 0) - totalGastos);
+    const diferencia = roundCurrency(contadoNum - expectedCash);
 
     const handleConfirmarCierre = async () => {
+        setError(null);
+
+        if (contadoNum < 0 || gastosCombustibleNum < 0 || gastosInsumoCocinaNum < 0 || gastosInsumoLimpiezaNum < 0) {
+            setError('Los montos de efectivo contado y gastos no pueden ser negativos.');
+            return;
+        }
+
+        if (!data || !activeSessionId) {
+            setError('No se identificó la sesión activa. Por favor, cierra este panel y vuelve a abrirlo.');
+            return;
+        }
+
         setSaving(true);
+        const controller = new AbortController();
+        let timedOut = false;
+        const timeoutId = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, 15000);
+
         try {
             // Datos comunes calculados del día
             const metrics = {
-                total_orders: data?.totalOrdenes || 0,
-                total_products: data?.totalProductos || 0,
-                total_sales: data?.totalVentas || 0,
-                ventas_efectivo: data?.ventasEfectivo || 0,
-                ventas_tarjeta: data?.ventasTarjeta || 0,
+                total_orders: data.totalOrdenes || 0,
+                total_products: data.totalProductos || 0,
+                total_sales: data.totalVentas || 0,
+                ventas_efectivo: data.ventasEfectivo || 0,
+                ventas_tarjeta: data.ventasTarjeta || 0,
                 initial_fund: fondoNum,
                 expected_cash: expectedCash,
                 final_cash: contadoNum,
                 difference: diferencia,
                 notes: `Cierre del turno - ${new Date().toLocaleTimeString('es-MX')}`,
-                top_products: data?.topProductos || [],
-                gastos_combustible: gastosCombustibleNum,
-                gastos_insumo_cocina: gastosInsumoCocinaNum,
-                gastos_insumo_limpieza: gastosInsumoLimpiezaNum,
+                top_products: data.topProductos || [],
+                gastos_combustible: roundCurrency(gastosCombustibleNum),
+                gastos_insumo_cocina: roundCurrency(gastosInsumoCocinaNum),
+                gastos_insumo_limpieza: roundCurrency(gastosInsumoLimpiezaNum),
                 total_gastos: totalGastos,
                 status: 'closed',
                 closed_at: new Date().toISOString()
             };
 
-            if (!activeSessionId) {
-                throw new Error('No se identificó la sesión activa. Por favor, cierra este panel y vuelve a abrirlo.');
-            }
-
             const legacyPayload = {
-                fecha_turno: `${data?.fechaTurno}${totalGastos > 0 ? ` | GASTOS: ${totalGastos.toFixed(2)}` : ''}`,
+                fecha_turno: `${data.fechaTurno}${totalGastos > 0 ? ` | GASTOS: ${totalGastos.toFixed(2)}` : ''}`,
                 cajero: cashierName,
                 total_ordenes: metrics.total_orders,
                 total_productos: metrics.total_products,
                 total_ventas: metrics.total_sales,
                 ventas_efectivo: metrics.ventas_efectivo,
                 ventas_tarjeta: metrics.ventas_tarjeta,
-                ventas_otro: data?.ventasOtro || 0,
-                ticket_promedio: data?.ticketPromedio || 0,
+                ventas_otro: data.ventasOtro || 0,
+                ticket_promedio: data.ticketPromedio || 0,
                 fondo_inicial: metrics.initial_fund,
                 efectivo_esperado: metrics.expected_cash,
                 efectivo_contado: metrics.final_cash,
@@ -184,21 +219,19 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
                 total_gastos: metrics.total_gastos
             };
 
-            const res = await Promise.race([
-                fetch('/api/cashier/sessions/close', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ activeSessionId, metrics, legacyPayload })
-                }),
-                new Promise<any>((_, rej) => setTimeout(() => rej(new Error('TIMEOUT_API_CLOSE')), 15000))
-            ]);
+            const res = await fetch('/api/cashier/sessions/close', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ activeSessionId, metrics, legacyPayload }),
+                signal: controller.signal
+            });
 
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
                 throw new Error(errData.error || 'Error en la respuesta del servidor al cerrar la sesión.');
             }
 
-            // 3. Limpiar cualquier basura de sessionStorage
+            // Limpiar borradores de sessionStorage
             try {
                 const keysToRemove: string[] = [];
                 for (let i = 0; i < sessionStorage.length; i++) {
@@ -208,17 +241,19 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
                     }
                 }
                 keysToRemove.forEach(k => sessionStorage.removeItem(k));
-            } catch (e) {
+            } catch {
                 // Ignore
             }
 
-
             setStep('done');
-            console.log('🏁 [Cierre] Proceso de cierre completado.');
-        } catch (error: any) {
-            console.error('🛑 [Cierre] Error catastrófico cerrando caja:', error);
-            setError(error.message || 'Error de conexión al cerrar la caja');
+        } catch (err: any) {
+            if (err?.name === 'AbortError') {
+                setError(timedOut ? 'El servidor tardó demasiado en responder al cerrar la caja. Intenta nuevamente.' : 'La operación fue cancelada.');
+            } else {
+                setError(err?.message || 'Error de conexión al cerrar la caja');
+            }
         } finally {
+            clearTimeout(timeoutId);
             setSaving(false);
         }
     };
@@ -226,6 +261,8 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
     const handlePrint = () => {
         if (!data) return;
 
+        const safeFechaTurno = escapeHtml(data.fechaTurno);
+        const safeCashierName = escapeHtml(cashierName.toUpperCase());
         const diferenciaLabel = diferencia === 0 ? '✓ CAJA CUADRADA' : diferencia > 0 ? '▲ SOBRANTE' : '▼ FALTANTE';
 
         const ticketBodyHtml = `
@@ -234,9 +271,9 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
   <div class="sub">Pizza &amp; Grill · Ometepec, Gro.</div>
   <div class="doc-title">CIERRE DE CAJA</div>
   <div class="meta">
-    Fecha: ${data.fechaTurno}<br/>
-    <div class="cashier-highlight">CAJERO: ${cashierName.toUpperCase()}</div>
-    <span style="font-size:8px">Impreso: ${new Date().toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+    Fecha: ${safeFechaTurno}<br/>
+    <div class="cashier-highlight">CAJERO: ${safeCashierName}</div>
+    <span style="font-size:8px">Impreso: ${escapeHtml(new Date().toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }))}</span>
   </div>
 </div>
 <hr class="double"/>
@@ -245,7 +282,7 @@ export default function CierreCajaModal({ cashierName, userId, onClose, onCloseS
 <div class="row"><span class="label">Productos</span><span class="value">${data.totalProductos}</span></div>
 <div class="row"><span class="label">Ticket Prom.</span><span class="value">$${data.ticketPromedio.toFixed(2)}</span></div>
 <hr class="dashed"/>
-${data.ordenesPorTipo.length > 0 ? `<div class="section">Canales</div>${data.ordenesPorTipo.map((t: any) => `<div class="row"><span class="label">${t.tipo}</span><span class="value">${t.count} - $${t.total.toFixed(0)}</span></div>`).join('')}<hr class="dashed"/>` : ''}
+${data.ordenesPorTipo.length > 0 ? `<div class="section">Canales</div>${data.ordenesPorTipo.map((t: any) => `<div class="row"><span class="label">${escapeHtml(t.tipo)}</span><span class="value">${t.count} - $${Number(t.total || 0).toFixed(0)}</span></div>`).join('')}<hr class="dashed"/>` : ''}
 <div class="section">Pagos</div>
 <div class="row"><span class="label">Efectivo</span><span class="value">$${data.ventasEfectivo.toFixed(2)}</span></div>
 <div class="row"><span class="label">Tarjeta</span><span class="value">$${data.ventasTarjeta.toFixed(2)}</span></div>
@@ -269,11 +306,11 @@ ${data.ordenesPorTipo.length > 0 ? `<div class="section">Canales</div>${data.ord
   <div class="diff-value">${diferencia >= 0 ? '+' : ''}$${diferencia.toFixed(2)}</div>
   <div class="diff-status">${diferenciaLabel}</div>
 </div>
-${data.topProductos.length > 0 ? `<div class="section">Top Ventas</div>${data.topProductos.slice(0, 5).map((p: any, i: number) => `<div class="prod-row"><span class="name">${i + 1}. ${p.name}</span><span class="qty">${p.qty}</span></div>`).join('')}` : ''}
+${data.topProductos.length > 0 ? `<div class="section">Top Ventas</div>${data.topProductos.slice(0, 5).map((p: any, i: number) => `<div class="prod-row"><span class="name">${i + 1}. ${escapeHtml(p.name)}</span><span class="qty">${p.qty}</span></div>`).join('')}` : ''}
 <hr class="double"/>
 <div class="footer">
   <div class="sign-line"></div>
-  <p>Firma Cajero: ${cashierName.toUpperCase()}</p>
+  <p>Firma Cajero: ${safeCashierName}</p>
   <p style="margin-top:4px;font-size:7px">Control Interno - Casaleña POS</p>
 </div>
         `;
@@ -283,7 +320,7 @@ ${data.topProductos.length > 0 ? `<div class="section">Top Ventas</div>${data.to
             ADD_ATTR: ['style', 'class', 'id', 'd', 'fill', 'stroke', 'width', 'height']
         });
 
-        const isElectron = typeof window !== 'undefined' && 
+        const isElectron = typeof window !== 'undefined' &&
                           ((window as any).electron?.isElectron || navigator.userAgent.toLowerCase().includes('electron'));
 
         const styles = `
@@ -320,13 +357,13 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
 @media print{body{width:58mm}}
         `;
 
-        const fullHtml = `
+        const buildFullHtml = (autoPrint: boolean) => `
           <html>
             <head>
               <title>Cierre de Caja — Casaleña</title>
               <style>${styles}</style>
             </head>
-            <body onload="window.print();">
+            <body${autoPrint ? ' onload="window.print();"' : ''}>
               <div style="width: 58mm; overflow: hidden;">
                 ${cleanTicketBody}
               </div>
@@ -335,9 +372,10 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
         `;
 
         if (isElectron && (window as any).electron?.printSilent) {
-            (window as any).electron.printSilent({ html: fullHtml })
+            (window as any).electron.printSilent({ html: buildFullHtml(false) })
                 .catch((err: any) => {
                     console.error('[Print] Error in silent print:', err);
+                    setError('No se pudo imprimir el ticket de cierre.');
                 });
             return;
         }
@@ -351,17 +389,21 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
         document.body.appendChild(iframe);
 
         const doc = iframe.contentWindow?.document;
-        if (doc) {
-            doc.open();
-            doc.write(fullHtml);
-            doc.close();
-            
-            // Clean up iframe after 10s
-            setTimeout(() => {
-                const f = document.getElementById('cierre-print-iframe');
-                if (f) f.remove();
-            }, 10000);
+        if (!doc) {
+            iframe.remove();
+            setError('No se pudo abrir la vista de impresión.');
+            return;
         }
+
+        doc.open();
+        doc.write(buildFullHtml(true));
+        doc.close();
+
+        // Clean up iframe after 10s
+        setTimeout(() => {
+            const f = document.getElementById('cierre-print-iframe');
+            if (f) f.remove();
+        }, 10000);
     };
 
     return (
@@ -729,6 +771,12 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                                 <h3 className="text-2xl font-black text-[#181511]">¡Turno Cerrado!</h3>
                                 <p className="text-[#8c785f] text-sm mt-2 font-bold">El cierre de caja fue registrado correctamente.</p>
                             </div>
+                            {error && (
+                                <div className="w-full bg-red-50 text-red-600 border border-red-200 rounded-xl p-3 text-sm font-bold flex items-center gap-2 text-left">
+                                    <span className="material-symbols-outlined">error</span>
+                                    <p>{error}</p>
+                                </div>
+                            )}
                             <div className="w-full bg-orange-50 border border-orange-200 rounded-2xl p-5 space-y-2 text-sm">
                                 <div className="flex justify-between"><span className="font-bold text-[#8c785f]">Total del día</span><span className="font-black text-[#F27405] text-lg">${data?.totalVentas.toFixed(2)}</span></div>
                                 <div className="flex justify-between"><span className="font-bold text-[#8c785f]">Diferencia de caja</span><span className={`font-black ${diferencia < 0 ? 'text-red-500' : 'text-green-600'}`}>{diferencia >= 0 ? '+' : ''}${diferencia.toFixed(2)}</span></div>
@@ -752,7 +800,10 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                     <div className="px-6 py-5 border-t border-[#f0ede9] flex gap-3">
                         {step !== 'summary' && (
                             <button
-                                onClick={() => setStep(step === 'confirm' ? 'gastos' : step === 'gastos' ? 'count' : 'summary')}
+                                onClick={() => {
+                                    setError(null);
+                                    setStep(step === 'confirm' ? 'gastos' : step === 'gastos' ? 'count' : 'summary');
+                                }}
                                 className="flex-1 py-3.5 rounded-2xl border border-gray-200 text-[#8c785f] font-black hover:bg-gray-50 transition-colors"
                             >
                                 ← Atrás
@@ -760,12 +811,13 @@ body{font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;width:58mm;max-wid
                         )}
                         <button
                             onClick={() => {
+                                setError(null);
                                 if (step === 'summary') setStep('count');
                                 else if (step === 'count') setStep('gastos');
                                 else if (step === 'gastos') setStep('confirm');
                                 else handleConfirmarCierre();
                             }}
-                            disabled={saving || loading}
+                            disabled={saving || loading || !data || (step === 'confirm' && !activeSessionId)}
                             className={`flex-1 py-3.5 rounded-2xl font-black shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2
                                 ${step === 'confirm' ? 'bg-green-600 text-white shadow-green-200 hover:bg-green-700' : 'bg-[#F27405] text-white shadow-orange-200 hover:bg-orange-600'}`}
                         >

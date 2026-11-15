@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useCallback } from 'react';
+import { mapOrderItemsToCart } from '@/utils/cashier/cart';
 
 // Si no tienes estos tipos exportados, usamos any o tipos básicos para simplificar
 export interface CashierSidebarProps {
@@ -20,11 +21,11 @@ export interface CashierSidebarProps {
     setPaymentMethod: (v: string) => void;
     customerInfo: any;
     setCustomerInfo: React.Dispatch<React.SetStateAction<any>>;
-    customerInsights: any;
-    handleSaveCustomer: (info: any) => void;
+    customerInsights?: any;
+    handleSaveCustomer?: (info: any) => void;
     setLoadingClients: (v: boolean) => void;
     setShowCustomerModal: (v: boolean) => void;
-    setAvailableClients: (v: any[]) => void;
+    setAvailableClients?: (v: any[]) => void;
     setFoundCustomers: (v: any[]) => void;
     foundCustomers?: any[];
     updateQuantity: (cartItemId: string, delta: number) => void;
@@ -39,6 +40,7 @@ export interface CashierSidebarProps {
     setShowPaymentModal: (v: boolean) => void;
     handlePlaceOrder: (isFinalPayment?: boolean, overridePaymentMethod?: string, skipPrinting?: boolean) => void;
     searchCustomerByTerm?: (term?: string) => Promise<void>;
+    onSelectOrder?: (order: any) => void;
 }
 
 export default function CashierSidebar({
@@ -46,11 +48,11 @@ export default function CashierSidebar({
     isCartDrawerOpen, setIsCartDrawerOpen, cart, setCart, isSyncing, isOnline, pendingCount,
     orderType, setOrderType, recentOrders, activeOrderId, setActiveOrderId,
     tableNumber, setTableNumber, setPaymentMethod, customerInfo, setCustomerInfo,
-    customerInsights, handleSaveCustomer, setLoadingClients, setShowCustomerModal,
+    setLoadingClients, setShowCustomerModal,
     setAvailableClients, setFoundCustomers, foundCustomers = [], updateQuantity, groupedProducts,
     openProductCustomizer, setShowOpenTabsModal, cartTotals, clearCart,
     isProcessingOrder, orderLoading, setOrderLoading, setShowPaymentModal, handlePlaceOrder,
-    searchCustomerByTerm
+    searchCustomerByTerm, onSelectOrder
 }: CashierSidebarProps) {
     // ── Auto-search phone with 2s debounce ──────────────────────────────
     const phoneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,17 +80,14 @@ export default function CashierSidebar({
 
         // Only search if 3+ characters and we haven't already searched this exact number
         if (phone.trim().length >= 3 && phone.trim() !== lastSearchedPhone.current) {
-            console.log(`📞 [CashierSidebar] Teléfono detectado (${phone.trim().length} caracteres): ${phone}. Buscando en 2 segundos...`);
             setShowDropdown(true);
 
             phoneDebounceRef.current = setTimeout(async () => {
-                console.log(`🔍 [CashierSidebar] Iniciando búsqueda automática para: ${phone}`);
                 lastSearchedPhone.current = phone.trim();
                 setIsAutoSearching(true);
                 try {
                     if (searchCustomerByTerm) {
                         await searchCustomerByTerm(phone.trim());
-                        console.log(`✅ [CashierSidebar] Búsqueda completada para: ${phone}`);
                     }
                 } catch (err) {
                     console.error('❌ [CashierSidebar] Error en búsqueda automática:', err);
@@ -110,6 +109,13 @@ export default function CashierSidebar({
             if (phoneDebounceRef.current) clearTimeout(phoneDebounceRef.current);
         };
     }, []);
+    const activeQueueOrders = recentOrders.filter(o =>
+        ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status)
+    );
+    const openUnpaidCount = recentOrders.filter(
+        o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status) && o.payment_status !== 'paid'
+    ).length;
+
     return (
         <aside className={`fixed lg:static inset-y-0 right-0 z-[80] lg:z-auto transition-transform duration-300 ease-out lg:translate-x-0 ${isCartDrawerOpen ? 'translate-x-0' : 'translate-x-full'} w-[340px] sm:w-[380px] xl:w-[400px] bg-white border-l border-[#e8e5e1] flex flex-col h-screen shrink-0 shadow-2xl lg:shadow-none overflow-hidden`}>
             <div className="p-3 border-b border-[#e8e5e1] relative bg-white">
@@ -159,20 +165,26 @@ export default function CashierSidebar({
                     </div>
                 </div>
 
-                {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status)).length > 0 && (
+                {activeQueueOrders.length > 0 && (
                     <div className="mb-2">
                         <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
-                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo', 'confirmado'].includes(o.status)).map(order => {
-                                const isSelected = activeOrderId === order.id || (order.table_number && tableNumber === order.table_number);
+                            {activeQueueOrders.map(order => {
+                                const isSelected =
+                                    activeOrderId === order.id ||
+                                    Boolean(order.table_number && tableNumber.trim() === String(order.table_number));
                                 return (
                                     <button 
                                         key={order.id}
                                         onClick={() => {
+                                            if (onSelectOrder) {
+                                                onSelectOrder(order);
+                                                return;
+                                            }
                                             setOrderType(order.order_type || 'dine-in');
-                                            setTableNumber(order.table_number || '');
+                                            setTableNumber(order.table_number ? String(order.table_number) : '');
                                             setActiveOrderId(order.id);
                                             setPaymentMethod(order.payment_method || 'efectivo');
-                                            
+
                                             if (order.order_type !== 'dine-in') {
                                                 setCustomerInfo({
                                                     name: order.customer_name || '',
@@ -184,25 +196,7 @@ export default function CashierSidebar({
                                                 });
                                             }
 
-                                            const loadedCart = (order.order_items || []).map((item: any) => ({
-                                                id: item.product_id ?? 0,
-                                                name: item.product_name,
-                                                price: item.unit_price,
-                                                quantity: item.quantity,
-                                                selectedSize: item.selected_size,
-                                                extras: (function() {
-                                                    if (!item.extras) return [];
-                                                    if (typeof item.extras === 'string') {
-                                                        try { return JSON.parse(item.extras); } catch(e) { return []; }
-                                                    }
-                                                    if (Array.isArray(item.extras)) return item.extras;
-                                                    return [];
-                                                })(),
-                                                note: item.notes || '',
-                                                cartItemId: Math.random().toString(36).substr(2, 9),
-                                                _originalProductId: item.product_id
-                                            }));
-                                            setCart(loadedCart);
+                                            setCart(mapOrderItemsToCart(order.order_items));
                                         }}
                                         className={`px-2 py-1 rounded-lg border text-[9px] font-black shrink-0 transition-all flex items-center gap-1 ${
                                             isSelected
@@ -246,7 +240,7 @@ export default function CashierSidebar({
                                     type="text"
                                     placeholder="Cliente"
                                     value={customerInfo.name || ''}
-                                    onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
+                                    onChange={(e) => setCustomerInfo((prev: any) => ({ ...prev, name: e.target.value }))}
                                     className="w-full text-[10px] font-bold text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
                                 />
                             </div>
@@ -263,7 +257,7 @@ export default function CashierSidebar({
                                     }}
                                     onChange={(e) => {
                                         const newPhone = e.target.value;
-                                        setCustomerInfo({ ...customerInfo, phone: newPhone });
+                                        setCustomerInfo((prev: any) => ({ ...prev, phone: newPhone }));
                                         handlePhoneAutoSearch(newPhone);
                                     }}
                                     className="w-full text-[10px] font-bold text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
@@ -288,7 +282,7 @@ export default function CashierSidebar({
                                                 address: c.address || '',
                                                 origin: c.is_app_user ? 'profile' : 'customer',
                                             }));
-                                            setAvailableClients(mapped);
+                                            setAvailableClients?.(mapped);
                                             setFoundCustomers(mapped);
                                         }
                                     } catch { /* ignore */ } finally {
@@ -307,7 +301,7 @@ export default function CashierSidebar({
                                     type="text"
                                     placeholder="Dirección completa..."
                                     value={customerInfo.address || ''}
-                                    onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
+                                    onChange={(e) => setCustomerInfo((prev: any) => ({ ...prev, address: e.target.value }))}
                                     className="w-full text-[10px] font-bold text-[#181511] outline-none placeholder:text-gray-300 bg-transparent"
                                 />
                             </div>
@@ -402,9 +396,9 @@ export default function CashierSidebar({
                         <span className="material-icons-round text-sm">receipt_long</span>
                         <span className="text-[9px] font-black uppercase">Cuentas Abiertas</span>
                     </div>
-                    {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').length > 0 && (
+                    {openUnpaidCount > 0 && (
                         <span className="bg-purple-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">
-                            {recentOrders.filter(o => ['pendiente', 'preparando', 'listo'].includes(o.status) && o.payment_status !== 'paid').length}
+                            {openUnpaidCount}
                         </span>
                     )}
                 </button>

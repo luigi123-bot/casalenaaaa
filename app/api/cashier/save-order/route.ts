@@ -1,47 +1,63 @@
 import { NextResponse } from "next/server";
-import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { validateApiAccess, handleServerError, requireSupabaseAdminConfig, supabaseAdmin } from "@/utils/supabase/server";
+import { upsertCustomerSafe } from "@/utils/cashier/customers";
+import { getMexicoDayStartISO } from "@/utils/timezone";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
+const optionalPositiveInt = z.preprocess(
+    (val) => (val === '' || val === undefined ? null : val),
+    z.coerce.number().int().positive().nullable().optional()
+);
+
 const orderItemSchema = z.object({
-    product_name: z.string(),
-    product_id: z.coerce.number().int().nonnegative().nullable().optional(),
+    product_name: z.string().min(1),
+    product_id: z.preprocess(
+        (val) => (val === '' || val === undefined ? null : val),
+        z.coerce.number().int().nonnegative().nullable().optional()
+    ),
     quantity: z.number().int().positive(),
     unit_price: z.number().nonnegative(),
     selected_size: z.string().nullable().optional(),
-    extras: z.array(z.any()).nullable().optional(),
+    extras: z.array(z.unknown()).nullable().optional(),
     notes: z.string().nullable().optional(),
-    total_price: z.number().nonnegative().nullable().optional()
+    total_price: z.number().nonnegative().nullable().optional(),
 });
 
 const orderSchema = z.object({
-    id: z.coerce.number().int().nullable().optional(),
+    id: optionalPositiveInt,
     customer_name: z.string().nullable().optional(),
     phone_number: z.string().nullable().optional(),
     order_type: z.enum(['local', 'takeout', 'delivery', 'dine-in', 'pickup']),
-    table_number: z.coerce.number().int().nullable().optional(),
+    table_number: z.preprocess(
+        (val) => (val === '' || val === undefined ? null : val),
+        z.coerce.number().int().nonnegative().nullable().optional()
+    ),
     delivery_address: z.string().nullable().optional(),
-    delivery_zone: z.string().nullable().optional(),
-    delivery_cost: z.number().nonnegative().optional().default(0),
     total_amount: z.number().nonnegative(),
+    tax_amount: z.number().nonnegative().optional().default(0),
     payment_method: z.string().optional().default('efectivo'),
     payment_status: z.enum(['pending', 'paid', 'partially_paid']).optional().default('pending'),
     status: z.enum(['pendiente', 'confirmado', 'preparando', 'listo', 'entregado', 'cancelado', 'completado', 'en_camino']).optional().default('pendiente'),
     user_id: z.string().uuid().nullable().optional(),
-    cashier_name: z.string().nullable().optional()
-}).passthrough();
+    cashier_name: z.string().nullable().optional(),
+    pago_con: z.number().nonnegative().nullable().optional(),
+    cambio: z.number().nonnegative().nullable().optional(),
+});
 
 const inputSchema = z.object({
     order: orderSchema,
-    items: z.array(orderItemSchema)
+    items: z.array(orderItemSchema).min(1),
 });
 
 export async function POST(req: Request) {
     try {
         const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
-        if (errorResponse) return errorResponse;
+        if (errorResponse || !user) return errorResponse;
 
+        const configError = requireSupabaseAdminConfig();
+        if (configError) return configError;
 
         const body = await req.json().catch(() => ({}));
         const parsed = inputSchema.safeParse(body);
@@ -51,73 +67,69 @@ export async function POST(req: Request) {
 
         const { order, items } = parsed.data;
 
-        // 1. GESTIÓN AUTOMÁTICA DE CLIENTE (Safe Save)
+        // 1. GESTIÓN AUTOMÁTICA DE CLIENTE (no crítica si falla)
         if ((order.order_type === 'delivery' || order.order_type === 'takeout') && order.phone_number) {
             try {
-                const phoneClean = order.phone_number.replace(/\D/g, '');
-                if (phoneClean.length >= 7) {
-                    // Check if customer exists by phone
-                    const { data: existingCustomer } = await supabaseAdmin
-                        .from('customers')
-                        .select('*')
-                        .eq('phone', phoneClean)
-                        .maybeSingle();
-
-                    if (existingCustomer) {
-                        const normExisting = (existingCustomer.full_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
-                        const normNew = (order.customer_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-                        const nameMatches = normExisting === normNew || normExisting === 'sin nombre' || normExisting === '';
-
-                        if (nameMatches) {
-                            // Update existing customer's details
-                            await supabaseAdmin
-                                .from('customers')
-                                .update({
-                                    full_name: order.customer_name || existingCustomer.full_name,
-                                    address: order.delivery_address || existingCustomer.address,
-                                    last_order_at: new Date().toISOString()
-                                })
-                                .eq('id', existingCustomer.id);
-                        } else {
-                            console.log(`⚠️ [SaveOrder API] Phone ${phoneClean} already belongs to '${existingCustomer.full_name}'. Skipping update to '${order.customer_name}' to avoid overwrite.`);
-                        }
-                    } else {
-                        // Insert new customer
-                        await supabaseAdmin
-                            .from('customers')
-                            .insert({
-                                phone: phoneClean,
-                                full_name: order.customer_name || 'Cliente Nuevo',
-                                address: order.delivery_address || '',
-                                last_order_at: new Date().toISOString()
-                            });
-                    }
-                }
-            } catch (err: any) {
-                console.error('[SaveOrder] ⚠️ Excepción al guardar cliente (no crítico):', err?.message);
+                await upsertCustomerSafe(supabaseAdmin, {
+                    phone: order.phone_number,
+                    fullName: order.customer_name,
+                    address: order.delivery_address,
+                    minDigits: 7,
+                });
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.error('[SaveOrder] ⚠️ Excepción al guardar cliente (no crítico):', msg);
             }
         }
 
-        // 2. GUARDAR LA ORDEN
-        let orderId = order.id;
+        // 2. CONSTRUIR PAYLOAD PERMITIDO PARA LA ORDEN
+        const resolvedUserId = order.user_id || user.id;
+        const nowISO = new Date().toISOString();
+
+        const baseOrderColumns = {
+            customer_name: order.customer_name ?? null,
+            phone_number: order.phone_number ?? null,
+            order_type: order.order_type,
+            table_number: order.table_number ?? null,
+            delivery_address: order.delivery_address ?? null,
+            total_amount: order.total_amount,
+            tax_amount: order.tax_amount,
+            payment_method: order.payment_method,
+            payment_status: order.payment_status,
+            status: order.status,
+            user_id: resolvedUserId,
+            cashier_name: order.cashier_name ?? null,
+            ...(order.pago_con !== undefined ? { pago_con: order.pago_con } : {}),
+            ...(order.cambio !== undefined ? { cambio: order.cambio } : {}),
+        };
+
+        let orderId = order.id ?? null;
         let createdOrder = null;
 
-        // Omitir columnas que podrían no existir en la base de datos de órdenes
-        const { delivery_cost, delivery_zone, ...orderPayloadToDb } = order;
-
-        // Asignar el user_id del cajero activo si no viene especificado en la orden
-        if (!orderPayloadToDb.user_id && user?.id) {
-            orderPayloadToDb.user_id = user.id;
-        }
+        const buildItemsPayload = (targetOrderId: number) =>
+            items.map((it) => ({
+                ...it,
+                total_price: it.total_price ?? it.quantity * it.unit_price,
+                order_id: targetOrderId,
+            }));
 
         if (orderId) {
-            // Actualizar orden existente
+            const { data: existingOrder, error: existingErr } = await supabaseAdmin
+                .from('orders')
+                .select('id')
+                .eq('id', orderId)
+                .maybeSingle();
+
+            if (existingErr) throw existingErr;
+            if (!existingOrder) {
+                return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 });
+            }
+
             const { data, error } = await supabaseAdmin
                 .from('orders')
                 .update({
-                    ...orderPayloadToDb,
-                    updated_at: new Date().toISOString()
+                    ...baseOrderColumns,
+                    updated_at: nowISO,
                 })
                 .eq('id', orderId)
                 .select()
@@ -126,28 +138,41 @@ export async function POST(req: Request) {
             if (error) throw error;
             createdOrder = data;
 
-            // Limpiar items anteriores para re-insertar
-            await supabaseAdmin.from('order_items').delete().eq('order_id', orderId);
-        } else {
-            // Nueva orden — número de ticket DIARIO
-            // ✅ Contador basado en el día actual en zona horaria de México (UTC-6 permanente).
-            // Desde 2023 México no tiene cambio de horario, por lo que UTC-6 es fijo.
-            // Esto garantiza que el contador se reinicia a las 12:00am hora local cada día,
-            // independientemente de cuántas sesiones de caja se abran durante el turno.
-            const now = new Date();
-            const mexicoDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
-            // Medianoche México (UTC-6) = 06:00 UTC del mismo día
-            const dayStartISO = new Date(mexicoDateStr + 'T06:00:00.000Z').toISOString();
+            // Respaldar items previos por si falla la inserción de los nuevos
+            const { data: previousItems } = await supabaseAdmin
+                .from('order_items')
+                .select('product_name, product_id, quantity, unit_price, selected_size, extras, notes, total_price')
+                .eq('order_id', orderId);
 
-            // ─── PROTECCIÓN ANTI-DUPLICADO (idempotencia) ────────────────────
-            // Si llegaron 2 requests idénticos en menos de 3 segundos (doble clic,
-            // React StrictMode doble render, etc.) devolver la orden existente.
+            const { error: deleteItemsErr } = await supabaseAdmin
+                .from('order_items')
+                .delete()
+                .eq('order_id', orderId);
+
+            if (deleteItemsErr) throw deleteItemsErr;
+
+            const { error: itemsError } = await supabaseAdmin
+                .from('order_items')
+                .insert(buildItemsPayload(orderId));
+
+            if (itemsError) {
+                if (previousItems && previousItems.length > 0) {
+                    await supabaseAdmin
+                        .from('order_items')
+                        .insert(previousItems.map((it) => ({ ...it, order_id: orderId })));
+                }
+                throw itemsError;
+            }
+        } else {
+            const dayStartISO = getMexicoDayStartISO();
+
+            // ─── PROTECCIÓN ANTI-DUPLICADO (idempotencia 3s) ────────────────
             const threeSecondsAgo = new Date(Date.now() - 3000).toISOString();
             const { data: recentDuplicate } = await supabaseAdmin
                 .from('orders')
                 .select('*')
-                .eq('user_id', orderPayloadToDb.user_id ?? '')
-                .eq('total_amount', orderPayloadToDb.total_amount)
+                .eq('user_id', resolvedUserId)
+                .eq('total_amount', baseOrderColumns.total_amount)
                 .gte('created_at', threeSecondsAgo)
                 .order('created_at', { ascending: false })
                 .limit(1)
@@ -157,18 +182,19 @@ export async function POST(req: Request) {
                 console.warn(`[SaveOrder] ⚠️ Posible duplicado detectado — devolviendo orden existente ID: ${recentDuplicate.id}`);
                 return NextResponse.json({ success: true, order: recentDuplicate, duplicate: true });
             }
-            // ─────────────────────────────────────────────────────────────────
 
-            const { data: todayOrders } = await supabaseAdmin
+            const { data: todayOrders, error: ticketErr } = await supabaseAdmin
                 .from('orders')
                 .select('ticket_number')
                 .gte('created_at', dayStartISO)
                 .not('ticket_number', 'is', null)
                 .order('ticket_number', { ascending: true });
 
+            if (ticketErr) throw ticketErr;
+
             let dailySequence = 1;
             if (todayOrders && todayOrders.length > 0) {
-                const usedNumbers = new Set(todayOrders.map(o => Number(o.ticket_number)));
+                const usedNumbers = new Set(todayOrders.map((o) => Number(o.ticket_number)));
                 while (usedNumbers.has(dailySequence)) {
                     dailySequence++;
                 }
@@ -177,10 +203,10 @@ export async function POST(req: Request) {
             const { data, error } = await supabaseAdmin
                 .from('orders')
                 .insert({
-                    ...orderPayloadToDb,
+                    ...baseOrderColumns,
                     ticket_number: dailySequence,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
+                    created_at: nowISO,
+                    updated_at: nowISO,
                 })
                 .select()
                 .single();
@@ -188,28 +214,23 @@ export async function POST(req: Request) {
             if (error) throw error;
             createdOrder = data;
             orderId = data.id;
+
+            // 3. GUARDAR ITEMS — si falla, revertir la orden recién creada para evitar órdenes huérfanas
+            const { error: itemsError } = await supabaseAdmin
+                .from('order_items')
+                .insert(buildItemsPayload(data.id));
+
+            if (itemsError) {
+                await supabaseAdmin.from('orders').delete().eq('id', data.id);
+                throw itemsError;
+            }
         }
-
-        // 3. GUARDAR ITEMS
-        const itemsWithOrderId = items.map((it: any) => ({
-            ...it,
-            order_id: orderId
-        }));
-
-        const { error: itemsError } = await supabaseAdmin
-            .from('order_items')
-            .insert(itemsWithOrderId);
-
-        if (itemsError) throw itemsError;
 
         return NextResponse.json({
             success: true,
-            order: createdOrder
+            order: createdOrder,
         });
-
-    } catch (error: any) {
-        console.error("🛑 [SaveOrder API Error]:", error);
-        return NextResponse.json({ error: error.message || error.details || String(error) }, { status: 500 });
+    } catch (error: unknown) {
+        return handleServerError(error, 'SaveOrder API Error');
     }
 }
-

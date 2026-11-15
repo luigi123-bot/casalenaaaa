@@ -1,23 +1,43 @@
 import { NextResponse } from "next/server";
-import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { validateApiAccess, handleServerError, requireSupabaseAdminConfig, supabaseAdmin } from "@/utils/supabase/server";
+import { formatMexicoDate, formatMexicoTime, getMexicoDayStartISO, getMexicoHour, roundCurrency } from "@/utils/timezone";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
 const querySchema = z.object({
     sessionId: z.string().uuid().optional(),
-    userId: z.string().uuid().nullable().optional()
+    userId: z.string().uuid().nullable().optional(),
 });
+
+interface OrderItemRow {
+    product_name?: string | null;
+    quantity?: number | null;
+}
+
+interface OrderRow {
+    id: number | string;
+    ticket_number?: number | null;
+    total_amount: number | string | null;
+    payment_method?: string | null;
+    order_type?: string | null;
+    status?: string | null;
+    created_at: string;
+    order_items?: OrderItemRow[] | null;
+}
 
 export async function GET(req: Request) {
     try {
         const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
         if (errorResponse || !user) return errorResponse;
 
+        const configError = requireSupabaseAdminConfig();
+        if (configError) return configError;
+
         const { searchParams } = new URL(req.url);
         const parsed = querySchema.safeParse({
             sessionId: searchParams.get('sessionId') || undefined,
-            userId: searchParams.get('userId') || null
+            userId: searchParams.get('userId') || null,
         });
 
         if (!parsed.success) {
@@ -27,11 +47,11 @@ export async function GET(req: Request) {
         const { sessionId } = parsed.data;
 
         // IDOR: cajero solo puede ver su propia sesión. Admin puede ver cualquiera.
-        const resolvedUserId = user.role === 'administrador'
+        let resolvedUserId = user.role === 'administrador'
             ? (parsed.data.userId || user.id)
             : user.id;
 
-        // ─── Obtener la sesión activa para conocer opened_at (inicio del turno) ────
+        // ─── Obtener la sesión activa para conocer opened_at y user_id ────
         let sessionOpenedAt: string | null = null;
         let sessionClosedAt: string | null = null;
 
@@ -40,39 +60,30 @@ export async function GET(req: Request) {
                 .from('cashier_sessions')
                 .select('id, opened_at, closed_at, user_id')
                 .eq('id', sessionId)
-                .single();
+                .maybeSingle();
 
-            if (sessErr || !session) {
+            if (sessErr) throw sessErr;
+
+            if (!session) {
                 return NextResponse.json({ error: 'Sesión no encontrada' }, { status: 404 });
             }
 
-            // Verificar que la sesión pertenece al usuario (anti-IDOR)
-            if (user.role !== 'administrador' && session.user_id !== resolvedUserId) {
+            if (user.role !== 'administrador' && session.user_id !== user.id) {
                 return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
             }
 
+            // Usar el dueño real de la sesión para evitar cruzar órdenes cuando un admin inspecciona otro turno
+            resolvedUserId = session.user_id;
             sessionOpenedAt = session.opened_at;
             sessionClosedAt = session.closed_at || null;
         }
 
         // ─── Filtro de tiempo ─────────────────────────────────────────────────────
-        // Si tenemos sessionId: filtrar desde el opened_at de esa sesión.
-        // Fallback: inicio del día en horario México (UTC-6).
         const now = new Date();
-        let filterStart: string;
+        const filterStart = sessionOpenedAt || getMexicoDayStartISO(now);
 
-        if (sessionOpenedAt) {
-            filterStart = sessionOpenedAt; // Solo las ventas de ESTE turno
-        } else {
-            const mxOffset = -6;
-            const mxNow = new Date(now.getTime() + mxOffset * 3600 * 1000);
-            const startOfDayMx = new Date(mxNow);
-            startOfDayMx.setUTCHours(0, 0, 0, 0);
-            filterStart = new Date(startOfDayMx.getTime() - mxOffset * 3600 * 1000).toISOString();
-        }
-
-        // ─── Query de órdenes ──────────────────────────────────────────────────────
-        // Filtrado estricto por user_id del cajero para evitar mezcla entre diferentes terminales/cajas.
+        // ─── Query de órdenes ─────────────────────────────────────────────────────
+        // Filtrado estricto por user_id del cajero para evitar mezcla entre terminales/cajas.
         let ordersQuery = supabaseAdmin
             .from('orders')
             .select('id, ticket_number, total_amount, payment_method, order_type, status, created_at, user_id, order_items(product_name, quantity)')
@@ -86,8 +97,6 @@ export async function GET(req: Request) {
 
         const { data: orders, error } = await ordersQuery;
 
-
-
         if (error) throw error;
 
         const summary = {
@@ -97,65 +106,71 @@ export async function GET(req: Request) {
             ventasTarjeta: 0,
             ventasOtro: 0,
             totalProductos: 0,
-            ordenesPorTipo: [] as any[],
-            topProductos: [] as any[],
+            ordenesPorTipo: [] as { tipo: string; count: number; total: number }[],
+            topProductos: [] as { name: string; qty: number }[],
             ticketPromedio: 0,
-            fechaTurno: now.toLocaleDateString('es-MX', { day: '2-digit', month: 'long' }),
-            ordenesList: [] as any[],
+            fechaTurno: formatMexicoDate(now),
+            ordenesList: [] as {
+                id: number | string;
+                ticket: number | null | undefined;
+                total: number;
+                metodo: string;
+                tipo: string | null | undefined;
+                status: string | null | undefined;
+                hora: string;
+            }[],
             canceladas: { count: 0, total: 0 },
-            ventasPorHora: Array(24).fill(0).map((_, i) => ({ hora: i, total: 0, count: 0 }))
+            ventasPorHora: Array.from({ length: 24 }, (_, i) => ({ hora: i, total: 0, count: 0 })),
         };
 
         const productMap: Record<string, number> = {};
-        const tipoMap: Record<string, { count: number, total: number }> = {};
+        const tipoMap: Record<string, { count: number; total: number }> = {};
 
-        orders?.forEach((order: any) => {
-            const total = parseFloat(order.total_amount) || 0;
-            const hour = new Date(order.created_at).getHours();
+        (orders as OrderRow[] | null)?.forEach((order) => {
+            const total = roundCurrency(Number(order.total_amount) || 0);
+            const createdAt = new Date(order.created_at);
+            const hour = getMexicoHour(createdAt);
 
-            if (order.status === 'cancelado') {
-                summary.canceladas.count += 1;
-                summary.canceladas.total += total;
-            } else {
-                summary.totalVentas += total;
-                summary.totalOrdenes += 1;
+            summary.totalVentas = roundCurrency(summary.totalVentas + total);
+            summary.totalOrdenes += 1;
 
-                summary.ventasPorHora[hour].total += total;
+            if (hour !== null) {
+                summary.ventasPorHora[hour].total = roundCurrency(summary.ventasPorHora[hour].total + total);
                 summary.ventasPorHora[hour].count += 1;
+            }
 
-                const rawMethod = (order.payment_method || '').toLowerCase().trim();
-                if (rawMethod.includes('efectivo') || rawMethod === 'cash') {
-                    summary.ventasEfectivo += total;
-                } else if (rawMethod.includes('tarjeta') || rawMethod === 'card') {
-                    summary.ventasTarjeta += total;
-                } else if (rawMethod.includes('transfer') || rawMethod.includes('transf')) {
-                    summary.ventasOtro += total;
-                } else {
-                    // Método no registrado o desconocido — no afecta el cuadre de efectivo
-                    summary.ventasOtro += total;
-                }
+            const rawMethod = (order.payment_method || '').toLowerCase().trim();
+            if (rawMethod.includes('efectivo') || rawMethod === 'cash') {
+                summary.ventasEfectivo = roundCurrency(summary.ventasEfectivo + total);
+            } else if (rawMethod.includes('tarjeta') || rawMethod === 'card') {
+                summary.ventasTarjeta = roundCurrency(summary.ventasTarjeta + total);
+            } else {
+                // Transferencia o método no registrado — no afecta el cuadre de efectivo
+                summary.ventasOtro = roundCurrency(summary.ventasOtro + total);
+            }
 
-                const tipo = order.order_type || 'comedor';
-                if (!tipoMap[tipo]) tipoMap[tipo] = { count: 0, total: 0 };
-                tipoMap[tipo].count += 1;
-                tipoMap[tipo].total += total;
+            const tipo = order.order_type || 'comedor';
+            if (!tipoMap[tipo]) tipoMap[tipo] = { count: 0, total: 0 };
+            tipoMap[tipo].count += 1;
+            tipoMap[tipo].total = roundCurrency(tipoMap[tipo].total + total);
 
-                (order.order_items as any[])?.forEach((item: any) => {
-                    const name = item.product_name || 'Producto';
-                    const qty = item.quantity || 1;
+            order.order_items?.forEach((item) => {
+                const name = item.product_name || 'Producto';
+                const qty = Number(item.quantity ?? 0);
+                if (qty > 0) {
                     productMap[name] = (productMap[name] || 0) + qty;
                     summary.totalProductos += qty;
-                });
-            }
+                }
+            });
 
             summary.ordenesList.push({
                 id: order.id,
                 ticket: order.ticket_number,
-                total: total,
+                total,
                 metodo: order.payment_method || 'N/A',
                 tipo: order.order_type,
                 status: order.status,
-                hora: new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+                hora: formatMexicoTime(createdAt),
             });
         });
 
@@ -168,12 +183,11 @@ export async function GET(req: Request) {
             .map(([tipo, v]) => ({ tipo, count: v.count, total: v.total }));
 
         summary.ticketPromedio = summary.totalOrdenes > 0
-            ? summary.totalVentas / summary.totalOrdenes : 0;
+            ? roundCurrency(summary.totalVentas / summary.totalOrdenes)
+            : 0;
 
         return NextResponse.json(summary);
-
-    } catch (error: any) {
+    } catch (error: unknown) {
         return handleServerError(error, 'Cashier Closure Summary Error');
     }
 }
-
