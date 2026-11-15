@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { validateApiAccess, handleServerError, requireSupabaseAdminConfig, supabaseAdmin } from "@/utils/supabase/server";
 import { z } from "zod";
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +12,9 @@ export async function GET(req: Request) {
     try {
         const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
         if (errorResponse) return errorResponse;
+
+        const configError = requireSupabaseAdminConfig();
+        if (configError) return configError;
 
         const { searchParams } = new URL(req.url);
         const parsed = querySchema.safeParse({

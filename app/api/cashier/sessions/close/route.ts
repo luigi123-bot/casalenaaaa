@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { validateApiAccess, handleServerError, requireSupabaseAdminConfig, supabaseAdmin } from "@/utils/supabase/server";
 import { z } from "zod";
 
 const closeSessionSchema = z.object({
@@ -37,6 +37,9 @@ export async function POST(req: Request) {
     try {
         const { errorResponse } = await validateApiAccess(['administrador', 'cajero']);
         if (errorResponse) return errorResponse;
+
+        const configError = requireSupabaseAdminConfig();
+        if (configError) return configError;
 
         const body = await req.json().catch(() => ({}));
         const parsed = closeSessionSchema.safeParse(body);

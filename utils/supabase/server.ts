@@ -5,6 +5,22 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // Centralized Supabase Admin Client for database operations requiring bypass of RLS or secure validation
 let _supabaseAdminInstance: SupabaseClient | null = null;
+let _missingServiceRoleWarned = false;
+
+export function isSupabaseAdminConfigured(): boolean {
+    return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+export function requireSupabaseAdminConfig(): NextResponse | null {
+    if (!isSupabaseAdminConfigured()) {
+        console.error('[SUPABASE-ADMIN] Missing SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_URL in server environment.');
+        return NextResponse.json(
+            { error: 'Configuración incompleta del servidor: falta la clave de servicio de Supabase.' },
+            { status: 500 }
+        );
+    }
+    return null;
+}
 
 export function getSupabaseAdmin(): SupabaseClient {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -12,6 +28,10 @@ export function getSupabaseAdmin(): SupabaseClient {
     
     if (!_supabaseAdminInstance || (_supabaseAdminInstance as any)._isPlaceholder) {
         const isPlaceholder = !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (isPlaceholder && !_missingServiceRoleWarned && process.env.NEXT_PHASE !== 'phase-production-build') {
+            _missingServiceRoleWarned = true;
+            console.error('[SUPABASE-ADMIN] SUPABASE_SERVICE_ROLE_KEY is missing; falling back to anon/placeholder key (RLS-protected operations will fail or return empty).');
+        }
         _supabaseAdminInstance = createClient(url, key, {
             auth: {
                 autoRefreshToken: false,

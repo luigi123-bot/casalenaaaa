@@ -1,10 +1,21 @@
 import { NextResponse } from "next/server";
-import { validateApiAccess, handleServerError, supabaseAdmin } from "@/utils/supabase/server";
+import { validateApiAccess, handleServerError, requireSupabaseAdminConfig, supabaseAdmin } from "@/utils/supabase/server";
 import { z } from "zod";
 
 const inputSchema = z.object({
-    cashier_name: z.string().min(1),
-    initial_fund: z.union([z.number(), z.string()]).transform(val => parseFloat(val as string) || 0).optional().default(0),
+    cashier_name: z.string().trim().min(1),
+    initial_fund: z
+        .union([z.number(), z.string()])
+        .transform(val => {
+            if (typeof val === 'number') return val;
+            const trimmed = val.trim();
+            return trimmed === '' ? 0 : parseFloat(trimmed);
+        })
+        .refine(val => Number.isFinite(val) && val >= 0, {
+            message: 'El fondo inicial debe ser mayor o igual a 0'
+        })
+        .optional()
+        .default(0),
     notes: z.string().optional().default('')
 });
 
@@ -12,6 +23,9 @@ export async function POST(req: Request) {
     try {
         const { errorResponse, user } = await validateApiAccess(['administrador', 'cajero']);
         if (errorResponse) return errorResponse;
+
+        const configError = requireSupabaseAdminConfig();
+        if (configError) return configError;
 
         const body = await req.json().catch(() => ({}));
         const parsed = inputSchema.safeParse(body);
@@ -25,9 +39,11 @@ export async function POST(req: Request) {
         // 1. Verificar si ya existe una sesión abierta para este usuario
         const { data: existingSession, error: checkError } = await supabaseAdmin
             .from('cashier_sessions')
-            .select('id')
+            .select('id, opened_at, initial_fund')
             .eq('user_id', resolvedUserId)
             .eq('status', 'open')
+            .order('opened_at', { ascending: false })
+            .limit(1)
             .maybeSingle();
         
         if (checkError) {
